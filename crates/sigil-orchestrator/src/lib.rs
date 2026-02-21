@@ -1,6 +1,7 @@
 pub mod convoy;
 pub mod cron;
 pub mod daemon;
+pub mod executor;
 pub mod heartbeat;
 pub mod hook;
 pub mod mail;
@@ -14,6 +15,7 @@ pub mod worker;
 pub use convoy::{Convoy, ConvoyStore};
 pub use cron::{CronJob, CronSchedule, CronStore};
 pub use daemon::Daemon;
+pub use executor::ClaudeCodeExecutor;
 pub use heartbeat::Heartbeat;
 pub use hook::Hook;
 pub use mail::{Mail, MailBus};

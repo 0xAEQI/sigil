@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use sigil_beads::BeadStore;
 use sigil_core::traits::{Channel, IncomingMessage, LogObserver, Memory, Observer, Provider, Tool};
-use sigil_core::{Agent, AgentConfig, Identity, SecretStore, SigilConfig};
+use sigil_core::{Agent, AgentConfig, ExecutionMode, Identity, SecretStore, SigilConfig};
 use sigil_memory::SqliteMemory;
 use sigil_channels::TelegramChannel;
 use sigil_orchestrator::{ConvoyStore, CronJob, CronSchedule, CronStore, Daemon, MailBus, Molecule, Rig, RigRegistry, Witness};
@@ -908,7 +908,26 @@ async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonAction) -> Resu
                 let workdir = rig.repo.clone();
                 let beads_dir = rig_dir.join(".beads");
                 let tools = build_rig_tools(&workdir, &beads_dir, &rig_cfg.prefix, Some(&rig.worktree_root));
-                let witness = Witness::new(&rig, provider.clone(), tools.clone(), mail_bus.clone());
+                let mut witness = Witness::new(&rig, provider.clone(), tools.clone(), mail_bus.clone());
+
+                // Configure execution mode for workers.
+                if rig_cfg.execution_mode == ExecutionMode::ClaudeCode {
+                    let cc_model = config.model_for_rig(&rig_cfg.name);
+                    let cc_max_turns = rig_cfg.max_turns.unwrap_or(25);
+                    witness.set_claude_code_mode(
+                        rig.repo.clone(),
+                        cc_model,
+                        cc_max_turns,
+                        rig_cfg.max_budget_usd,
+                    );
+                    info!(
+                        rig = %rig_cfg.name,
+                        model = %witness.model,
+                        max_turns = cc_max_turns,
+                        "registered with claude_code execution mode"
+                    );
+                }
+
                 registry.register_rig(rig.clone(), witness).await;
 
                 // Create heartbeat if HEARTBEAT.md exists and heartbeat is enabled.

@@ -31,6 +31,7 @@ default_interval_minutes = 30
 prefix = "fa"
 model = "minimax/minimax-m2.5"
 max_workers = 2
+execution_mode = "agent"          # lightweight, orchestration only
 
 [channels.telegram]
 token_secret = "TELEGRAM_BOT_TOKEN"
@@ -40,27 +41,32 @@ allowed_chats = []
 name = "sigil"
 prefix = "sg"
 repo = "/home/claudedev/sigil"
-model = "minimax/minimax-m2.5"
+model = "claude-sonnet-4-6"
 max_workers = 2
+execution_mode = "claude_code"    # full Claude Code harness
 
 [[rigs]]
 name = "algostaking"
 prefix = "as"
 repo = "/home/claudedev/algostaking-backend"
-model = "minimax/minimax-m2.5"
-max_workers = 4
+model = "claude-sonnet-4-6"
+max_workers = 3
 worktree_root = "/home/claudedev/worktrees"
+execution_mode = "claude_code"
+max_turns = 25
 
 [[rigs]]
 name = "riftdecks"
 prefix = "rd"
 repo = "/home/claudedev/riftdecks"
-model = "minimax/minimax-m2.5"
+model = "claude-sonnet-4-6"
 max_workers = 2
+execution_mode = "claude_code"
 
 [[rigs]]
 name = "entity-legal"
 prefix = "el"
 repo = "/home/claudedev/entity-legal"
-model = "minimax/minimax-m2.5"
+model = "claude-sonnet-4-6"
 max_workers = 2
+execution_mode = "claude_code"

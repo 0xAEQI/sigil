@@ -1,10 +1,12 @@
 use anyhow::Result;
 use sigil_beads::BeadStore;
+use sigil_core::config::ExecutionMode;
 use sigil_core::traits::{Provider, Tool};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::executor::ClaudeCodeExecutor;
 use crate::mail::{Mail, MailBus};
 use crate::rig::Rig;
 use crate::worker::{Worker, WorkerState};
@@ -18,10 +20,20 @@ pub struct Witness {
     pub patrol_interval_secs: u64,
     pub mail_bus: Arc<MailBus>,
     pub beads: Arc<Mutex<BeadStore>>,
+    /// Execution mode for this rig's workers.
+    pub execution_mode: ExecutionMode,
+    // Agent-mode fields (used when execution_mode == Agent).
     pub provider: Arc<dyn Provider>,
     pub tools: Vec<Arc<dyn Tool>>,
     pub model: String,
     pub identity: sigil_core::Identity,
+    // ClaudeCode-mode fields (used when execution_mode == ClaudeCode).
+    /// Rig's repo path for Claude Code working directory.
+    pub repo: Option<std::path::PathBuf>,
+    /// Max turns per Claude Code execution.
+    pub cc_max_turns: u32,
+    /// Max budget per Claude Code execution.
+    pub cc_max_budget_usd: Option<f64>,
 }
 
 impl Witness {
@@ -33,10 +45,62 @@ impl Witness {
             patrol_interval_secs: 60,
             mail_bus,
             beads: rig.beads.clone(),
+            execution_mode: ExecutionMode::Agent,
             provider,
             tools,
             model: rig.model.clone(),
             identity: rig.identity.clone(),
+            repo: None,
+            cc_max_turns: 25,
+            cc_max_budget_usd: None,
+        }
+    }
+
+    /// Set execution mode to Claude Code with rig-specific settings.
+    pub fn set_claude_code_mode(
+        &mut self,
+        repo: std::path::PathBuf,
+        model: String,
+        max_turns: u32,
+        max_budget_usd: Option<f64>,
+    ) {
+        self.execution_mode = ExecutionMode::ClaudeCode;
+        self.repo = Some(repo);
+        self.model = model;
+        self.cc_max_turns = max_turns;
+        self.cc_max_budget_usd = max_budget_usd;
+    }
+
+    /// Create a worker based on the rig's execution mode.
+    fn create_worker(&self, worker_name: String) -> Worker {
+        match self.execution_mode {
+            ExecutionMode::Agent => Worker::new(
+                worker_name,
+                self.rig_name.clone(),
+                self.provider.clone(),
+                self.tools.clone(),
+                self.identity.clone(),
+                self.model.clone(),
+                self.mail_bus.clone(),
+                self.beads.clone(),
+            ),
+            ExecutionMode::ClaudeCode => {
+                let workdir = self.repo.clone().unwrap_or_default();
+                let executor = ClaudeCodeExecutor::new(
+                    workdir,
+                    self.model.clone(),
+                    self.cc_max_turns,
+                    self.cc_max_budget_usd,
+                );
+                Worker::new_claude_code(
+                    worker_name,
+                    self.rig_name.clone(),
+                    executor,
+                    self.identity.clone(),
+                    self.mail_bus.clone(),
+                    self.beads.clone(),
+                )
+            }
         }
     }
 
@@ -71,20 +135,11 @@ impl Witness {
                 worker = %worker_name,
                 bead = %bead.id,
                 subject = %bead.subject,
+                mode = ?self.execution_mode,
                 "assigning work"
             );
 
-            let mut worker = Worker::new(
-                worker_name,
-                self.rig_name.clone(),
-                self.provider.clone(),
-                self.tools.clone(),
-                self.identity.clone(),
-                self.model.clone(),
-                self.mail_bus.clone(),
-                self.beads.clone(),
-            );
-
+            let mut worker = self.create_worker(worker_name);
             worker.assign(&bead);
             self.workers.push(worker);
         }

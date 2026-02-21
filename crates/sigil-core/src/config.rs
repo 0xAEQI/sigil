@@ -199,6 +199,8 @@ pub struct FamiliarConfig {
     pub model: Option<String>,
     #[serde(default = "default_fa_workers")]
     pub max_workers: u32,
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
 }
 
 impl Default for FamiliarConfig {
@@ -207,6 +209,7 @@ impl Default for FamiliarConfig {
             prefix: "fa".to_string(),
             model: None,
             max_workers: 2,
+            execution_mode: ExecutionMode::Agent,
         }
     }
 }
@@ -227,6 +230,17 @@ pub struct TelegramChannelConfig {
     pub allowed_chats: Vec<i64>,
 }
 
+/// How a rig's workers execute beads.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    /// Lightweight internal agent loop (for orchestration/triage).
+    #[default]
+    Agent,
+    /// Spawn Claude Code CLI instance (for real code work).
+    ClaudeCode,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RigConfig {
     pub name: String,
@@ -238,9 +252,18 @@ pub struct RigConfig {
     pub max_workers: u32,
     #[serde(default)]
     pub worktree_root: Option<String>,
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
+    /// Max agentic turns per Claude Code execution (default: 25).
+    #[serde(default = "default_max_turns")]
+    pub max_turns: Option<u32>,
+    /// Max budget in USD per Claude Code execution.
+    #[serde(default)]
+    pub max_budget_usd: Option<f64>,
 }
 
 fn default_max_workers() -> u32 { 2 }
+fn default_max_turns() -> Option<u32> { Some(25) }
 
 impl SigilConfig {
     /// Load config from a TOML file.
