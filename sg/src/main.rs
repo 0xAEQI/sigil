@@ -176,6 +176,11 @@ enum DaemonAction {
     Stop,
     /// Show daemon status.
     Status,
+    /// Query the running daemon via IPC socket.
+    Query {
+        /// Command to send (ping, status, rigs, mail).
+        cmd: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -894,12 +899,16 @@ async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonAction) -> Resu
             // Load cron store.
             let cron_path = config.data_dir().join("cron.json");
             let cron_store = CronStore::open(&cron_path)?;
+            let socket_path = config.data_dir().join("sg.sock");
+
             println!("Cron: {} jobs loaded", cron_store.jobs.len());
             println!("PID file: {}", pid_path.display());
+            println!("IPC socket: {}", socket_path.display());
             println!("Press Ctrl+C to stop.\n");
 
             let mut daemon = Daemon::new(familiar, mail_bus);
             daemon.set_pid_file(pid_path);
+            daemon.set_socket_path(socket_path.clone());
             daemon.set_cron_store(cron_store);
             for hb in heartbeats {
                 daemon.add_heartbeat(hb);
@@ -957,6 +966,38 @@ async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonAction) -> Resu
 
             // Also show rig summary.
             cmd_status(config_path).await?;
+        }
+
+        DaemonAction::Query { cmd } => {
+            let (config, _) = load_config(config_path)?;
+            let socket_path = config.data_dir().join("sg.sock");
+
+            if !socket_path.exists() {
+                anyhow::bail!("IPC socket not found: {}. Is the daemon running?", socket_path.display());
+            }
+
+            #[cfg(unix)]
+            {
+                use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+                let stream = tokio::net::UnixStream::connect(&socket_path).await
+                    .context(format!("failed to connect to IPC socket: {}", socket_path.display()))?;
+
+                let (reader, mut writer) = stream.into_split();
+                let request = serde_json::json!({"cmd": cmd});
+                let mut req_bytes = serde_json::to_vec(&request)?;
+                req_bytes.push(b'\n');
+                writer.write_all(&req_bytes).await?;
+
+                let mut lines = BufReader::new(reader).lines();
+                if let Some(line) = lines.next_line().await? {
+                    let response: serde_json::Value = serde_json::from_str(&line)?;
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                anyhow::bail!("IPC socket queries not supported on this platform");
+            }
         }
     }
     Ok(())
@@ -1307,7 +1348,7 @@ async fn cmd_convoy(config_path: &Option<PathBuf>, action: ConvoyAction) -> Resu
     Ok(())
 }
 
-async fn cmd_hook(config_path: &Option<PathBuf>, _worker: &str, bead_id: &str) -> Result<()> {
+async fn cmd_hook(config_path: &Option<PathBuf>, worker: &str, bead_id: &str) -> Result<()> {
     let (config, _) = load_config(config_path)?;
 
     // Determine rig from bead ID prefix and mark the bead as in_progress with the worker as assignee.
@@ -1320,10 +1361,10 @@ async fn cmd_hook(config_path: &Option<PathBuf>, _worker: &str, bead_id: &str) -
     let mut store = open_beads_for_rig(rig_name)?;
     let bead = store.update(bead_id, |b| {
         b.status = sigil_beads::BeadStatus::InProgress;
-        b.assignee = Some(_worker.to_string());
+        b.assignee = Some(worker.to_string());
     })?;
 
-    println!("Hooked {} to {} — {}", _worker, bead.id, bead.subject);
+    println!("Hooked {} to {} — {}", worker, bead.id, bead.subject);
     Ok(())
 }
 

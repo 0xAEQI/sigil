@@ -71,6 +71,31 @@ impl MailBus {
             .filter(|m| m.to == recipient && !m.read)
             .count()
     }
+
+    /// Total pending (unread) message count.
+    pub fn pending_count(&self) -> usize {
+        self.messages
+            .try_lock()
+            .map(|msgs| msgs.iter().filter(|m| !m.read).count())
+            .unwrap_or(0)
+    }
+
+    /// Drain all unread messages (marks them as read and returns them).
+    pub fn drain(&self) -> Vec<Mail> {
+        self.messages
+            .try_lock()
+            .map(|mut msgs| {
+                let mut result = Vec::new();
+                for msg in msgs.iter_mut() {
+                    if !msg.read {
+                        msg.read = true;
+                        result.push(msg.clone());
+                    }
+                }
+                result
+            })
+            .unwrap_or_default()
+    }
 }
 
 impl Default for MailBus {
