@@ -128,7 +128,7 @@ async fn cmd_run(
                 .openrouter
                 .as_ref()
                 .map(|or| or.default_model.clone())
-                .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".to_string())
+                .unwrap_or_else(|| "anthropic/claude-sonnet-4.6".to_string())
         });
 
     // Build provider.
@@ -223,7 +223,7 @@ data_dir = "~/.sigil"
 
 [providers.openrouter]
 api_key = "${OPENROUTER_API_KEY}"
-default_model = "anthropic/claude-sonnet-4-20250514"
+default_model = "anthropic/claude-sonnet-4.6"
 fallback_model = "anthropic/claude-haiku-4-5-20251001"
 
 [security]

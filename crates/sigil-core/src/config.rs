@@ -51,7 +51,7 @@ pub struct OpenRouterConfig {
 }
 
 fn default_openrouter_model() -> String {
-    "anthropic/claude-sonnet-4-20250514".to_string()
+    "anthropic/claude-sonnet-4.6".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,7 +288,7 @@ impl SigilConfig {
                     .as_ref()
                     .map(|or| or.default_model.clone())
             })
-            .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".to_string())
+            .unwrap_or_else(|| "anthropic/claude-sonnet-4.6".to_string())
     }
 
     /// Resolve the data directory path.

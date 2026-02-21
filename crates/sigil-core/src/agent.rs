@@ -25,7 +25,7 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            model: "anthropic/claude-sonnet-4-20250514".to_string(),
+            model: "anthropic/claude-sonnet-4.6".to_string(),
             max_iterations: 20,
             max_tokens: 4096,
             temperature: 0.0,
