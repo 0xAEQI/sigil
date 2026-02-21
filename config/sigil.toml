@@ -4,7 +4,7 @@ data_dir = "~/.sigil"
 
 [providers.openrouter]
 api_key = "${OPENROUTER_API_KEY}"
-default_model = "anthropic/claude-sonnet-4.6"
+default_model = "deepseek/deepseek-v3.2"
 fallback_model = "anthropic/claude-haiku-4.5"
 embedding_model = "openai/text-embedding-3-small"
 
@@ -31,7 +31,7 @@ default_interval_minutes = 30
 name = "algostaking"
 prefix = "as"
 repo = "/home/claudedev/algostaking-backend"
-model = "anthropic/claude-sonnet-4.6"
+model = "deepseek/deepseek-v3.2"
 max_workers = 4
 worktree_root = "/home/claudedev/worktrees"
 
@@ -39,12 +39,12 @@ worktree_root = "/home/claudedev/worktrees"
 name = "riftdecks"
 prefix = "rd"
 repo = "/home/claudedev/riftdecks"
-model = "anthropic/claude-haiku-4.5"
+model = "deepseek/deepseek-v3.2"
 max_workers = 2
 
 [[rigs]]
 name = "entity-legal"
 prefix = "el"
 repo = "/home/claudedev/entity-legal"
-model = "anthropic/claude-sonnet-4.6"
+model = "deepseek/deepseek-v3.2"
 max_workers = 2
