@@ -15,6 +15,8 @@ pub struct Identity {
     pub heartbeat: Option<String>,
     /// Persistent memories (MEMORY.md).
     pub memory: Option<String>,
+    /// Operational knowledge and learnings (KNOWLEDGE.md).
+    pub knowledge: Option<String>,
 }
 
 impl Identity {
@@ -26,6 +28,7 @@ impl Identity {
             agents: load_optional(rig_dir, "AGENTS.md")?,
             heartbeat: load_optional(rig_dir, "HEARTBEAT.md")?,
             memory: load_optional(rig_dir, "MEMORY.md")?,
+            knowledge: load_optional(rig_dir, "KNOWLEDGE.md")?,
         })
     }
 
@@ -43,6 +46,10 @@ impl Identity {
 
         if let Some(ref agents) = self.agents {
             parts.push(format!("# Operating Instructions\n\n{agents}"));
+        }
+
+        if let Some(ref knowledge) = self.knowledge {
+            parts.push(format!("# Operational Knowledge\n\n{knowledge}"));
         }
 
         if let Some(ref memory) = self.memory {
