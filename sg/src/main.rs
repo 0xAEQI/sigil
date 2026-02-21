@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use sigil_beads::BeadStore;
 use sigil_core::traits::{LogObserver, Memory, Observer, Provider, Tool};
 use sigil_core::{Agent, AgentConfig, Identity, SecretStore, SigilConfig};
 use sigil_memory::SqliteMemory;
-use sigil_orchestrator::{Daemon, Familiar, MailBus, Molecule, Rig, Witness};
+use sigil_orchestrator::{CronJob, CronSchedule, CronStore, Daemon, Familiar, MailBus, Molecule, Rig, Witness};
 use sigil_providers::OpenRouterProvider;
-use sigil_tools::{FileReadTool, FileWriteTool, ListDirTool, ShellTool};
+use sigil_tools::{FileReadTool, FileWriteTool, ListDirTool, ShellTool, Skill};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -45,7 +46,11 @@ enum Commands {
         action: SecretsAction,
     },
     /// Run diagnostics.
-    Doctor,
+    Doctor {
+        /// Auto-fix detected issues.
+        #[arg(long)]
+        fix: bool,
+    },
     /// Show system status.
     Status,
 
@@ -109,6 +114,20 @@ enum Commands {
         #[command(subcommand)]
         action: MolAction,
     },
+
+    // --- Phase 6: Cron ---
+    /// Manage scheduled cron jobs.
+    Cron {
+        #[command(subcommand)]
+        action: CronAction,
+    },
+
+    // --- Phase 7: Skills ---
+    /// List or run skills.
+    Skill {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -125,6 +144,45 @@ enum DaemonAction {
     Start,
     /// Show daemon status.
     Status,
+}
+
+#[derive(Subcommand)]
+enum CronAction {
+    /// Add a scheduled job.
+    Add {
+        name: String,
+        #[arg(short, long)]
+        schedule: Option<String>,
+        #[arg(long)]
+        at: Option<String>,
+        #[arg(short, long)]
+        rig: String,
+        #[arg(short, long)]
+        prompt: String,
+        #[arg(long)]
+        isolated: bool,
+    },
+    /// List all cron jobs.
+    List,
+    /// Remove a cron job.
+    Remove { name: String },
+}
+
+#[derive(Subcommand)]
+enum SkillAction {
+    /// List available skills for a rig.
+    List {
+        #[arg(short, long)]
+        rig: Option<String>,
+    },
+    /// Run a skill by name.
+    Run {
+        name: String,
+        #[arg(short, long)]
+        rig: String,
+        /// Additional user prompt appended after the skill's user_prefix.
+        prompt: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -167,7 +225,7 @@ async fn main() -> Result<()> {
         }
         Commands::Init => cmd_init().await,
         Commands::Secrets { action } => cmd_secrets(&cli.config, action).await,
-        Commands::Doctor => cmd_doctor(&cli.config).await,
+        Commands::Doctor { fix } => cmd_doctor(&cli.config, fix).await,
         Commands::Status => cmd_status(&cli.config).await,
         Commands::Assign { subject, rig, description, priority } => {
             cmd_assign(&cli.config, &subject, &rig, &description, priority.as_deref()).await
@@ -183,6 +241,8 @@ async fn main() -> Result<()> {
             cmd_remember(&cli.config, &key, &content, rig.as_deref()).await
         }
         Commands::Mol { action } => cmd_mol(&cli.config, action).await,
+        Commands::Cron { action } => cmd_cron(&cli.config, action).await,
+        Commands::Skill { action } => cmd_skill(&cli.config, action).await,
     }
 }
 
@@ -386,8 +446,11 @@ async fn cmd_secrets(config_path: &Option<PathBuf>, action: SecretsAction) -> Re
     Ok(())
 }
 
-async fn cmd_doctor(config_path: &Option<PathBuf>) -> Result<()> {
-    println!("Sigil Doctor\n============\n");
+async fn cmd_doctor(config_path: &Option<PathBuf>, fix: bool) -> Result<()> {
+    println!("Sigil Doctor{}\n============\n", if fix { " (--fix)" } else { "" });
+
+    let mut issues = 0u32;
+    let mut fixed = 0u32;
 
     match load_config(config_path) {
         Ok((config, path)) => {
@@ -396,11 +459,12 @@ async fn cmd_doctor(config_path: &Option<PathBuf>) -> Result<()> {
             if let Some(ref or) = config.providers.openrouter {
                 if or.api_key.is_empty() {
                     println!("[WARN] OpenRouter API key not set");
+                    issues += 1;
                 } else {
                     let provider = OpenRouterProvider::new(or.api_key.clone(), or.default_model.clone());
                     match provider.health_check().await {
                         Ok(()) => println!("[OK] OpenRouter API key valid"),
-                        Err(e) => println!("[FAIL] OpenRouter: {e}"),
+                        Err(e) => { println!("[FAIL] OpenRouter: {e}"); issues += 1; }
                     }
                 }
             }
@@ -408,34 +472,111 @@ async fn cmd_doctor(config_path: &Option<PathBuf>) -> Result<()> {
             for rig in &config.rigs {
                 let repo_ok = PathBuf::from(&rig.repo).exists();
                 println!("[{}] Rig '{}' repo: {}", if repo_ok { "OK" } else { "WARN" }, rig.name, rig.repo);
+                if !repo_ok { issues += 1; }
 
                 match find_rig_dir(&rig.name) {
                     Ok(d) => {
                         let soul = d.join("SOUL.md").exists();
                         let ident = d.join("IDENTITY.md").exists();
-                        let beads = d.join(".beads").exists();
+                        let beads_dir = d.join(".beads");
+                        let beads = beads_dir.exists();
+                        if !soul { issues += 1; }
+                        if !ident { issues += 1; }
                         println!("    Identity: SOUL={soul} IDENTITY={ident} | Beads: {beads}");
+
+                        // --fix: create missing .beads dir
+                        if fix && !beads {
+                            std::fs::create_dir_all(&beads_dir)?;
+                            println!("    [FIXED] Created .beads directory");
+                            fixed += 1;
+                        }
+
+                        // Check skills directory
+                        let skills_dir = d.join("skills");
+                        let skill_count = if skills_dir.exists() {
+                            Skill::discover(&skills_dir).map(|s| s.len()).unwrap_or(0)
+                        } else { 0 };
+                        println!("    Skills: {skill_count} | Molecules: {}",
+                            d.join("molecules").exists().then(|| {
+                                std::fs::read_dir(d.join("molecules"))
+                                    .map(|e| e.filter(|e| e.as_ref().ok()
+                                        .map(|e| e.path().extension().is_some_and(|x| x == "toml"))
+                                        .unwrap_or(false)).count())
+                                    .unwrap_or(0)
+                            }).unwrap_or(0));
+
+                        // Check memory DB
+                        let mem_db = d.join(".sigil").join("memory.db");
+                        if mem_db.exists() {
+                            println!("    Memory: {}", mem_db.display());
+                        }
                     }
-                    Err(_) => println!("    [WARN] Rig dir not found"),
+                    Err(_) => {
+                        println!("    [WARN] Rig dir not found");
+                        issues += 1;
+                    }
                 }
             }
 
             let store_path = config.security.secret_store.as_ref()
                 .map(PathBuf::from)
                 .unwrap_or_else(|| config.data_dir().join("secrets"));
-            println!("[{}] Secret store: {}", if store_path.exists() { "OK" } else { "WARN" }, store_path.display());
+            if store_path.exists() {
+                println!("[OK] Secret store: {}", store_path.display());
+            } else {
+                issues += 1;
+                if fix {
+                    std::fs::create_dir_all(&store_path)?;
+                    println!("[FIXED] Created secret store: {}", store_path.display());
+                    fixed += 1;
+                } else {
+                    println!("[WARN] Secret store missing: {}", store_path.display());
+                }
+            }
 
-            // Check memory DB.
+            // Check global memory DB.
             let mem_path = config.data_dir().join("memory.db");
-            println!("[{}] Memory DB: {}", if mem_path.exists() { "OK" } else { "INFO" }, mem_path.display());
+            println!("[{}] Global memory: {}", if mem_path.exists() { "OK" } else { "INFO" }, mem_path.display());
+
+            // Check cron store.
+            let cron_path = config.data_dir().join("cron.json");
+            if cron_path.exists() {
+                let store = CronStore::open(&cron_path)?;
+                println!("[OK] Cron: {} jobs", store.jobs.len());
+            } else {
+                println!("[INFO] Cron: no jobs configured");
+            }
+
+            // Check data dir
+            let data_dir = config.data_dir();
+            if data_dir.exists() {
+                println!("[OK] Data dir: {}", data_dir.display());
+            } else {
+                issues += 1;
+                if fix {
+                    std::fs::create_dir_all(&data_dir)?;
+                    println!("[FIXED] Created data dir: {}", data_dir.display());
+                    fixed += 1;
+                } else {
+                    println!("[WARN] Data dir missing: {}", data_dir.display());
+                }
+            }
         }
         Err(e) => {
             println!("[FAIL] Config: {e}");
             println!("       Run `sg init` to create one.");
+            issues += 1;
         }
     }
 
-    println!("\nDone.");
+    println!();
+    if issues == 0 {
+        println!("All checks passed.");
+    } else if fix {
+        println!("{issues} issues found, {fixed} fixed.");
+    } else {
+        println!("{issues} issues found. Run `sg doctor --fix` to auto-repair.");
+    }
     Ok(())
 }
 
@@ -753,6 +894,159 @@ async fn cmd_mol(config_path: &Option<PathBuf>, action: MolAction) -> Result<()>
             } else {
                 println!("Bead not found: {id}");
             }
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_cron(config_path: &Option<PathBuf>, action: CronAction) -> Result<()> {
+    let (config, _) = load_config(config_path)?;
+    let cron_path = config.data_dir().join("cron.json");
+
+    match action {
+        CronAction::Add { name, schedule, at, rig, prompt, isolated } => {
+            config.rig(&rig).context(format!("rig not found: {rig}"))?;
+
+            let cron_schedule = if let Some(at_str) = at {
+                let dt = at_str.parse::<DateTime<Utc>>()
+                    .or_else(|_| {
+                        chrono::NaiveDateTime::parse_from_str(&at_str, "%Y-%m-%dT%H:%M:%S")
+                            .map(|ndt| ndt.and_utc())
+                    })
+                    .context(format!("invalid datetime: {at_str} (use ISO 8601, e.g. 2026-02-22T15:00:00Z)"))?;
+                CronSchedule::Once { at: dt }
+            } else if let Some(expr) = schedule {
+                CronSchedule::Cron { expr }
+            } else {
+                anyhow::bail!("specify --schedule \"0 9 * * *\" or --at \"2026-02-22T15:00:00Z\"");
+            };
+
+            let job = CronJob {
+                name: name.clone(),
+                schedule: cron_schedule,
+                rig,
+                prompt,
+                isolated,
+                created_at: Utc::now(),
+                last_run: None,
+            };
+
+            let mut store = CronStore::open(&cron_path)?;
+            store.add(job)?;
+            println!("Cron job '{name}' added.");
+        }
+
+        CronAction::List => {
+            let store = CronStore::open(&cron_path)?;
+            if store.jobs.is_empty() {
+                println!("No cron jobs.");
+            } else {
+                for job in &store.jobs {
+                    let sched = match &job.schedule {
+                        CronSchedule::Cron { expr } => format!("cron: {expr}"),
+                        CronSchedule::Once { at } => format!("once: {at}"),
+                    };
+                    let last = job.last_run.map(|t| t.to_string()).unwrap_or_else(|| "never".to_string());
+                    let iso = if job.isolated { " [isolated]" } else { "" };
+                    println!("  {} — rig={} {} last_run={}{}", job.name, job.rig, sched, last, iso);
+                }
+            }
+        }
+
+        CronAction::Remove { name } => {
+            let mut store = CronStore::open(&cron_path)?;
+            store.remove(&name)?;
+            println!("Cron job '{name}' removed.");
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_skill(config_path: &Option<PathBuf>, action: SkillAction) -> Result<()> {
+    let (config, _) = load_config(config_path)?;
+
+    match action {
+        SkillAction::List { rig } => {
+            let rigs: Vec<&str> = if let Some(ref name) = rig {
+                vec![name.as_str()]
+            } else {
+                config.rigs.iter().map(|r| r.name.as_str()).collect()
+            };
+
+            for name in rigs {
+                if let Ok(rig_dir) = find_rig_dir(name) {
+                    let skills_dir = rig_dir.join("skills");
+                    let skills = Skill::discover(&skills_dir)?;
+                    if !skills.is_empty() {
+                        println!("=== {} ===", name);
+                        for skill in &skills {
+                            let triggers = if skill.skill.triggers.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" (triggers: {})", skill.skill.triggers.join(", "))
+                            };
+                            let tools = if skill.tools.allow.is_empty() {
+                                "all".to_string()
+                            } else {
+                                skill.tools.allow.join(", ")
+                            };
+                            println!("  {} — {} [tools: {}]{}", skill.skill.name, skill.skill.description, tools, triggers);
+                        }
+                    }
+                }
+            }
+        }
+
+        SkillAction::Run { name, rig, prompt } => {
+            let rig_cfg = config.rig(&rig).context(format!("rig not found: {rig}"))?;
+            let rig_dir = find_rig_dir(&rig)?;
+            let skills_dir = rig_dir.join("skills");
+            let skills = Skill::discover(&skills_dir)?;
+
+            let skill = skills.iter()
+                .find(|s| s.skill.name == name)
+                .context(format!("skill not found: {name}"))?;
+
+            // Build provider.
+            let provider = build_provider(&config)?;
+            let workdir = PathBuf::from(&rig_cfg.repo);
+            let all_tools = build_tools(&workdir);
+
+            // Filter tools by skill policy.
+            let filtered_tools: Vec<Arc<dyn Tool>> = all_tools.into_iter()
+                .filter(|t| skill.is_tool_allowed(t.name()))
+                .collect();
+
+            // Build identity with skill system prompt.
+            let identity = Identity::load(&rig_dir).unwrap_or_default();
+            let base_prompt = identity.system_prompt();
+
+            let mut skill_identity = identity.clone();
+            // Override the system prompt to include skill instructions.
+            skill_identity.soul = Some(skill.system_prompt(&base_prompt));
+
+            let user_prompt = if let Some(ref p) = prompt {
+                format!("{}{}", skill.prompt.user_prefix, p)
+            } else {
+                skill.prompt.user_prefix.clone()
+            };
+
+            let observer: Arc<dyn Observer> = Arc::new(LogObserver);
+            let model = rig_cfg.model.clone()
+                .unwrap_or_else(|| config.providers.openrouter.as_ref()
+                    .map(|or| or.default_model.clone())
+                    .unwrap_or_else(|| "minimax/minimax-m2.5".to_string()));
+
+            let agent_config = AgentConfig {
+                model,
+                max_iterations: 10,
+                name: format!("{}-skill-{}", rig, name),
+                ..Default::default()
+            };
+
+            let agent = Agent::new(agent_config, provider, filtered_tools, observer, skill_identity);
+            let result = agent.run(&user_prompt).await?;
+            println!("{result}");
         }
     }
     Ok(())

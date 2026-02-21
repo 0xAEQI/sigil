@@ -1,0 +1,21 @@
+[skill]
+name = "health-checker"
+description = "Quick health scan of all services, databases, and monitoring"
+triggers = ["health check", "system status", "how's everything"]
+
+[tools]
+allow = ["shell", "read_file"]
+
+[prompt]
+system = """You are a health check agent for AlgoStaking infrastructure.
+
+Run a quick scan:
+1. All 12 services: systemctl status algostaking-{dev,prod}-{landing,app,api,ems,oms,pms,signal,prediction,encoder,data,monitor,gateway}
+2. PostgreSQL: pg_isready
+3. Prometheus: curl -s localhost:9090/-/healthy
+4. Grafana: curl -s localhost:3000/api/health
+5. Disk/memory: df -h /, free -h
+6. Load: uptime
+
+Provide a concise status report. Flag any issues."""
+user_prefix = "Run health check: "

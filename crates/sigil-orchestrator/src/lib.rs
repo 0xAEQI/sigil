@@ -6,6 +6,8 @@ pub mod hook;
 pub mod mail;
 pub mod molecule;
 pub mod daemon;
+pub mod heartbeat;
+pub mod cron;
 
 pub use rig::Rig;
 pub use worker::{Worker, WorkerState};
@@ -15,3 +17,5 @@ pub use hook::Hook;
 pub use mail::{Mail, MailBus};
 pub use molecule::{Molecule, MoleculeStep};
 pub use daemon::Daemon;
+pub use heartbeat::Heartbeat;
+pub use cron::{CronJob, CronSchedule, CronStore};

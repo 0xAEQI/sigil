@@ -1694,6 +1694,7 @@ dependencies = [
  "sigil-core",
  "thiserror",
  "tokio",
+ "toml",
  "tracing",
  "uuid",
 ]
