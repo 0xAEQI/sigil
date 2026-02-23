@@ -1,31 +1,34 @@
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 fn resolve_claude_binary() -> String {
-    if let Ok(path) = std::process::Command::new("which")
-        .arg("claude")
-        .output()
-    {
-        let s = String::from_utf8_lossy(&path.stdout).trim().to_string();
-        if !s.is_empty() {
-            return s;
+    static CACHED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CACHED.get_or_init(|| {
+        if let Ok(path) = std::process::Command::new("which")
+            .arg("claude")
+            .output()
+        {
+            let s = String::from_utf8_lossy(&path.stdout).trim().to_string();
+            if !s.is_empty() {
+                return s;
+            }
         }
-    }
-    for candidate in [
-        dirs::home_dir()
-            .map(|h| h.join(".local/bin/claude"))
-            .unwrap_or_default(),
-        PathBuf::from("/usr/local/bin/claude"),
-        PathBuf::from("/usr/bin/claude"),
-    ] {
-        if candidate.exists() {
-            return candidate.to_string_lossy().into_owned();
+        for candidate in [
+            dirs::home_dir()
+                .map(|h| h.join(".local/bin/claude"))
+                .unwrap_or_default(),
+            PathBuf::from("/usr/local/bin/claude"),
+            PathBuf::from("/usr/bin/claude"),
+        ] {
+            if candidate.exists() {
+                return candidate.to_string_lossy().into_owned();
+            }
         }
-    }
-    "claude".to_string()
+        "claude".to_string()
+    }).clone()
 }
 
 const MAX_RETRIES: u32 = 3;
@@ -78,6 +81,24 @@ If the task fails due to a build error, test failure, or infrastructure issue yo
 - Start your response with exactly: FAILED:
 - Include the error output and what you tried
 
+### Handoff — Context Exhaustion
+If you are running low on context (many tool calls, large codebase exploration) and the task
+is not yet complete but you have made meaningful progress:
+- Start your response with exactly: HANDOFF:
+- Summarize what you have completed so far
+- List what remains to be done
+- Include any key findings, file paths, or state a successor would need
+- A fresh spirit will pick up from your checkpoint
+
+Example:
+```
+HANDOFF:
+Completed: Implemented the debounce buffer in realm-gates/src/telegram.rs (lines 45-120).
+Added BufferedMsg struct and timer logic. Tests written in tests/debounce.rs.
+Remaining: Wire the buffer into the summoner's message dispatch loop in rm/src/main.rs.
+The integration point is around line 1168 where rx.recv() is called.
+```
+
 ### Sub-Agents
 You have full access to Claude Code's Task tool for spawning sub-agents. Use them freely:
 - Explore agents for parallel codebase research
@@ -127,6 +148,11 @@ impl ClaudeCodeExecutor {
             max_turns,
             max_budget_usd,
         }
+    }
+
+    /// Get the working directory for this executor.
+    pub fn workdir(&self) -> &Path {
+        &self.workdir
     }
 
     /// Execute a bead via Claude Code CLI with retry on transient failures.
@@ -291,6 +317,11 @@ pub enum QuestOutcome {
         /// Full result text including work done so far.
         full_text: String,
     },
+    /// Spirit hit context exhaustion but made progress. Re-queue with checkpoint.
+    Handoff {
+        /// Summary of progress made and what remains.
+        checkpoint: String,
+    },
     /// Task failed due to a technical error.
     Failed(String),
 }
@@ -336,6 +367,13 @@ impl QuestOutcome {
                 question,
                 full_text: result_text.to_string(),
             }
+        } else if first_line.starts_with("HANDOFF:") {
+            let checkpoint = trimmed
+                .strip_prefix("HANDOFF:")
+                .unwrap_or(trimmed)
+                .trim()
+                .to_string();
+            Self::Handoff { checkpoint }
         } else if first_line.starts_with("FAILED:") {
             Self::Failed(result_text.to_string())
         } else {
@@ -397,5 +435,18 @@ mod tests {
     fn test_worker_outcome_failed() {
         let outcome = QuestOutcome::parse("FAILED:\ncargo build returned 3 errors in pms/src/main.rs");
         assert!(matches!(outcome, QuestOutcome::Failed(_)));
+    }
+
+    #[test]
+    fn test_worker_outcome_handoff() {
+        let text = "HANDOFF:\nCompleted: Implemented debounce buffer.\nRemaining: Wire into summoner dispatch loop.";
+        let outcome = QuestOutcome::parse(text);
+        match outcome {
+            QuestOutcome::Handoff { checkpoint } => {
+                assert!(checkpoint.contains("Completed: Implemented debounce buffer"));
+                assert!(checkpoint.contains("Remaining:"));
+            }
+            _ => panic!("expected Handoff"),
+        }
     }
 }

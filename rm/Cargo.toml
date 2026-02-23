@@ -1,0 +1,27 @@
+[package]
+name = "rm"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rm"
+path = "src/main.rs"
+
+[dependencies]
+realm-core = { workspace = true }
+realm-quests = { workspace = true }
+realm-providers = { workspace = true }
+realm-tools = { workspace = true }
+realm-orchestrator = { workspace = true }
+realm-gates = { workspace = true }
+realm-memory = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+reqwest = { workspace = true }

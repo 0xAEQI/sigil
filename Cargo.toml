@@ -1,14 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "sg",
-    "crates/sigil-core",
-    "crates/sigil-beads",
-    "crates/sigil-providers",
-    "crates/sigil-tools",
-    "crates/sigil-orchestrator",
-    "crates/sigil-memory",
-    "crates/sigil-channels",
+    "rm",
+    "crates/realm-core",
+    "crates/realm-quests",
+    "crates/realm-providers",
+    "crates/realm-tools",
+    "crates/realm-orchestrator",
+    "crates/realm-memory",
+    "crates/realm-gates",
 ]
 
 [workspace.package]
@@ -47,6 +47,7 @@ async-trait = "0.1"
 chacha20poly1305 = "0.10"
 rand = "0.9"
 base64 = "0.22"
+sha2 = "0.10"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -68,13 +69,13 @@ futures = "0.3"
 tempfile = "3"
 
 # Internal crates
-sigil-beads = { path = "crates/sigil-beads" }
-sigil-core = { path = "crates/sigil-core" }
-sigil-providers = { path = "crates/sigil-providers" }
-sigil-tools = { path = "crates/sigil-tools" }
-sigil-orchestrator = { path = "crates/sigil-orchestrator" }
-sigil-memory = { path = "crates/sigil-memory" }
-sigil-channels = { path = "crates/sigil-channels" }
+realm-quests = { path = "crates/realm-quests" }
+realm-core = { path = "crates/realm-core" }
+realm-providers = { path = "crates/realm-providers" }
+realm-tools = { path = "crates/realm-tools" }
+realm-orchestrator = { path = "crates/realm-orchestrator" }
+realm-memory = { path = "crates/realm-memory" }
+realm-gates = { path = "crates/realm-gates" }
 
 [profile.release]
 lto = true
