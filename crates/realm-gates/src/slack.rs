@@ -59,12 +59,16 @@ impl Channel for SlackChannel {
 
         tokio::spawn(async move {
             let mut last_ts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut backoff_secs: u64 = 5;
+            const MAX_BACKOFF_SECS: u64 = 60;
             info!("Slack polling started");
 
             loop {
                 if *shutdown_rx.borrow() {
                     break;
                 }
+
+                let mut had_error = false;
 
                 for channel_id in &channel_ids {
                     let mut params = vec![
@@ -89,7 +93,6 @@ impl Channel for SlackChannel {
                             if let Ok(slack_resp) = response.json::<SlackResponse>().await
                                 && slack_resp.ok {
                                     for msg in slack_resp.messages.unwrap_or_default().iter().rev() {
-                                        // Skip bot messages.
                                         if msg.bot_id.is_some() {
                                             continue;
                                         }
@@ -115,14 +118,21 @@ impl Channel for SlackChannel {
                                 }
                         }
                         Err(e) => {
-                            error!(error = %e, channel = %channel_id, "Slack polling error");
+                            error!(error = %e, channel = %channel_id, backoff_secs, "Slack polling error");
+                            had_error = true;
                         }
                     }
                 }
 
+                if had_error {
+                    backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+                } else {
+                    backoff_secs = 5;
+                }
+
                 tokio::select! {
                     _ = shutdown_rx.changed() => break,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {},
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)) => {},
                 }
             }
             info!("Slack polling stopped");

@@ -88,10 +88,11 @@ impl Channel for TelegramChannel {
 
         tokio::spawn(async move {
             let mut offset: Option<i64> = None;
+            let mut backoff_secs: u64 = 1;
+            const MAX_BACKOFF_SECS: u64 = 30;
             info!("Telegram polling started");
 
             loop {
-                // Check shutdown.
                 if *shutdown_rx.borrow() {
                     break;
                 }
@@ -111,6 +112,7 @@ impl Channel for TelegramChannel {
                     Ok(response) => {
                         match response.json::<TelegramResponse<Vec<TelegramUpdate>>>().await {
                             Ok(body) if body.ok => {
+                                backoff_secs = 1;
                                 for update in body.result.unwrap_or_default() {
                                     offset = Some(update.update_id + 1);
 
@@ -121,10 +123,8 @@ impl Channel for TelegramChannel {
                                         }
 
                                         if let Some(text) = msg.text {
-                                            // Instant feedback: emoji reaction + typing indicator.
                                             let react_url = format!("{}/bot{}/setMessageReaction", TELEGRAM_API, token);
                                             let typing_url = format!("{}/bot{}/sendChatAction", TELEGRAM_API, token);
-                                            // Fire both in parallel — don't wait.
                                             let c1 = client.clone();
                                             let c2 = client.clone();
                                             let chat = msg.chat.id;
@@ -134,7 +134,7 @@ impl Channel for TelegramChannel {
                                                     c1.post(&react_url).json(&serde_json::json!({
                                                         "chat_id": chat,
                                                         "message_id": mid,
-                                                        "reaction": [{"type": "emoji", "emoji": "👀"}]
+                                                        "reaction": [{"type": "emoji", "emoji": "\u{1F440}"}]
                                                     })).send(),
                                                     c2.post(&typing_url).json(&serde_json::json!({
                                                         "chat_id": chat,
@@ -167,17 +167,21 @@ impl Channel for TelegramChannel {
                                 }
                             }
                             Ok(body) => {
-                                error!(description = ?body.description, "Telegram API error");
+                                error!(description = ?body.description, backoff_secs, "Telegram API error");
+                                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                                backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
                             }
                             Err(e) => {
-                                error!(error = %e, "failed to parse Telegram response");
-                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                error!(error = %e, backoff_secs, "failed to parse Telegram response");
+                                tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                                backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
                             }
                         }
                     }
                     Err(e) => {
-                        error!(error = %e, "Telegram polling error");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        error!(error = %e, backoff_secs, "Telegram polling error");
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                        backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
                     }
                 }
             }

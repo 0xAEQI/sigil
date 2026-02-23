@@ -9,6 +9,7 @@ members = [
     "crates/realm-orchestrator",
     "crates/realm-memory",
     "crates/realm-gates",
+    "crates/realm-companions",
 ]
 
 [workspace.package]
@@ -76,6 +77,7 @@ realm-tools = { path = "crates/realm-tools" }
 realm-orchestrator = { path = "crates/realm-orchestrator" }
 realm-memory = { path = "crates/realm-memory" }
 realm-gates = { path = "crates/realm-gates" }
+realm-companions = { path = "crates/realm-companions" }
 
 [profile.release]
 lto = true

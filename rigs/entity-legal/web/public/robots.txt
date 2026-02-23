@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://entity.legal/sitemap.xml

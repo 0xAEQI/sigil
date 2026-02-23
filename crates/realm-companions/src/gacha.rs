@@ -26,20 +26,11 @@ impl Default for GachaRates {
     }
 }
 
+#[derive(Default)]
 pub struct PityState {
     pub pulls_since_s_or_above: u32,
     pub pulls_since_a_or_above: u32,
     pub total_pulls: u64,
-}
-
-impl Default for PityState {
-    fn default() -> Self {
-        Self {
-            pulls_since_s_or_above: 0,
-            pulls_since_a_or_above: 0,
-            total_pulls: 0,
-        }
-    }
 }
 
 impl PityState {
@@ -106,16 +97,9 @@ impl PityState {
     }
 }
 
+#[derive(Default)]
 pub struct GachaEngine {
     pub rates: GachaRates,
-}
-
-impl Default for GachaEngine {
-    fn default() -> Self {
-        Self {
-            rates: GachaRates::default(),
-        }
-    }
 }
 
 impl GachaEngine {

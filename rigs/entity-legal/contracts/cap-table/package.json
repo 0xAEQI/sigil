@@ -1,0 +1,23 @@
+{
+  "name": "cap-table",
+  "version": "0.1.0",
+  "description": "Solana cap table smart contracts for entity.legal",
+  "private": true,
+  "scripts": {
+    "test": "anchor test",
+    "build": "anchor build"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.30.0",
+    "@solana/web3.js": "^1.95.0",
+    "@solana/spl-token": "^0.4.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "chai": "^4.4.0",
+    "mocha": "^10.7.0",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.5.0"
+  }
+}

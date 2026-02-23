@@ -1289,6 +1289,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "realm-companions"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rand",
+ "realm-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "realm-core"
 version = "0.1.0"
 dependencies = [
@@ -1374,6 +1392,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "futures",
+ "rand",
  "realm-core",
  "reqwest",
  "serde",

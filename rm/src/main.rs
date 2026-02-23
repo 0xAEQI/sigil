@@ -551,7 +551,7 @@ async fn cmd_run(
         agent = agent.with_memory(mem);
     }
     let result = agent.run(prompt).await?;
-    println!("{result}");
+    println!("{}", result.text);
     Ok(())
 }
 
@@ -2174,7 +2174,7 @@ async fn cmd_skill(config_path: &Option<PathBuf>, action: MagicAction) -> Result
                 agent = agent.with_memory(Arc::new(mem));
             }
             let result = agent.run(&user_prompt).await?;
-            println!("{result}");
+            println!("{}", result.text);
         }
     }
     Ok(())

@@ -159,6 +159,10 @@ impl QuestBoard {
     }
 
     /// Update a bead. Returns the updated bead.
+    ///
+    /// Uses append-only persistence: the updated bead is appended to the JSONL
+    /// file rather than rewriting all beads for the prefix. On reload, later
+    /// entries overwrite earlier ones (last-write-wins dedup in load_file).
     pub fn update(&mut self, id: &str, f: impl FnOnce(&mut Quest)) -> Result<Quest> {
         let bead = self
             .beads
@@ -169,8 +173,7 @@ impl QuestBoard {
         bead.updated_at = Some(chrono::Utc::now());
 
         let bead = bead.clone();
-        let prefix = bead.id.prefix().to_string();
-        self.rewrite_prefix(&prefix)?;
+        self.persist(&bead)?;
 
         Ok(bead)
     }
@@ -193,11 +196,38 @@ impl QuestBoard {
         })
     }
 
+    /// Detect if adding `from` depends-on `to` would create a cycle.
+    /// Check if adding "`id` depends on `dep_id`" would create a cycle.
+    /// Follows depends_on edges from dep_id; if we reach id, it's a cycle.
+    fn would_cycle(&self, id: &str, dep_id: &str) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        let mut stack = vec![dep_id.to_string()];
+        while let Some(node) = stack.pop() {
+            if node == id {
+                return true;
+            }
+            if visited.insert(node.clone())
+                && let Some(quest) = self.beads.get(&node)
+            {
+                for dep in &quest.depends_on {
+                    stack.push(dep.0.clone());
+                }
+            }
+        }
+        false
+    }
+
     /// Add a dependency: `id` depends on `dep_id`.
     pub fn add_dependency(&mut self, id: &str, dep_id: &str) -> Result<()> {
+        if id == dep_id {
+            anyhow::bail!("quest cannot depend on itself: {id}");
+        }
+        if self.would_cycle(id, dep_id) {
+            anyhow::bail!("circular dependency detected: {id} → {dep_id} would create a cycle");
+        }
+
         let dep_quest_id = QuestId::from(dep_id);
 
-        // Add to depends_on.
         self.update(id, |b| {
             if !b.depends_on.contains(&dep_quest_id) {
                 b.depends_on.push(dep_quest_id.clone());
@@ -285,11 +315,26 @@ impl QuestBoard {
     }
 
     /// Reload all beads from disk, picking up externally-created beads
-    /// (e.g., from `sg assign` CLI or Claude Code workers).
+    /// (e.g., from `rm assign` CLI or Claude Code workers).
+    /// Compacts all prefix files after reload to remove duplicate entries.
     pub fn reload(&mut self) -> Result<()> {
         self.beads.clear();
         self.sequences.clear();
-        self.load_all()
+        self.load_all()?;
+        self.compact_all()
+    }
+
+    /// Rewrite all prefix files to contain only the latest version of each bead.
+    /// This deduplicates append-only entries accumulated during updates.
+    fn compact_all(&self) -> Result<()> {
+        let mut prefixes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for bead in self.beads.values() {
+            prefixes.insert(bead.id.prefix().to_string());
+        }
+        for prefix in prefixes {
+            self.rewrite_prefix(&prefix)?;
+        }
+        Ok(())
     }
 
     /// Store directory path.
@@ -380,5 +425,73 @@ mod tests {
         assert_eq!(store.len(), 2);
         assert!(store.get("rd-001").is_some());
         assert!(store.get("rd-002").is_some());
+    }
+
+    #[test]
+    fn test_self_dependency_rejected() {
+        let (mut store, _dir) = temp_store();
+        let b1 = store.create("as", "Task 1").unwrap();
+        assert!(store.add_dependency(&b1.id.0, &b1.id.0).is_err());
+    }
+
+    #[test]
+    fn test_circular_dependency_rejected() {
+        let (mut store, _dir) = temp_store();
+        let b1 = store.create("as", "Task A").unwrap();
+        let b2 = store.create("as", "Task B").unwrap();
+        let b3 = store.create("as", "Task C").unwrap();
+
+        store.add_dependency(&b2.id.0, &b1.id.0).unwrap();
+        store.add_dependency(&b3.id.0, &b2.id.0).unwrap();
+        // b3 → b2 → b1. Adding b1 → b3 would create a cycle.
+        assert!(store.add_dependency(&b1.id.0, &b3.id.0).is_err());
+    }
+
+    #[test]
+    fn test_append_only_update_persists() {
+        let dir = TempDir::new().unwrap();
+
+        {
+            let mut store = QuestBoard::open(dir.path()).unwrap();
+            store.create("as", "Task 1").unwrap();
+            store.update("as-001", |b| {
+                b.status = QuestStatus::InProgress;
+                b.assignee = Some("spirit-1".to_string());
+            }).unwrap();
+        }
+
+        // Reopen — load_file deduplicates by last-write-wins.
+        let store = QuestBoard::open(dir.path()).unwrap();
+        assert_eq!(store.len(), 1);
+        let bead = store.get("as-001").unwrap();
+        assert_eq!(bead.status, QuestStatus::InProgress);
+        assert_eq!(bead.assignee.as_deref(), Some("spirit-1"));
+    }
+
+    #[test]
+    fn test_reload_compacts() {
+        let dir = TempDir::new().unwrap();
+
+        let mut store = QuestBoard::open(dir.path()).unwrap();
+        store.create("as", "Task 1").unwrap();
+        // Multiple updates = multiple append lines.
+        for i in 0..5 {
+            store.update("as-001", |b| {
+                b.subject = format!("Task 1 v{}", i + 1);
+            }).unwrap();
+        }
+
+        // Before reload, file has 6 lines (1 create + 5 updates).
+        let path = dir.path().join("as.jsonl");
+        let lines_before = std::fs::read_to_string(&path).unwrap().lines().count();
+        assert_eq!(lines_before, 6);
+
+        // Reload compacts to 1 line.
+        store.reload().unwrap();
+        let lines_after = std::fs::read_to_string(&path).unwrap().lines().count();
+        assert_eq!(lines_after, 1);
+
+        let bead = store.get("as-001").unwrap();
+        assert_eq!(bead.subject, "Task 1 v5");
     }
 }

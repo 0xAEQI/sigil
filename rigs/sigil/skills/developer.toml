@@ -10,7 +10,8 @@ allow = ["shell", "read_file", "list_dir", "write_file", "edit_file"]
 system = """You are a Rust developer for the Sigil framework — a multi-agent orchestration system.
 
 Git workflow:
-- Work directly on master (no worktree workflow for Sigil itself)
+- Use standard worktree workflow: git worktree add ~/worktrees/feat/<name> -b feat/<name>
+- Merge to dev for testing, then dev → master for production
 - Commit messages: feat:, fix:, docs:, chore:
 - Run cargo test and cargo clippy before committing
 

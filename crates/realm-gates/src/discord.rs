@@ -57,6 +57,8 @@ impl Channel for DiscordChannel {
 
         tokio::spawn(async move {
             let mut last_message_ids: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+            let mut backoff_secs: u64 = 5;
+            const MAX_BACKOFF_SECS: u64 = 60;
             info!("Discord polling started");
 
             loop {
@@ -64,6 +66,7 @@ impl Channel for DiscordChannel {
                     break;
                 }
 
+                let mut had_error = false;
                 for channel_id in &channel_ids {
                     let url = format!("{}/channels/{}/messages?limit=10", DISCORD_API, channel_id);
                     let mut req = client.get(&url)
@@ -77,7 +80,6 @@ impl Channel for DiscordChannel {
                         Ok(response) => {
                             if let Ok(messages) = response.json::<Vec<DiscordMessage>>().await {
                                 for msg in messages.iter().rev() {
-                                    // Skip bot messages.
                                     if msg.author.bot.unwrap_or(false) {
                                         continue;
                                     }
@@ -102,14 +104,21 @@ impl Channel for DiscordChannel {
                             }
                         }
                         Err(e) => {
-                            error!(error = %e, channel = %channel_id, "Discord polling error");
+                            error!(error = %e, channel = %channel_id, backoff_secs, "Discord polling error");
+                            had_error = true;
                         }
                     }
                 }
 
+                if had_error {
+                    backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+                } else {
+                    backoff_secs = 5;
+                }
+
                 tokio::select! {
                     _ = shutdown_rx.changed() => break,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {},
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)) => {},
                 }
             }
             info!("Discord polling stopped");

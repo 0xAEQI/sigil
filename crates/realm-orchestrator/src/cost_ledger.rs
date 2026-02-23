@@ -22,13 +22,37 @@ pub struct CostEntry {
     pub timestamp: DateTime<Utc>,
 }
 
+/// Cached sum with staleness tracking.
+struct DailyCache {
+    global_sum: f64,
+    domain_sums: HashMap<String, f64>,
+    computed_at: DateTime<Utc>,
+    entry_count: usize,
+}
+
+impl DailyCache {
+    fn new() -> Self {
+        Self {
+            global_sum: 0.0,
+            domain_sums: HashMap::new(),
+            computed_at: Utc::now(),
+            entry_count: 0,
+        }
+    }
+
+    fn is_stale(&self, actual_count: usize) -> bool {
+        actual_count != self.entry_count
+            || (Utc::now() - self.computed_at) > Duration::seconds(60)
+    }
+}
+
 /// Tracks spending across domains and enforces budget caps.
 pub struct CostLedger {
     entries: Mutex<Vec<CostEntry>>,
     daily_budget_usd: f64,
     persist_path: Option<PathBuf>,
-    /// Per-domain daily budget ceilings. Domains not in this map fall back to the global budget.
     domain_budgets: Mutex<HashMap<String, f64>>,
+    cache: Mutex<DailyCache>,
 }
 
 impl CostLedger {
@@ -38,6 +62,7 @@ impl CostLedger {
             daily_budget_usd,
             persist_path: None,
             domain_budgets: Mutex::new(HashMap::new()),
+            cache: Mutex::new(DailyCache::new()),
         }
     }
 
@@ -47,12 +72,49 @@ impl CostLedger {
             daily_budget_usd,
             persist_path: Some(path),
             domain_budgets: Mutex::new(HashMap::new()),
+            cache: Mutex::new(DailyCache::new()),
+        }
+    }
+
+    /// Rebuild the daily cache from entries.
+    fn rebuild_cache(entries: &[CostEntry]) -> DailyCache {
+        let since = Utc::now() - Duration::hours(24);
+        let mut global_sum = 0.0;
+        let mut domain_sums: HashMap<String, f64> = HashMap::new();
+        for e in entries {
+            if e.timestamp > since {
+                global_sum += e.cost_usd;
+                *domain_sums.entry(e.domain.clone()).or_default() += e.cost_usd;
+            }
+        }
+        DailyCache {
+            global_sum,
+            domain_sums,
+            computed_at: Utc::now(),
+            entry_count: entries.len(),
+        }
+    }
+
+    /// Get cached daily sums, rebuilding if stale.
+    fn cached_sums(&self, entries: &[CostEntry]) -> (f64, HashMap<String, f64>) {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.is_stale(entries.len()) {
+            *cache = Self::rebuild_cache(entries);
+        }
+        (cache.global_sum, cache.domain_sums.clone())
+    }
+
+    /// Invalidate the cache (call after prune or load).
+    fn invalidate_cache(&self) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.entry_count = 0; // Force stale on next read.
         }
     }
 
     /// Record a cost entry. Warns if daily budget or domain budget exceeded.
     pub fn record(&self, entry: CostEntry) -> Result<()> {
         let domain_name = entry.domain.clone();
+        let cost = entry.cost_usd;
         let mut entries = self.entries.lock().map_err(|e| anyhow::anyhow!("lock: {e}"))?;
 
         info!(
@@ -66,25 +128,29 @@ impl CostLedger {
 
         entries.push(entry);
 
-        // Check global budget after recording.
-        let spent_today = Self::sum_since(&entries, Utc::now() - Duration::hours(24));
-        if spent_today > self.daily_budget_usd {
+        // Incrementally update cache.
+        {
+            let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+            cache.global_sum += cost;
+            *cache.domain_sums.entry(domain_name.clone()).or_default() += cost;
+            cache.entry_count = entries.len();
+        }
+
+        // Check global budget.
+        let (global_spent, domain_sums) = self.cached_sums(&entries);
+        if global_spent > self.daily_budget_usd {
             warn!(
-                spent = spent_today,
+                spent = global_spent,
                 budget = self.daily_budget_usd,
-                overage = spent_today - self.daily_budget_usd,
+                overage = global_spent - self.daily_budget_usd,
                 "DAILY BUDGET EXCEEDED"
             );
         }
 
-        // Check domain-specific budget after recording.
+        // Check domain-specific budget.
         let budgets = self.domain_budgets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(&domain_budget) = budgets.get(&domain_name) {
-            let since = Utc::now() - Duration::hours(24);
-            let domain_spent: f64 = entries.iter()
-                .filter(|e| e.domain == domain_name && e.timestamp > since)
-                .map(|e| e.cost_usd)
-                .sum();
+            let domain_spent = domain_sums.get(&domain_name).copied().unwrap_or(0.0);
             if domain_spent > domain_budget {
                 warn!(
                     domain = %domain_name,
@@ -99,16 +165,22 @@ impl CostLedger {
         Ok(())
     }
 
-    /// Check budget status: (spent_today, budget, remaining).
+    /// Check budget status: (spent_today, budget, remaining). O(1) when cache is warm.
     pub fn budget_status(&self) -> (f64, f64, f64) {
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        let spent = Self::sum_since(&entries, Utc::now() - Duration::hours(24));
+        let (spent, _) = self.cached_sums(&entries);
         let remaining = (self.daily_budget_usd - spent).max(0.0);
         (spent, self.daily_budget_usd, remaining)
     }
 
-    /// Total spend for a domain in the last N hours.
+    /// Total spend for a domain in the last 24 hours. O(1) when cache is warm.
     pub fn domain_spend(&self, domain: &str, hours: u32) -> f64 {
+        if hours == 24 {
+            let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            let (_, domain_sums) = self.cached_sums(&entries);
+            return domain_sums.get(domain).copied().unwrap_or(0.0);
+        }
+        // Non-24h queries fall back to scan.
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let since = Utc::now() - Duration::hours(hours as i64);
         entries
@@ -172,27 +244,18 @@ impl CostLedger {
         (spent, budget, remaining)
     }
 
-    /// Get all per-domain budget statuses as a map.
-    /// Returns entries for every domain that has a budget set, plus any domain with spending.
+    /// Get all per-domain budget statuses as a map. O(1) when cache is warm.
     pub fn all_domain_budget_statuses(&self) -> HashMap<String, (f64, f64, f64)> {
         let budgets = self.domain_budgets.lock().unwrap_or_else(|e| e.into_inner());
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        let since = Utc::now() - Duration::hours(24);
+        let (_, domain_sums) = self.cached_sums(&entries);
 
-        // Collect all domains that either have a budget or have spending.
         let mut all_domains: HashSet<String> = budgets.keys().cloned().collect();
-        for entry in entries.iter() {
-            if entry.timestamp > since {
-                all_domains.insert(entry.domain.clone());
-            }
-        }
+        all_domains.extend(domain_sums.keys().cloned());
 
         let mut result = HashMap::new();
         for domain in all_domains {
-            let spent: f64 = entries.iter()
-                .filter(|e| e.domain == domain && e.timestamp > since)
-                .map(|e| e.cost_usd)
-                .sum();
+            let spent = domain_sums.get(&domain).copied().unwrap_or(0.0);
             let budget = budgets.get(&domain).copied().unwrap_or(self.daily_budget_usd);
             let remaining = (budget - spent).max(0.0);
             result.insert(domain, (spent, budget, remaining));
@@ -259,22 +322,15 @@ impl CostLedger {
             }
         }
 
+        self.invalidate_cache();
         Ok(count)
     }
 
-    /// Per-domain totals for the last 24 hours.
+    /// Per-domain totals for the last 24 hours. O(1) when cache is warm.
     pub fn daily_report(&self) -> HashMap<String, f64> {
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        let since = Utc::now() - Duration::hours(24);
-        let mut report = HashMap::new();
-
-        for entry in entries.iter() {
-            if entry.timestamp > since {
-                *report.entry(entry.domain.clone()).or_insert(0.0) += entry.cost_usd;
-            }
-        }
-
-        report
+        let (_, domain_sums) = self.cached_sums(&entries);
+        domain_sums
     }
 
     /// Prune entries older than 7 days to prevent unbounded growth.
@@ -286,16 +342,9 @@ impl CostLedger {
             let pruned = before - entries.len();
             if pruned > 0 {
                 info!(pruned, "pruned old cost entries");
+                self.invalidate_cache();
             }
         }
-    }
-
-    fn sum_since(entries: &[CostEntry], since: DateTime<Utc>) -> f64 {
-        entries
-            .iter()
-            .filter(|e| e.timestamp > since)
-            .map(|e| e.cost_usd)
-            .sum()
     }
 }
 

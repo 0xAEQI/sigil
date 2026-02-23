@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 /// Master configuration loaded from realm.toml.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +27,9 @@ pub struct RealmConfig {
     /// Council-level settings (cost caps, cooldowns).
     #[serde(default)]
     pub council: CouncilConfig,
+    /// Session alarm and progress heartbeat settings.
+    #[serde(default)]
+    pub session: SessionConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +188,12 @@ pub struct PulseConfig {
     pub enabled: bool,
     #[serde(default = "default_pulse_interval")]
     pub default_interval_minutes: u32,
+    /// Whether the autonomous self-reflection cycle is enabled.
+    #[serde(default)]
+    pub reflection_enabled: bool,
+    /// Interval between reflection cycles in minutes (default: 240 = 4 h).
+    #[serde(default = "default_reflection_interval")]
+    pub reflection_interval_minutes: u32,
 }
 
 impl Default for PulseConfig {
@@ -191,11 +201,14 @@ impl Default for PulseConfig {
         Self {
             enabled: false,
             default_interval_minutes: 30,
+            reflection_enabled: false,
+            reflection_interval_minutes: 240,
         }
     }
 }
 
 fn default_pulse_interval() -> u32 { 30 }
+fn default_reflection_interval() -> u32 { 240 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShadowConfig {
@@ -297,6 +310,46 @@ pub struct TelegramChannelConfig {
 
 fn default_debounce_window() -> u64 { 3000 }
 
+/// Session alarm and progress heartbeat configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionConfig {
+    /// Enable session tracker (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Interval between active sprint check-ins in minutes (default: 30).
+    #[serde(default = "default_checkin_interval")]
+    pub checkin_interval_mins: u64,
+    /// Interval between idle "get back" alarms in minutes (default: 60).
+    #[serde(default = "default_alarm_interval")]
+    pub alarm_interval_mins: u64,
+    /// Anti-flood floor: minimum minutes between any two messages (default: 30).
+    #[serde(default = "default_min_flood_interval")]
+    pub min_flood_interval_mins: u64,
+    /// Optional session deadline in minutes. Fires a one-shot alarm when elapsed.
+    #[serde(default)]
+    pub deadline_mins: Option<u64>,
+    /// Override chat_id for session notifications. Falls back to first allowed_chat.
+    #[serde(default)]
+    pub notify_chat_id: Option<i64>,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            checkin_interval_mins: 30,
+            alarm_interval_mins: 60,
+            min_flood_interval_mins: 30,
+            deadline_mins: None,
+            notify_chat_id: None,
+        }
+    }
+}
+
+fn default_checkin_interval() -> u64 { 30 }
+fn default_alarm_interval() -> u64 { 60 }
+fn default_min_flood_interval() -> u64 { 30 }
+
 /// How a rig's workers execute beads.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -384,6 +437,12 @@ impl RealmConfig {
             }
         }
 
+        // Validate and warn (non-fatal — partial configs allowed during dev).
+        let issues = config.validate();
+        for issue in &issues {
+            warn!(issue = %issue, "config validation warning");
+        }
+
         Ok(config)
     }
 
@@ -468,6 +527,79 @@ impl RealmConfig {
     pub fn familiar(&self, name: &str) -> Option<&FamiliarConfig> {
         self.familiars.iter().find(|f| f.name == name)
     }
+
+    /// Validate config for logical errors that serde can't catch.
+    /// Returns collected error messages. Empty vec = valid.
+    pub fn validate(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        if self.realm.name.is_empty() {
+            errors.push("realm.name is empty".to_string());
+        }
+
+        // Domain validation.
+        let mut seen_names = std::collections::HashSet::new();
+        let mut seen_prefixes = std::collections::HashSet::new();
+        for d in &self.domains {
+            if d.name.is_empty() {
+                errors.push("domain with empty name".to_string());
+            }
+            if d.prefix.is_empty() {
+                errors.push(format!("domain '{}' has empty prefix", d.name));
+            }
+            if !seen_names.insert(&d.name) {
+                errors.push(format!("duplicate domain name: '{}'", d.name));
+            }
+            if !seen_prefixes.insert(&d.prefix) {
+                errors.push(format!("duplicate domain prefix: '{}'", d.prefix));
+            }
+            if d.spirit_timeout_secs == 0 {
+                errors.push(format!("domain '{}' has zero spirit_timeout_secs", d.name));
+            }
+            if d.max_workers == 0 {
+                errors.push(format!("domain '{}' has zero max_workers", d.name));
+            }
+        }
+
+        // Familiar validation.
+        let lead_count = self.familiars.iter().filter(|f| f.role == FamiliarRole::Lead).count();
+        if lead_count == 0 {
+            errors.push("no lead familiar configured".to_string());
+        } else if lead_count > 1 {
+            errors.push(format!("{lead_count} lead familiars configured — expected exactly 1"));
+        }
+        let mut seen_familiar_names = std::collections::HashSet::new();
+        for f in &self.familiars {
+            if f.name.is_empty() {
+                errors.push("familiar with empty name".to_string());
+            }
+            if !seen_familiar_names.insert(&f.name) {
+                errors.push(format!("duplicate familiar name: '{}'", f.name));
+            }
+        }
+
+        // Memory weights.
+        let weight_sum = self.memory.vector_weight + self.memory.keyword_weight;
+        if (weight_sum - 1.0).abs() > 0.01 {
+            errors.push(format!(
+                "memory weights sum to {weight_sum:.2} (expected ~1.0): vector={}, keyword={}",
+                self.memory.vector_weight, self.memory.keyword_weight
+            ));
+        }
+        if self.memory.chunk_overlap_tokens >= self.memory.chunk_size_tokens {
+            errors.push(format!(
+                "chunk_overlap_tokens ({}) >= chunk_size_tokens ({})",
+                self.memory.chunk_overlap_tokens, self.memory.chunk_size_tokens
+            ));
+        }
+
+        // Budget sanity.
+        if self.security.max_cost_per_day_usd <= 0.0 {
+            errors.push("max_cost_per_day_usd must be positive".to_string());
+        }
+
+        errors
+    }
 }
 
 /// Resolve ${ENV_VAR} patterns in strings.
@@ -517,5 +649,77 @@ repo = "/tmp/test"
         assert_eq!(resolve_env("${TEST_SIGIL_VAR}"), "hello");
         assert_eq!(resolve_env("plain"), "plain");
         unsafe { std::env::remove_var("TEST_SIGIL_VAR") };
+    }
+
+    #[test]
+    fn test_validate_valid_config() {
+        let toml = r#"
+[realm]
+name = "test"
+
+[[domains]]
+name = "alpha"
+prefix = "al"
+repo = "/tmp/alpha"
+
+[[domains]]
+name = "beta"
+prefix = "bt"
+repo = "/tmp/beta"
+"#;
+        let config = RealmConfig::parse(toml).unwrap();
+        let issues = config.validate();
+        assert!(issues.is_empty(), "unexpected issues: {issues:?}");
+    }
+
+    #[test]
+    fn test_validate_duplicate_prefix() {
+        let toml = r#"
+[realm]
+name = "test"
+
+[[domains]]
+name = "alpha"
+prefix = "ab"
+repo = "/tmp/alpha"
+
+[[domains]]
+name = "beta"
+prefix = "ab"
+repo = "/tmp/beta"
+"#;
+        let config = RealmConfig::parse(toml).unwrap();
+        let issues = config.validate();
+        assert!(issues.iter().any(|i| i.contains("duplicate domain prefix")), "expected duplicate prefix: {issues:?}");
+    }
+
+    #[test]
+    fn test_validate_bad_memory_weights() {
+        let toml = r#"
+[realm]
+name = "test"
+
+[memory]
+vector_weight = 0.9
+keyword_weight = 0.9
+"#;
+        let config = RealmConfig::parse(toml).unwrap();
+        let issues = config.validate();
+        assert!(issues.iter().any(|i| i.contains("weights sum")), "expected weight warning: {issues:?}");
+    }
+
+    #[test]
+    fn test_validate_chunk_overlap_too_large() {
+        let toml = r#"
+[realm]
+name = "test"
+
+[memory]
+chunk_size_tokens = 100
+chunk_overlap_tokens = 150
+"#;
+        let config = RealmConfig::parse(toml).unwrap();
+        let issues = config.validate();
+        assert!(issues.iter().any(|i| i.contains("chunk_overlap_tokens")), "expected overlap warning: {issues:?}");
     }
 }

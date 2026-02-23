@@ -25,6 +25,16 @@ pub struct AgentConfig {
     pub companion_id: Option<String>,
 }
 
+/// Result from an agent run, including token usage for cost tracking.
+#[derive(Debug, Clone)]
+pub struct AgentResult {
+    pub text: String,
+    pub total_prompt_tokens: u32,
+    pub total_completion_tokens: u32,
+    pub iterations: u32,
+    pub model: String,
+}
+
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
@@ -74,8 +84,8 @@ impl Agent {
         self
     }
 
-    /// Run the agent with a user prompt. Returns the final text response.
-    pub async fn run(&self, prompt: &str) -> anyhow::Result<String> {
+    /// Run the agent with a user prompt. Returns the final text, token usage, and iterations.
+    pub async fn run(&self, prompt: &str) -> anyhow::Result<AgentResult> {
         self.observer
             .record(Event::AgentStart {
                 agent_name: self.config.name.clone(),
@@ -128,6 +138,8 @@ impl Agent {
 
         let mut iterations = 0u32;
         let mut final_text = String::new();
+        let mut total_prompt_tokens = 0u32;
+        let mut total_completion_tokens = 0u32;
 
         loop {
             iterations += 1;
@@ -158,6 +170,9 @@ impl Agent {
 
             // Call provider.
             let response: ChatResponse = self.provider.chat(&request).await?;
+
+            total_prompt_tokens += response.usage.prompt_tokens;
+            total_completion_tokens += response.usage.completion_tokens;
 
             self.observer
                 .record(Event::LlmResponse {
@@ -268,10 +283,18 @@ impl Agent {
         info!(
             agent = %self.config.name,
             iterations,
+            prompt_tokens = total_prompt_tokens,
+            completion_tokens = total_completion_tokens,
             "agent completed"
         );
 
-        Ok(final_text)
+        Ok(AgentResult {
+            text: final_text,
+            total_prompt_tokens,
+            total_completion_tokens,
+            iterations,
+            model: self.config.model.clone(),
+        })
     }
 
     async fn reflect(&self, messages: &[Message]) {

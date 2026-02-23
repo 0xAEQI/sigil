@@ -67,7 +67,7 @@ impl Tool for DelegateTool {
         );
 
         match agent.run(prompt).await {
-            Ok(result) => Ok(ToolResult::success(result)),
+            Ok(result) => Ok(ToolResult::success(result.text)),
             Err(e) => Ok(ToolResult::error(format!("Sub-agent failed: {e}"))),
         }
     }

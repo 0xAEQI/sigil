@@ -193,7 +193,7 @@ impl Spirit {
     /// Save a checkpoint recording this spirit's progress on a quest.
     async fn save_checkpoint(&self, quest_id: &str, progress: &str, cost: f64, turns: u32) {
         let mut store = self.beads.lock().await;
-        let _ = store.update(quest_id, |q| {
+        if let Err(e) = store.update(quest_id, |q| {
             q.checkpoints.push(Checkpoint {
                 timestamp: Utc::now(),
                 spirit: self.name.clone(),
@@ -201,7 +201,9 @@ impl Spirit {
                 cost_usd: cost,
                 turns_used: turns,
             });
-        });
+        }) {
+            warn!(quest_id, error = %e, "failed to save checkpoint to quest store");
+        }
     }
 
     /// Execute the hooked work. Dispatches to Agent or Claude Code based on execution mode.
@@ -231,10 +233,12 @@ impl Spirit {
         // Mark bead as in_progress.
         {
             let mut store = self.beads.lock().await;
-            let _ = store.update(&hook.quest_id.0, |b| {
+            if let Err(e) = store.update(&hook.quest_id.0, |b| {
                 b.status = QuestStatus::InProgress;
                 b.assignee = Some(self.name.clone());
-            });
+            }) {
+                warn!(bead = %hook.quest_id, error = %e, "failed to mark quest in_progress");
+            }
         }
 
         // Build the prompt from the bead (including any previous checkpoints).
@@ -294,7 +298,23 @@ impl Spirit {
             SpiritExecution::Agent { provider, tools, model } => {
                 self.execute_agent(provider.clone(), tools.clone(), model, &quest_context)
                     .await
-                    .map(|text| (text, 0.0, 0u32))
+                    .map(|agent_result| {
+                        let cost = realm_providers::estimate_cost(
+                            &agent_result.model,
+                            agent_result.total_prompt_tokens,
+                            agent_result.total_completion_tokens,
+                        );
+                        info!(
+                            worker = %self.name,
+                            model = %agent_result.model,
+                            prompt_tokens = agent_result.total_prompt_tokens,
+                            completion_tokens = agent_result.total_completion_tokens,
+                            cost_usd = cost,
+                            iterations = agent_result.iterations,
+                            "agent execution cost calculated"
+                        );
+                        (agent_result.text, cost, agent_result.iterations)
+                    })
             }
             SpiritExecution::ClaudeCode(executor) => {
                 self.execute_claude_code(executor, &quest_context).await
@@ -360,11 +380,13 @@ impl Spirit {
                 // Mark bead as Blocked and preserve the question for Scout resolution.
                 {
                     let mut store = self.beads.lock().await;
-                    let _ = store.update(&hook.quest_id.0, |b| {
+                    if let Err(e) = store.update(&hook.quest_id.0, |b| {
                         b.status = QuestStatus::Blocked;
                         b.assignee = None;
                         b.closed_reason = Some(question.clone());
-                    });
+                    }) {
+                        warn!(bead = %hook.quest_id, error = %e, "failed to mark quest blocked");
+                    }
                 }
                 self.whisper_bus
                     .send(Whisper::new_typed(
@@ -395,10 +417,12 @@ impl Spirit {
                 ).await;
                 {
                     let mut store = self.beads.lock().await;
-                    let _ = store.update(&hook.quest_id.0, |b| {
+                    if let Err(e) = store.update(&hook.quest_id.0, |b| {
                         b.status = QuestStatus::Pending;
                         b.assignee = None;
-                    });
+                    }) {
+                        warn!(bead = %hook.quest_id, error = %e, "failed to re-queue quest after handoff");
+                    }
                 }
                 self.whisper_bus
                     .send(Whisper::new_typed(
@@ -429,10 +453,12 @@ impl Spirit {
                 ).await;
                 {
                     let mut store = self.beads.lock().await;
-                    let _ = store.update(&hook.quest_id.0, |b| {
+                    if let Err(e) = store.update(&hook.quest_id.0, |b| {
                         b.status = QuestStatus::Pending;
                         b.assignee = None;
-                    });
+                    }) {
+                        warn!(bead = %hook.quest_id, error = %e, "failed to re-queue quest after failure");
+                    }
                 }
                 self.whisper_bus
                     .send(Whisper::new_typed(
@@ -458,7 +484,7 @@ impl Spirit {
         tools: Vec<Arc<dyn Tool>>,
         model: &str,
         quest_context: &str,
-    ) -> Result<String> {
+    ) -> Result<realm_core::AgentResult> {
         let observer: Arc<dyn Observer> = Arc::new(LogObserver);
         let agent_config = AgentConfig {
             model: model.to_string(),

@@ -7,6 +7,8 @@ use tracing::{debug, info, warn};
 
 use crate::fate::FateStore;
 use crate::pulse::Pulse;
+use crate::reflection::Reflection;
+use crate::session_tracker::SessionTracker;
 use crate::whisper::WhisperBus;
 use crate::registry::DomainRegistry;
 
@@ -17,11 +19,14 @@ pub struct Summoner {
     pub whisper_bus: Arc<WhisperBus>,
     pub patrol_interval_secs: u64,
     pub pulses: Vec<Pulse>,
+    pub reflections: Vec<Reflection>,
     pub fate_store: Option<Arc<Mutex<FateStore>>>,
     pub pid_file: Option<PathBuf>,
     pub socket_path: Option<PathBuf>,
+    session_tracker_shutdown: Option<Arc<tokio::sync::Notify>>,
     running: Arc<std::sync::atomic::AtomicBool>,
     config_reloaded: Arc<std::sync::atomic::AtomicBool>,
+    shutdown_notify: Arc<tokio::sync::Notify>,
 }
 
 impl Summoner {
@@ -31,17 +36,45 @@ impl Summoner {
             whisper_bus,
             patrol_interval_secs: 30,
             pulses: Vec::new(),
+            reflections: Vec::new(),
             fate_store: None,
             pid_file: None,
             socket_path: None,
+            session_tracker_shutdown: None,
             running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             config_reloaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            shutdown_notify: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
     /// Add a pulse to the daemon.
     pub fn add_pulse(&mut self, pulse: Pulse) {
         self.pulses.push(pulse);
+    }
+
+    /// Add a reflection cycle to the daemon.
+    pub fn add_reflection(&mut self, reflection: Reflection) {
+        self.reflections.push(reflection);
+    }
+
+    /// Start the session tracker in a dedicated tokio::spawn.
+    /// Returns the shutdown Notify so it can be stopped later.
+    pub fn start_session_tracker(&mut self, tracker: SessionTracker) {
+        let shutdown = Arc::new(tokio::sync::Notify::new());
+        let shutdown_clone = shutdown.clone();
+        tokio::spawn(async move {
+            tracker.run(shutdown_clone).await;
+        });
+        self.session_tracker_shutdown = Some(shutdown);
+        info!("session tracker launched");
+    }
+
+    /// Stop the session tracker if running.
+    pub fn stop_session_tracker(&mut self) {
+        if let Some(notify) = self.session_tracker_shutdown.take() {
+            notify.notify_waiters();
+            info!("session tracker stopped");
+        }
     }
 
     /// Set the cron store for scheduled jobs.
@@ -94,12 +127,13 @@ impl Summoner {
 
         self.write_pid_file()?;
 
-        // Set up Ctrl+C handler.
         let running = self.running.clone();
+        let shutdown_notify = self.shutdown_notify.clone();
         tokio::spawn(async move {
             if let Ok(()) = tokio::signal::ctrl_c().await {
                 info!("received Ctrl+C, shutting down...");
                 running.store(false, std::sync::atomic::Ordering::SeqCst);
+                shutdown_notify.notify_waiters();
             }
         });
 
@@ -187,7 +221,21 @@ impl Summoner {
                 }
             }
 
-            // 3. Run due cron jobs.
+            // 3. Run due reflections (self-examination of identity files).
+            for reflection in self.reflections.iter_mut() {
+                if reflection.is_due() {
+                    match reflection.run().await {
+                        Ok(result) => {
+                            info!(rig = %reflection.domain_name, result = %result, "reflection completed");
+                        }
+                        Err(e) => {
+                            warn!(rig = %reflection.domain_name, error = %e, "reflection failed");
+                        }
+                    }
+                }
+            }
+
+            // 4. Run due cron jobs.
             if let Some(ref fate_store) = self.fate_store {
                 let due_jobs = {
                     let store = fate_store.lock().await;
@@ -218,7 +266,7 @@ impl Summoner {
                 let _ = store.cleanup_oneshots();
             }
 
-            // 4. Check for config reload signal (SIGHUP).
+            // 5. Check for config reload signal (SIGHUP).
             if self.config_reloaded.swap(false, std::sync::atomic::Ordering::SeqCst) {
                 info!("config reload requested (SIGHUP received)");
                 match realm_core::config::RealmConfig::discover() {
@@ -231,7 +279,7 @@ impl Summoner {
                 }
             }
 
-            // 5. Periodic persistence: save whisper bus + cost ledger every patrol.
+            // 6. Periodic persistence: save whisper bus + cost ledger every patrol.
             if let Err(e) = self.whisper_bus.save().await {
                 warn!(error = %e, "failed to save whisper bus");
             }
@@ -239,29 +287,25 @@ impl Summoner {
                 warn!(error = %e, "failed to save cost ledger");
             }
 
-            // 6. Update daily cost gauge.
+            // 7. Update daily cost gauge.
             let (spent, _, _) = self.registry.cost_ledger.budget_status();
             self.registry.metrics.daily_cost_usd.set(spent);
             let pending_whispers = self.whisper_bus.pending_count();
             self.registry.metrics.whisper_queue_depth.set(pending_whispers as f64);
 
-            // 7. Prune old cost entries (older than 7 days) every cycle.
+            // 8. Prune old cost entries (older than 7 days) every cycle.
             self.registry.cost_ledger.prune_old();
 
-            // Sleep until next patrol — wakes instantly on new bead, or after interval.
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(self.patrol_interval_secs)) => {},
                 _ = self.registry.wake.notified() => {
                     debug!("woken by new bead");
                 },
-                _ = async {
-                    while self.running.load(std::sync::atomic::Ordering::SeqCst) {
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    }
-                } => break,
+                _ = self.shutdown_notify.notified() => break,
             }
         }
 
+        self.stop_session_tracker();
         self.remove_pid_file();
         self.remove_socket_file();
         info!("daemon stopped");
@@ -428,10 +472,10 @@ impl Summoner {
         Ok(())
     }
 
-    /// Stop the daemon.
     pub fn stop(&self) {
         self.running
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.shutdown_notify.notify_waiters();
     }
 
     /// Check if daemon is running.

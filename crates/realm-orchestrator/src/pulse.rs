@@ -86,13 +86,15 @@ impl Pulse {
             self.identity.clone(),
         );
 
-        let result = agent.run(&prompt).await?;
+        let agent_result = agent.run(&prompt).await?;
         self.last_run = Some(std::time::Instant::now());
 
+        let text = agent_result.text;
+
         // Determine if there are issues.
-        let is_ok = result.to_lowercase().contains("all ok")
-            || result.to_lowercase().contains("all clear")
-            || result.to_lowercase().contains("no issues");
+        let is_ok = text.to_lowercase().contains("all ok")
+            || text.to_lowercase().contains("all clear")
+            || text.to_lowercase().contains("no issues");
 
         if is_ok {
             info!(domain = %self.domain_name, "pulse: all OK");
@@ -104,12 +106,12 @@ impl Pulse {
                     "familiar",
                     WhisperKind::PulseAlert {
                         domain: self.domain_name.clone(),
-                        issues: result.clone(),
+                        issues: text.clone(),
                     },
                 ))
                 .await;
         }
 
-        Ok(result)
+        Ok(text)
     }
 }

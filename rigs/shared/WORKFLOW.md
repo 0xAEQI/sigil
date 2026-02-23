@@ -11,8 +11,6 @@ These rules apply to ALL domains. Domain-specific AGENTS.md may add to but never
 5. Test on dev, then merge `dev` → `master` for production
 6. Cleanup: `git worktree remove ~/worktrees/feat/<name> && git branch -d feat/<name>`
 
-**Exception:** Realm framework itself works directly on `master` (no worktree).
-
 ## Code Standards
 
 | Rule | Rationale |

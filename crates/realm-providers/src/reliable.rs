@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use rand::Rng;
 use realm_core::traits::{ChatRequest, ChatResponse, Provider};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -43,9 +44,9 @@ impl Provider for ReliableProvider {
                         last_error = Some(e);
 
                         if attempt < self.max_retries {
-                            let delay = std::time::Duration::from_millis(
-                                500 * 2u64.pow(attempt),
-                            );
+                            let base_ms = 500 * 2u64.pow(attempt);
+                            let jitter_ms = rand::rng().random_range(0..=base_ms / 2);
+                            let delay = std::time::Duration::from_millis(base_ms + jitter_ms);
                             tokio::time::sleep(delay).await;
                         }
                     }

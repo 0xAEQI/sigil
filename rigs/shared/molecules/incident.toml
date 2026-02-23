@@ -1,30 +1,34 @@
-[molecule]
-name = "incident"
-description = "Incident response: {{description}}"
+name = "Incident: {{incident_summary}}"
+description = "Handle production incident: {{incident_summary}}"
 
-[vars]
-description = { type = "string", required = true }
+[[variables]]
+name = "incident_summary"
+description = "Brief summary of the incident"
+required = true
 
-[[steps]]
-id = "detect"
-title = "Detect and characterize the issue"
-instructions = "Check service status, logs, metrics. Determine scope and severity. Report findings."
-needs = []
-
-[[steps]]
-id = "diagnose"
-title = "Find root cause"
-instructions = "Trace the issue through logs, code, and configuration. Identify the root cause, not just symptoms."
-needs = ["detect"]
+[[variables]]
+name = "severity"
+description = "Incident severity"
+default = "high"
 
 [[steps]]
-id = "fix"
-title = "Implement the fix"
-instructions = "Fix the root cause. Work in a worktree. Build must pass. Deploy to dev first."
-needs = ["diagnose"]
+name = "Triage: {{incident_summary}}"
+description = "Check service health, logs, and metrics. Identify scope of impact for: {{incident_summary}}"
+priority = "critical"
+labels = ["incident", "triage"]
+sequential = false
+acceptance_criteria = "Impact scope identified, affected services listed, initial assessment complete"
 
 [[steps]]
-id = "verify"
-title = "Verify the fix"
-instructions = "Confirm the issue is resolved. Check metrics, logs, and related functionality for regressions."
-needs = ["fix"]
+name = "Mitigate: {{incident_summary}}"
+description = "Apply immediate mitigation. Prioritize restoring service over root cause analysis."
+priority = "critical"
+labels = ["incident", "mitigation"]
+acceptance_criteria = "Service restored or degraded gracefully, user impact minimized"
+
+[[steps]]
+name = "Root Cause: {{incident_summary}}"
+description = "Deep investigation into root cause. Document findings and preventive measures."
+priority = "high"
+labels = ["incident", "postmortem"]
+acceptance_criteria = "Root cause documented, preventive measures identified, follow-up tasks created"

@@ -234,10 +234,17 @@ impl ClaudeCodeExecutor {
             "spawning claude code (unrestricted)"
         );
 
-        let output = cmd
-            .output()
-            .await
-            .context("failed to spawn claude CLI — is it installed?")?;
+        let timeout_secs = (self.max_turns as u64 * 300).max(1800);
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            cmd.output(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!(
+            "claude code timed out after {}s (max_turns={})",
+            timeout_secs, self.max_turns,
+        ))?
+        .context("failed to spawn claude CLI — is it installed?")?;
 
         let duration_ms = start.elapsed().as_millis() as u64;
 

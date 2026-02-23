@@ -25,6 +25,9 @@ pub enum WhisperKind {
     // Shadow → Scout
     Resolution { quest_id: String, answer: String },
 
+    // Scout → Shadow (gap analysis proposal — below auto-assign threshold)
+    QuestProposal { domain: String, prefix: String, subject: String, description: String, confidence: f32, reasoning: String },
+
     // Familiar Council
     FamiliarAdvice { familiar: String, topic: String, advice: String, cost_usd: f64 },
 
@@ -45,6 +48,7 @@ impl WhisperKind {
             Self::Escalation { .. } => "ESCALATE",
             Self::PulseAlert { .. } => "HEARTBEAT_ALERT",
             Self::Resolution { .. } => "RESOLVED",
+            Self::QuestProposal { .. } => "QUEST_PROPOSAL",
             Self::FamiliarAdvice { .. } => "COUNCIL_ADVICE",
             Self::ChamberTopic { .. } => "CHAMBER_TOPIC",
             Self::ChamberResponse { .. } => "CHAMBER_RESPONSE",
@@ -75,6 +79,8 @@ impl WhisperKind {
                 format!("Domain {domain} pulse detected issues:\n{issues}"),
             Self::Resolution { quest_id, answer } =>
                 format!("Resolution for quest {quest_id}: {answer}"),
+            Self::QuestProposal { domain, prefix, subject, confidence, reasoning, .. } =>
+                format!("Gap proposal for {domain} ({prefix}): \"{subject}\" (confidence: {:.0}%) — {reasoning}", confidence * 100.0),
             Self::FamiliarAdvice { familiar, topic, advice, cost_usd } =>
                 format!("[{familiar}] on \"{topic}\" (${cost_usd:.3}): {advice}"),
             Self::ChamberTopic { topic_id, message, familiars } =>
