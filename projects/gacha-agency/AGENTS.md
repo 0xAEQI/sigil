@@ -20,9 +20,9 @@ Standard worktree workflow applies (same as all projects).
 
 ## Key Paths
 
-- Binary: `rm/src/main.rs`
-- Traits: `crates/system-core/src/traits/`
-- Config: `config/system.toml`
+- Binary: `sigil-cli/src/main.rs`
+- Traits: `crates/sigil-core/src/traits/`
+- Config: `config/sigil.toml`
 - Projects: `projects/<name>/`
 - Shared: `projects/shared/`
 
@@ -35,10 +35,10 @@ Standard worktree workflow applies (same as all projects).
 
 ## Adding Things
 
-- New tool: implement `Tool` trait in `system-tools`, export from lib.rs, add to `build_project_tools()`
-- New provider: implement `Provider` trait in `system-providers`, export, add factory
-- New channel: implement `Channel` trait in `system-gates`, export, wire into daemon
-- New project: create `projects/<name>/` with PERSONA.md + IDENTITY.md + AGENTS.md, add to `config/system.toml`
+- New tool: implement `Tool` trait in `sigil-tools`, export from lib.rs, add to `build_project_tools()`
+- New provider: implement `Provider` trait in `sigil-providers`, export, add factory
+- New channel: implement `Channel` trait in `sigil-gates`, export, wire into daemon
+- New project: create `projects/<name>/` with AGENTS.md + KNOWLEDGE.md, add to `config/sigil.toml`
 
 ## Critical Rules
 

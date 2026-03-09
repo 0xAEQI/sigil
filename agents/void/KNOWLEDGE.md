@@ -1,8 +1,8 @@
 # Operational Knowledge
 
-## Sigil/System Architecture
+## Sigil Architecture
 
-- 8 Rust crates, ~7MB release binary, 20 CLI commands
+- 8 Rust crates, ~7MB release binary
 - Executor spawns `claude -p` with `--permission-mode bypassPermissions`
 - CLAUDECODE env var must be unset to avoid nested-session block
 - DispatchBus is in-memory only (no durability across restarts)

@@ -2,7 +2,7 @@
 
 ## Overview
 
-System is a recursive multi-agent orchestration framework written in Rust. A single binary (`rm`, ~7MB release) coordinates autonomous AI agents across isolated projects. Each project has its own repository, task DAG, memory database, identity files, and worker pool.
+System is a recursive multi-agent orchestration framework written in Rust. A single binary (`sigil`, ~7MB release) coordinates autonomous AI agents across isolated projects. Each project has its own repository, task DAG, memory database, identity files, and worker pool.
 
 The key architectural insight: **workers are orchestrators**. Every worker runs as a full Claude Code CLI instance with unrestricted tool access, including the Task tool for spawning sub-agents. This creates a recursive execution tree where any worker can become a coordinator -- unlike flat frameworks (OpenClaw, Gas Town) that cap at one level of delegation.
 
@@ -14,11 +14,11 @@ Layer 0: Emperor (Human)
 Layer 1: Council of Agents
          +-- AgentRouter (Gemini Flash classifier, ~$0.001/call)
          |   routes incoming messages to relevant advisors
-         +-- Kael (Iron Fang) -- financial advisor, algostaking scope
-         +-- Mira (Starweaver) -- product advisor, riftdecks-shop/entity-legal scope
-         +-- Void (Hollow Saint) -- systems advisor, sigil scope
+         +-- Advisor A -- financial advisor, project-alpha scope
+         +-- Advisor B -- product advisor, project-beta/project-gamma scope
+         +-- Advisor C -- systems advisor, project-delta scope
          |
-Layer 2: Lead Agent (Aurelia)
+Layer 2: Lead Agent
          | Claude Opus, full Claude Code mode
          | Receives council input, routes tasks, Telegram interface
          |
@@ -39,23 +39,22 @@ Layer 5: Sub-agents (spawned by workers via Task tool)
 ## Crate Dependency Graph
 
 ```
-rm (CLI binary)
- +-- system-core          (traits, config, agent loop, security, identity)
- +-- system-tasks         (task DAG, JSONL storage)
- +-- system-orchestrator  (23 modules -- the brain)
- |    +-- system-core
- |    +-- system-tasks
- |    +-- system-providers (for reflection, gap analysis, agent routing)
- +-- system-memory        (SQLite + FTS5 + vector)
- +-- system-providers     (OpenRouter, Anthropic, Ollama)
- +-- system-gates         (Telegram, Discord, Slack)
- +-- system-tools         (shell, file, git, tasks, delegate)
- +-- system-companions    (gacha system)
+sigil (CLI binary)
+ +-- sigil-core          (traits, config, agent loop, security, identity)
+ +-- sigil-tasks         (task DAG, JSONL storage)
+ +-- sigil-orchestrator  (23 modules -- the brain)
+ |    +-- sigil-core
+ |    +-- sigil-tasks
+ |    +-- sigil-providers (for reflection, gap analysis, agent routing)
+ +-- sigil-memory        (SQLite + FTS5 + vector)
+ +-- sigil-providers     (OpenRouter, Anthropic, Ollama)
+ +-- sigil-gates         (Telegram, Discord, Slack)
+ +-- sigil-tools         (shell, file, git, tasks, delegate)
 ```
 
-## system-core
+## sigil-core
 
-**Path**: `crates/system-core/`
+**Path**: `crates/sigil-core/`
 
 Defines the trait system that makes everything swappable:
 
@@ -68,7 +67,7 @@ Defines the trait system that makes everything swappable:
 | `Channel` | External messaging | Telegram, Discord, Slack |
 
 **Other modules**:
-- `config.rs` -- `SystemConfig` from TOML with `${ENV_VAR}` expansion, `discover()` walks up directory tree
+- `config.rs` -- `SigilConfig` from TOML with `${ENV_VAR}` expansion, `discover()` walks up directory tree
 - `identity.rs` -- Loads PERSONA.md + IDENTITY.md + AGENTS.md + KNOWLEDGE.md into layered system prompt
 - `security.rs` -- ChaCha20-Poly1305 encrypted `SecretStore` for API keys
 - `agent.rs` -- Basic LLM agent loop (used in Agent execution mode, not Claude Code mode)
@@ -77,29 +76,29 @@ Defines the trait system that makes everything swappable:
 - `Agent` -- Internal LLM loop: `Provider::chat()` -> tool calls -> repeat
 - `ClaudeCode` -- Spawns `claude -p` CLI subprocess with full tool access
 
-## system-tasks
+## sigil-tasks
 
-**Path**: `crates/system-tasks/`
+**Path**: `crates/sigil-tasks/`
 
 Git-native task DAG stored as JSONL files in `.tasks/` per project.
 
 ```
 .tasks/
-  as.jsonl     # AlgoStaking tasks: as-001, as-001.1, as-001.2, ...
-  rd.jsonl     # RiftDecks tasks: rd-001, rd-002, ...
+  mp.jsonl     # myproject tasks: mp-001, mp-001.1, mp-001.2, ...
+  xx.jsonl     # another-project tasks: xx-001, xx-002, ...
 ```
 
 **Features**:
-- Hierarchical IDs: `as-001` (parent), `as-001.1` (child), `as-001.1.1` (grandchild)
+- Hierarchical IDs: `mp-001` (parent), `mp-001.1` (child), `mp-001.1.1` (grandchild)
 - Dependency DAG: `depends_on` / `blocks` with cycle detection
 - Priority: Low, Normal, High, Critical
 - Status: Pending -> InProgress -> Done | Blocked | Cancelled
 - Append-only JSONL: each write appends a new line, periodic compaction
 - `TaskBoard`: mutex-guarded store with `ready()` (unblocked + pending), `create()`, `update()`, `close()`
 
-## system-orchestrator
+## sigil-orchestrator
 
-**Path**: `crates/system-orchestrator/`
+**Path**: `crates/sigil-orchestrator/`
 
 The brain of System. 23 modules covering execution, coordination, cost control, observability, and self-improvement.
 
@@ -218,7 +217,7 @@ daemon.run() {
         2. Check schedule jobs (cron)    -- fire scheduled tasks
         3. Run heartbeat checks          -- periodic heartbeats
         4. Run reflection cycles         -- identity drift detection
-        5. Hot reload on SIGHUP          -- re-read system.toml
+        5. Hot reload on SIGHUP          -- re-read sigil.toml
         6. Persist dispatches + costs    -- JSONL save
         7. Update daily cost gauge       -- metrics
         8. Prune old cost entries         -- 7-day TTL
@@ -227,7 +226,7 @@ daemon.run() {
 }
 ```
 
-**IPC socket** at `~/.sigil/rm.sock`:
+**IPC socket** at `~/.sigil/sigil.sock`:
 - `ping` -> `pong`
 - `status` -> project counts, worker states, cost summary
 - `projects` -> project info JSON
@@ -243,9 +242,9 @@ Tracks every worker execution cost:
 
 ```rust
 CostEntry {
-    project: String,          // "algostaking"
-    task_id: String,          // "as-001"
-    worker: String,           // "as-worker-0"
+    project: String,          // "myproject"
+    task_id: String,          // "mp-001"
+    worker: String,           // "mp-worker-0"
     cost_usd: f64,            // 0.0342
     turns: u32,               // 7
     timestamp: DateTime<Utc>,
@@ -297,18 +296,18 @@ Zero-dependency Prometheus text exposition format.
 
 **Global metrics**:
 ```
-system_tasks_completed_total{project="..."}
-system_tasks_failed_total{project="..."}
-system_tasks_blocked_total{project="..."}
-system_workers_spawned_total{project="..."}
-system_workers_timed_out_total{project="..."}
-system_workers_active{project="..."}
-system_tasks_pending{project="..."}
-system_cost_usd_total{project="..."}
-system_patrol_cycles_total{project="..."}
-system_worker_duration_seconds{project="...",le="..."}
-system_worker_turns{project="...",le="..."}
-system_worker_cost_usd{project="...",le="..."}
+sigil_tasks_completed_total{project="..."}
+sigil_tasks_failed_total{project="..."}
+sigil_tasks_blocked_total{project="..."}
+sigil_workers_spawned_total{project="..."}
+sigil_workers_timed_out_total{project="..."}
+sigil_workers_active{project="..."}
+sigil_tasks_pending{project="..."}
+sigil_cost_usd_total{project="..."}
+sigil_patrol_cycles_total{project="..."}
+sigil_worker_duration_seconds{project="...",le="..."}
+sigil_worker_turns{project="...",le="..."}
+sigil_worker_cost_usd{project="...",le="..."}
 ```
 
 Exposed via IPC socket `metrics` command for Grafana/Prometheus scraping.
@@ -406,9 +405,9 @@ Routes incoming messages to relevant council advisors:
 
 ```
 Message arrives -> Gemini Flash classifier (~$0.001/call)
-  -> Returns RouteDecision { advisors: ["kael", "mira"], confidence: 0.85 }
+  -> Returns RouteDecision { advisors: ["advisor-a", "advisor-b"], confidence: 0.85 }
   -> Fan-out: spawn parallel task for each advisor (60s timeout)
-  -> Council input injected into Aurelia's context
+  -> Council input injected into lead agent's context
 ```
 
 #### Council (`council.rs`)
@@ -419,7 +418,7 @@ Forced council debate mode. `/council` command triggers all advisors regardless 
 /council "should we add WebSocket support?"
   -> All advisors receive the question
   -> Responses collected with attribution
-  -> Aurelia synthesizes with visible debate context
+  -> Lead agent synthesizes with visible debate context
 ```
 
 **Cost control**: `max_advisor_cost_usd = 0.50`, `advisor_cooldown_secs = 60`
@@ -431,12 +430,12 @@ Cross-project operations that track tasks across multiple projects:
 ```rust
 Operation {
     name: String,           // "payment-integration"
-    task_ids: Vec<String>,  // ["as-001", "rd-002", "el-003"]
+    task_ids: Vec<String>,  // ["mp-001", "xx-002", "yy-003"]
     status: OperationStatus, // Active | Complete | Failed
 }
 ```
 
-When `rm done` closes a task, operation status is updated. Operation completes when all tracked tasks are done.
+When `sigil done` closes a task, operation status is updated. Operation completes when all tracked tasks are done.
 
 ### Scheduling & Lifecycle
 
@@ -470,12 +469,12 @@ Event callbacks that pin work to specific workers:
 
 ```rust
 Hook {
-    worker: String,    // "as-worker-0"
-    task_id: String,   // "as-001"
+    worker: String,    // "mp-worker-0"
+    task_id: String,   // "mp-001"
 }
 ```
 
-`rm hook WORKER TASK_ID` creates a hook -- the worker MUST execute that task on next patrol.
+`sigil hook WORKER TASK_ID` creates a hook -- the worker MUST execute that task on next patrol.
 
 #### Session Tracker (`session_tracker.rs`)
 
@@ -499,7 +498,7 @@ ProjectRegistry {
     dispatch_bus: Arc<DispatchBus>,
     wake: Arc<Notify>,
     cost_ledger: Arc<CostLedger>,
-    metrics: Arc<SystemMetrics>,
+    metrics: Arc<SigilMetrics>,
 }
 ```
 
@@ -527,22 +526,22 @@ needs = ["plan"]
 
 - `discover_templates(shared_dir, project_dir)` -> project overrides shared
 - `pour(vars)` -> expand variables, return step chain
-- Used by `rm mol pour` command
+- Used by `sigil pipeline pour` command
 
 ## Data Flow: Task Lifecycle
 
 ```
-1. rm assign "fix login bug" --rig algostaking
-   +-- Registry.assign() -> TaskBoard.create() -> Task{id: "as-042", status: Pending}
+1. sigil assign "fix login bug" --rig myproject
+   +-- Registry.assign() -> TaskBoard.create() -> Task{id: "mp-042", status: Pending}
        +-- wake.notify_one() -> wakes daemon
 
 2. Daemon patrol cycle
    +-- Registry.patrol_all() -> Supervisor.patrol() for each project
 
-3. Supervisor.patrol() -- algostaking
-   +-- Check budget: cost_ledger.can_afford_project("algostaking") -> true
-   +-- Find ready: TaskBoard.ready() -> [as-042]
-   +-- Load checkpoint: WorkerCheckpoint::load(as-042) -> None (fresh task)
+3. Supervisor.patrol() -- myproject
+   +-- Check budget: cost_ledger.can_afford_project("myproject") -> true
+   +-- Find ready: TaskBoard.ready() -> [mp-042]
+   +-- Load checkpoint: WorkerCheckpoint::load(mp-042) -> None (fresh task)
    +-- Spawn worker:
    |   +-- Build identity (7 context layers)
    |   +-- Inject WORKER_PROTOCOL
@@ -550,12 +549,12 @@ needs = ["plan"]
    |   |   +-- claude -p "..." --output-format json --max-turns 25 --cwd /repo
    |   +-- Parse JSON -> ExecutionResult{result_text, cost_usd, num_turns}
    |   +-- Parse outcome -> TaskOutcome::Done("Fixed login validation...")
-   +-- Record cost: cost_ledger.record("algostaking", "as-042", 0.034, 7)
+   +-- Record cost: cost_ledger.record("myproject", "mp-042", 0.034, 7)
    +-- Update metrics: tasks_completed.inc(), cost_usd.add(0.034)
-   +-- Close task: TaskBoard.update(as-042, Done)
+   +-- Close task: TaskBoard.update(mp-042, Done)
    +-- Reflect: Worker.reflect_on_result() -> extract insights -> memory
    +-- Checkpoint: WorkerCheckpoint::capture(/repo) -> save modified files
-   +-- Dispatch: PatrolReport{project: "algostaking", active: 0, pending: 0}
+   +-- Dispatch: PatrolReport{project: "myproject", active: 0, pending: 0}
 
 4. Gap analysis (queue now empty)
    +-- GapAnalyzer.analyze() -> proposes next high-impact work
@@ -571,15 +570,14 @@ needs = ["plan"]
 
 ## Test Coverage
 
-110 tests across 8 crates:
+146 tests across 8 crates:
 
 ```
-system-orchestrator:  56 tests (checkpoint 11, cost_ledger 12, reflection 6, metrics 4, ...)
-system-memory:        17 tests (sqlite, vector, hybrid, chunking)
-system-companions:    17 tests (gacha, fusion, store)
-system-tasks:          8 tests (create, deps, persistence, compaction)
-system-core:           6 tests (config parsing, validation)
-system-providers:      6 tests (pricing, model lookup)
+sigil-orchestrator:  56 tests (checkpoint 11, cost_ledger 12, reflection 6, metrics 4, ...)
+sigil-memory:        17 tests (sqlite, vector, hybrid, chunking)
+sigil-tasks:          8 tests (create, deps, persistence, compaction)
+sigil-core:           6 tests (config parsing, validation)
+sigil-providers:      6 tests (pricing, model lookup)
 ```
 
 All passing, zero clippy warnings.

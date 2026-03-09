@@ -123,77 +123,77 @@ Total budget: ~40k chars (~10k tokens). The `ContextBudget` system handles trunc
 
 ## IPC Socket
 
-When the daemon is running, it listens on `~/.sigil/rm.sock` for JSON-line queries:
+When the daemon is running, it listens on `~/.sigil/sigil.sock` for JSON-line queries:
 
 ```bash
 # Via the CLI
-rm daemon query ping          # -> "pong"
-rm daemon query status        # -> project counts, worker states, cost
-rm daemon query projects      # -> project info JSON
-rm daemon query dispatches    # -> recent dispatch messages
-rm daemon query metrics       # -> Prometheus text exposition
-rm daemon query cost          # -> budget status per project
+sigil daemon query ping          # -> "pong"
+sigil daemon query status        # -> project counts, worker states, cost
+sigil daemon query projects      # -> project info JSON
+sigil daemon query dispatches    # -> recent dispatch messages
+sigil daemon query metrics       # -> Prometheus text exposition
+sigil daemon query cost          # -> budget status per project
 ```
 
 Programmatic access:
 ```bash
-echo '{"cmd":"status"}' | socat - UNIX-CONNECT:~/.sigil/rm.sock
+echo '{"cmd":"status"}' | socat - UNIX-CONNECT:~/.sigil/sigil.sock
 ```
 
 ## CLI Commands
 
 ```bash
 # One-shot execution (creates temporary worker)
-rm run "list files in current directory" --rig myproject
+sigil run "list files in current directory" --rig myproject
 
 # Assign task (picked up by supervisor on next patrol)
-rm assign "fix the login bug" --rig myproject --priority high
+sigil assign "fix the login bug" --rig myproject --priority high
 
 # Check ready work
-rm ready --rig myproject
+sigil ready --rig myproject
 
 # Daemon management
-rm daemon start       # Start daemon (foreground)
-rm daemon stop        # Stop running daemon
-rm daemon status      # Check daemon status
-rm daemon query ...   # Query via IPC
+sigil daemon start       # Start daemon (foreground)
+sigil daemon stop        # Stop running daemon
+sigil daemon status      # Check daemon status
+sigil daemon query ...   # Query via IPC
 
 # Task lifecycle
-rm close mp-001 --reason "fixed in commit abc123"
-rm done mp-001                 # Close + update operations
+sigil close mp-001 --reason "fixed in commit abc123"
+sigil done mp-001                 # Close + update operations
 
 # Workflow templates
-rm mol pour feature-dev --rig myproject --var issue_id=mp-001
-rm mol list --rig myproject
-rm mol status mp-042
+sigil pipelinepour feature-dev --rig myproject --var issue_id=mp-001
+sigil pipelinelist --rig myproject
+sigil pipeline status mp-042
 
 # Cross-project tracking
-rm raid create "payment-flow" as-001 rd-002 el-003
-rm raid status payment-flow
+sigil operation create "payment-flow" mp-001 xx-002 yy-003
+sigil operation status payment-flow
 
 # Scheduled jobs
-rm cron add "nightly-check" --rig myproject --schedule "0 0 * * *" --prompt "Run health check"
+sigil cron add "nightly-check" --rig myproject --schedule "0 0 * * *" --prompt "Run health check"
 
 # Skills
-rm skill run reviewer --rig myproject --prompt "the auth module"
+sigil skill run reviewer --rig myproject --prompt "the auth module"
 
 # Memory
-rm recall "how does auth work?" --rig myproject
-rm remember "jwt-config" "24h expiry, httpOnly refresh tokens" --rig myproject
+sigil recall "how does auth work?" --rig myproject
+sigil remember "jwt-config" "24h expiry, httpOnly refresh tokens" --rig myproject
 
 # Config
-rm config show
-rm config reload          # Send SIGHUP to daemon
+sigil config show
+sigil config reload          # Send SIGHUP to daemon
 
 # Diagnostics
-rm doctor --fix
-rm status
+sigil doctor --fix
+sigil status
 ```
 
 ## Setup
 
 1. Build: `cd /path/to/sigil && cargo build --release`
-2. Install: `sudo ln -sf /path/to/sigil/target/release/rm /usr/local/bin/rm`
-3. Configure: create `config/system.toml` (see [Project Setup](projects.md))
-4. Secrets: `rm secrets set OPENROUTER_API_KEY sk-or-...`
-5. Start: `rm daemon start`
+2. Install: `sudo ln -sf /path/to/sigil/target/release/sigil /usr/local/bin/sigil`
+3. Configure: create `config/sigil.toml` (see [Project Setup](projects.md))
+4. Secrets: `sigil secrets set OPENROUTER_API_KEY sk-or-...`
+5. Start: `sigil daemon start`

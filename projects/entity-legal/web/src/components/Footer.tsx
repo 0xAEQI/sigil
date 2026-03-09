@@ -91,8 +91,10 @@ export function Footer() {
           <Link href="/" className="font-serif text-[14px] tracking-[0.12em] text-text-secondary transition-colors hover:text-text-primary">
             entity<span className="text-text-tertiary">.</span>legal
           </Link>
-          <span className="text-[12px] text-text-muted">
-            &copy; {new Date().getFullYear()} entity.legal
+          <span className="text-right text-[12px] leading-[1.6] text-text-muted">
+            &copy; {new Date().getFullYear()} Entity Legal DAO LLC
+            <br />
+            <span className="text-[11px]">Represented by Entity Directory DAO LLC</span>
           </span>
         </div>
       </div>

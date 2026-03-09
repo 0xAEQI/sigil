@@ -1,0 +1,92 @@
+# Sigil — Agent Orchestration Configuration
+# Copy this to config/sigil.toml and customize.
+
+[sigil]
+name = "my-project"
+data_dir = "~/.sigil"
+# patrol_interval_secs = 30  # Daemon patrol loop interval (reloadable via SIGHUP)
+
+[providers.openrouter]
+api_key = "${OPENROUTER_API_KEY}"
+default_model = "minimax/minimax-m2.5"
+fallback_model = "deepseek/deepseek-v3.2"
+# embedding_model = "openai/text-embedding-3-small"
+
+# [providers.anthropic]
+# api_key = "${ANTHROPIC_API_KEY}"
+
+[security]
+autonomy = "supervised"
+workspace_only = true
+max_cost_per_day_usd = 10.0
+
+[memory]
+backend = "sqlite"
+temporal_decay_halflife_days = 30
+
+[heartbeat]
+enabled = false
+default_interval_minutes = 30
+
+# Agent lifecycle engine — autonomous reflection, evolution, proactive scanning
+[lifecycle]
+enabled = false
+model = "minimax/MiniMax-M1"
+
+# Global repo pool — all agents can access all repos
+[repos]
+my-project = "/path/to/your/project"
+
+# System team — the orchestrator
+[team]
+leader = "leader"
+agents = ["leader"]
+router_model = "google/gemini-2.0-flash-001"
+router_cooldown_secs = 60
+max_background_cost_usd = 0.50
+
+# Agents are discovered from agents/{name}/agent.toml files on disk.
+# See agents/README.md for the directory structure.
+
+# Optional: Telegram channel integration
+# [channels.telegram]
+# token_secret = "TELEGRAM_BOT_TOKEN"
+# allowed_chats = []
+# debounce_window_ms = 3000
+
+# Orchestration tuning parameters (all have sensible defaults)
+# [orchestrator]
+# max_resolution_attempts = 1   # project-level retries before escalation
+# max_task_retries = 3          # handoff/failure retries before auto-cancel
+# shell_timeout_secs = 30       # shell tool timeout
+# max_description_chars = 8000  # task description truncation limit
+# executor_max_retries = 3      # Claude Code transient failure retries
+# dispatch_ttl_secs = 3600      # dispatch message TTL
+# council_max_rounds = 1        # max council debate rounds
+# expertise_routing = false     # enable expertise-based smart routing (v3)
+# blackboard_transient_ttl_hours = 24  # blackboard transient entry TTL
+# blackboard_durable_ttl_days = 7      # blackboard durable entry TTL
+# adaptive_retry = false        # enable LLM failure analysis for retries (v3)
+# preflight_enabled = false     # enable pre-flight assessment before workers (v3)
+# infer_deps_threshold = 0.0    # confidence threshold for auto-inferred deps (0=disabled)
+
+# Watchdog rules — event-driven automation (v3)
+# [[watchdogs]]
+# name = "failure-alert"
+# condition.event = "task_failed"
+# condition.count_threshold = 3
+# condition.window_secs = 3600
+# action.escalate.message = "3+ failures in 1 hour"
+# cooldown_secs = 3600
+
+# Projects (repos, tasks, knowledge)
+[[projects]]
+name = "my-project"
+prefix = "mp"
+repo = "/path/to/your/project"
+model = "claude-sonnet-4-6"
+max_workers = 2
+execution_mode = "claude_code"
+worker_timeout_secs = 1800
+# team.leader = "leader"
+# team.agents = ["leader"]

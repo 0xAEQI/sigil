@@ -1,24 +1,26 @@
 [workspace]
 resolver = "2"
 members = [
-    "rm",
-    "crates/system-core",
-    "crates/system-tasks",
-    "crates/system-providers",
-    "crates/system-tools",
-    "crates/system-orchestrator",
-    "crates/system-memory",
-    "crates/system-gates",
-    "crates/system-companions",
-    "crates/system-tenants",
-    "crates/system-web",
+    "sigil-cli",
+    "crates/sigil-core",
+    "crates/sigil-tasks",
+    "crates/sigil-providers",
+    "crates/sigil-tools",
+    "crates/sigil-orchestrator",
+    "crates/sigil-memory",
+    "crates/sigil-gates",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-authors = ["AlgoStaking"]
+authors = ["Sigil Contributors"]
+description = "Recursive multi-agent orchestration framework"
+repository = "https://github.com/USER/sigil"
+homepage = "https://github.com/USER/sigil"
+categories = ["development-tools", "command-line-utilities"]
+keywords = ["agents", "orchestration", "llm", "claude", "automation"]
 
 [workspace.dependencies]
 # Async runtime
@@ -52,16 +54,6 @@ rand = "0.9"
 base64 = "0.22"
 sha2 = "0.10"
 hmac = "0.12"
-argon2 = "0.5"
-
-# TOTP
-totp-rs = { version = "5", features = ["qr"] }
-
-# Email
-lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "builder", "hostname", "smtp-transport"] }
-
-# Hex encoding
-hex = "0.4"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -83,16 +75,14 @@ futures = "0.3"
 tempfile = "3"
 
 # Internal crates
-system-tasks = { path = "crates/system-tasks" }
-system-core = { path = "crates/system-core" }
-system-providers = { path = "crates/system-providers" }
-system-tools = { path = "crates/system-tools" }
-system-orchestrator = { path = "crates/system-orchestrator" }
-system-memory = { path = "crates/system-memory" }
-system-gates = { path = "crates/system-gates" }
-system-companions = { path = "crates/system-companions" }
-system-tenants = { path = "crates/system-tenants" }
-system-web = { path = "crates/system-web" }
+sigil-tasks = { path = "crates/sigil-tasks" }
+sigil-core = { path = "crates/sigil-core" }
+sigil-providers = { path = "crates/sigil-providers" }
+sigil-tools = { path = "crates/sigil-tools" }
+sigil-orchestrator = { path = "crates/sigil-orchestrator" }
+sigil-memory = { path = "crates/sigil-memory" }
+sigil-gates = { path = "crates/sigil-gates" }
+
 
 [profile.release]
 lto = true

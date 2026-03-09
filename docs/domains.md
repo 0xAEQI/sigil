@@ -1,12 +1,12 @@
 # Project Setup Guide
 
-A **project** is an isolated business unit in System. Each project has its own:
+A **project** is an isolated business unit in Sigil. Each project has its own:
 
 - Git repository (working directory)
 - Task store (`.tasks/` -- JSONL task DAG)
 - Memory database (`.sigil/memory.db` -- SQLite + FTS5)
 - Identity files (PERSONA.md, IDENTITY.md, AGENTS.md, KNOWLEDGE.md)
-- Skills (magic) and workflow templates (templates/pipelines)
+- Skills and workflow templates (pipelines)
 - Worker pool (concurrent Claude Code executors)
 - Checkpoints (`.sigil/checkpoints/` -- worker work-in-progress)
 
@@ -14,7 +14,7 @@ A **project** is an isolated business unit in System. Each project has its own:
 
 ### 1. Add to config
 
-In `config/system.toml`:
+In `config/sigil.toml`:
 
 ```toml
 [[projects]]
@@ -35,7 +35,7 @@ max_turns = 25                                   # Max agentic turns per worker
 mkdir -p projects/myproject/{pipelines,skills,.tasks,.sigil/checkpoints}
 ```
 
-Or run `rm doctor --fix` to auto-create missing directories.
+Or run `sigil doctor --fix` to auto-create missing directories.
 
 ### 3. Write identity files
 
@@ -163,7 +163,7 @@ projects/myproject/
   HEARTBEAT.md             <- heartbeat check instructions (optional)
   PREFERENCES.md           <- learned preferences (reflection-updated)
   MEMORY.md                <- persistent notes (optional)
-  skills/                  <- magic definitions (TOML)
+  skills/                  <- skill definitions (TOML)
     researcher.toml
     developer.toml
     reviewer.toml
@@ -242,7 +242,7 @@ allow = ["shell", "file_read", "list_dir"]
 deny = ["file_write"]
 ```
 
-Run: `rm skill run reviewer --rig myproject --prompt "the auth module"`
+Run: `sigil skill run reviewer --rig myproject --prompt "the auth module"`
 
 ## Tasks
 
@@ -250,19 +250,19 @@ Each project's tasks are JSONL files in `.tasks/`:
 
 ```bash
 # Create a task
-rm assign "Fix login bug" --rig myproject --priority high
+sigil assign "Fix login bug" --rig myproject --priority high
 
 # Check ready (unblocked) tasks
-rm ready --rig myproject
+sigil ready --rig myproject
 
 # Show all open tasks
-rm beads --rig myproject
+sigil beads --rig myproject
 
 # Close a task
-rm close mp-001 --reason "fixed in commit abc123"
+sigil close mp-001 --reason "fixed in commit abc123"
 
 # Mark done (also updates operations)
-rm done mp-001
+sigil done mp-001
 ```
 
 Task IDs are hierarchical: `mp-001` (parent) -> `mp-001.1` (child) -> `mp-001.1.1` (grandchild).
@@ -273,10 +273,10 @@ Per-project memory in `.sigil/memory.db` (SQLite + FTS5 + vector similarity):
 
 ```bash
 # Store a memory
-rm remember "auth-flow" "Login uses JWT with 24h expiry" --rig myproject
+sigil remember "auth-flow" "Login uses JWT with 24h expiry" --rig myproject
 
 # Search memories
-rm recall "how does authentication work?" --rig myproject
+sigil recall "how does authentication work?" --rig myproject
 ```
 
 Hybrid search: BM25 keyword matching + cosine vector similarity + temporal decay (30-day half-life). Results ranked by configurable weights (`vector_weight`, `keyword_weight`).
@@ -286,23 +286,23 @@ Hybrid search: BM25 keyword matching + cosine vector similarity + temporal decay
 Per-project budgets can be configured alongside the global daily cap:
 
 ```toml
-# In system.toml
+# In sigil.toml
 [security]
 max_cost_per_day_usd = 10.0    # Global cap
 
 # Per-project (optional -- falls back to global)
 [project_budgets]
-algostaking = 5.0
-riftdecks-shop = 3.0
+project-alpha = 5.0
+project-beta = 3.0
 ```
 
-The supervisor checks `can_afford_project()` before spawning any worker. Budget status visible via `rm daemon query cost`.
+The supervisor checks `can_afford_project()` before spawning any worker. Budget status visible via `sigil daemon query cost`.
 
 ## Verification
 
 ```bash
-rm doctor         # Check all projects
-rm doctor --fix   # Auto-create missing directories/files
+sigil doctor         # Check all projects
+sigil doctor --fix   # Auto-create missing directories/files
 ```
 
 Checks: config validity, project directories, identity files, task store, skills, memory DB, secret store.

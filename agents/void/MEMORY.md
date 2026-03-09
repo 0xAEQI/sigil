@@ -1,10 +1,11 @@
 # Memory
 
-*Updated by the reflection system. Do not edit manually.*
+*Updated by reflection system*
 
 ## Domain Knowledge
-- Primary project: Sigil/System (agent orchestration framework, Rust)
-- 8 crates, ~7MB release binary, 115+ tests
+- **Project**: Sigil/System (agent orchestration framework, Rust)
+- **Scale**: 8 crates, ~7MB release binary, 115+ tests
 
-## Observations
-- (Populated by reflection cycles)
+## Recent Context
+- No reflection observations recorded
+- No SQLite memories stored

@@ -1,6 +1,6 @@
 # Council of Agents
 
-The Council is System's multi-agent advisory system. Instead of a single coordinator, System runs a lead agent (Aurelia) supported by specialist advisors who provide project-scoped expertise.
+The Council is System's multi-agent advisory system. Instead of a single coordinator, System runs a lead agent (the lead agent) supported by specialist advisors who provide project-scoped expertise.
 
 ## Architecture
 
@@ -12,91 +12,91 @@ AgentRouter (Gemini Flash, ~$0.001/call)
   "Which advisors are relevant to this message?"
         |
         v
-RouteDecision { advisors: ["kael", "mira"], confidence: 0.85 }
+RouteDecision { advisors: ["advisor-a", "advisor-b"], confidence: 0.85 }
         |
-        +-->  Kael (parallel task spawn, 60s timeout)
-        +-->  Mira (parallel task spawn, 60s timeout)
-        |
-        v
-Council input injected into Aurelia's context
+        +-->  Advisor A (parallel task spawn, 60s timeout)
+        +-->  Advisor B (parallel task spawn, 60s timeout)
         |
         v
-Aurelia (Lead Agent) synthesizes and responds
+Council input injected into the lead agent's context
+        |
+        v
+the lead agent (Lead Agent) synthesizes and responds
 ```
 
 ## Agents
 
-### Aurelia -- The Lead Agent
+### the lead agent -- The Lead Agent
 
 - **Role**: `orchestrator` -- primary coordinator, Telegram interface, task routing
 - **Model**: Claude Opus (highest capability for orchestration decisions)
 - **Mode**: Full Claude Code (can edit files, run commands, spawn sub-agents)
 - **Scope**: All projects
 
-### Kael -- The Iron Fang
+### Advisor A -- The Financial Specialist
 
 - **Role**: `advisor` -- financial and infrastructure specialist
 - **Model**: Claude Opus
-- **Scope**: `algostaking` project
-- **Personality**: Disciplined war treasurer -- blunt, data-driven, skeptical of unproven approaches
-- **Specialties**: HFT systems, cost analysis, infrastructure hardening, risk assessment
+- **Scope**: `project-alpha` project
+- **Personality**: Disciplined, data-driven, skeptical of unproven approaches
+- **Specialties**: Financial systems, cost analysis, infrastructure hardening, risk assessment
 
-### Mira -- The Starweaver
+### Advisor B -- The Product Specialist
 
 - **Role**: `advisor` -- product and user experience specialist
 - **Model**: Claude Sonnet
-- **Scope**: `riftdecks-shop`, `entity-legal` projects
-- **Personality**: Energetic dream priestess -- optimistic, user-focused, connects dots across projects
+- **Scope**: `project-beta`, `project-gamma` projects
+- **Personality**: Optimistic, user-focused, connects dots across projects
 - **Specialties**: Product strategy, UX/UI, marketplace dynamics, pricing
 
-### Void -- The Hollow Saint
+### Advisor C -- The Systems Specialist
 
 - **Role**: `advisor` -- systems architecture specialist
 - **Model**: Claude Sonnet
 - **Scope**: `sigil` project
-- **Personality**: Minimal systems oracle -- speaks only when the signal is strong, architectural precision
+- **Personality**: Minimal, precise -- speaks only when the signal is strong, architectural focus
 - **Specialties**: Framework internals, performance optimization, system design, observability
 
 ## Configuration
 
 ```toml
-# config/system.toml
+# config/sigil.toml
 
 # Agents
 [[agents]]
-name = "aurelia"
+name = "leader"
 prefix = "fa"
 model = "claude-opus-4-6"
 role = "orchestrator"
 telegram_token_secret = "TELEGRAM_BOT_TOKEN"
 
 [[agents]]
-name = "kael"
+name = "advisor-a"
 prefix = "fk"
 model = "claude-opus-4-6"
 role = "advisor"
-expertise = ["algostaking"]
-telegram_token_secret = "KAEL_TELEGRAM_TOKEN"
+expertise = ["project-alpha"]
+telegram_token_secret = "ADVISOR_A_TELEGRAM_TOKEN"
 
 [[agents]]
-name = "mira"
+name = "advisor-b"
 prefix = "fm"
 model = "claude-sonnet-4-6"
 role = "advisor"
-expertise = ["riftdecks-shop", "entity-legal"]
-telegram_token_secret = "MIRA_TELEGRAM_TOKEN"
+expertise = ["project-beta", "project-gamma"]
+telegram_token_secret = "ADVISOR_B_TELEGRAM_TOKEN"
 
 [[agents]]
-name = "void"
+name = "advisor-c"
 prefix = "fv"
 model = "claude-sonnet-4-6"
 role = "advisor"
 expertise = ["sigil"]
-telegram_token_secret = "VOID_TELEGRAM_TOKEN"
+telegram_token_secret = "ADVISOR_C_TELEGRAM_TOKEN"
 
 # Team cost controls
 [team]
-leader = "aurelia"
+leader = "leader"
 router_model = "gemini-flash"
 router_cooldown_secs = 60
 max_advisor_cost_usd = 0.50
@@ -108,16 +108,16 @@ The `AgentRouter` uses a cheap classifier (Gemini Flash, ~$0.001/call) to determ
 
 ```rust
 RouteDecision {
-    advisors: Vec<String>,    // ["kael", "mira"]
+    advisors: Vec<String>,    // ["advisor-a", "advisor-b"]
     confidence: f32,          // 0.85
     reasoning: String,        // "Message mentions trading and pricing"
 }
 ```
 
 Routing logic:
-- Message mentions "trading", "HFT", "costs" -> route to Kael
-- Message mentions "product", "cards", "legal" -> route to Mira
-- Message mentions "framework", "architecture", "performance" -> route to Void
+- Message mentions "finance", "costs", "budget" -> route to Advisor A
+- Message mentions "product", "cards", "legal" -> route to Advisor B
+- Message mentions "framework", "architecture", "performance" -> route to Advisor C
 - Message mentions multiple projects -> route to all relevant advisors
 
 ## Council Mode
@@ -128,27 +128,27 @@ Force all advisors into debate with `/council`:
 /council "Should we add WebSocket support to the trading pipeline?"
 ```
 
-All advisors receive the question regardless of routing. Their responses are collected with attribution and injected into Aurelia's context for synthesis.
+All advisors receive the question regardless of routing. Their responses are collected with attribution and injected into the lead agent's context for synthesis.
 
 This creates visible multi-perspective debate:
 
 ```
-[Kael]: WebSocket adds latency. At our tick rates (50us), every hop matters.
+[Advisor A]: WebSocket adds latency. At our tick rates (50us), every hop matters.
         If the data can be pushed via shared memory, that's strictly better.
         Cost: additional infra for WS servers, monitoring, reconnection logic.
 
-[Mira]: Users expect real-time updates. The dashboard refresh lag is the #1
+[Advisor B]: Users expect real-time updates. The dashboard refresh lag is the #1
         complaint. WebSocket for the dashboard, keep shared memory for the
         execution path.
 
-[Void]: Hybrid approach. WS for observation plane (dashboards, monitoring),
+[Advisor C]: Hybrid approach. WS for observation plane (dashboards, monitoring),
         shared memory for execution plane. Clean separation. The existing
         Prometheus metrics path already handles observation -- extend it.
 ```
 
-Aurelia synthesizes:
+the lead agent synthesizes:
 > Based on council input: hybrid architecture. WebSocket for dashboard/monitoring
-> consumers, shared memory for execution path. Void's observation/execution plane
+> consumers, shared memory for execution path. Advisor C's observation/execution plane
 > split aligns with our existing metrics infrastructure.
 
 ## Cost Control
@@ -165,7 +165,7 @@ Aurelia synthesizes:
 Each agent has identity files in `agents/<name>/`:
 
 ```
-agents/kael/
+agents/advisor-a/
   PERSONA.md     <- personality, expertise, communication style
   IDENTITY.md    <- name, role, project scope
   AGENTS.md      <- operating instructions for advisor role
@@ -175,12 +175,12 @@ agents/kael/
 The PERSONA.md files define distinct personalities with trust layers and team dynamics:
 
 - **Trust layers**: How the agent communicates at different trust levels (with Emperor vs with workers vs with other agents)
-- **Team dynamics**: How agents interact with each other (Kael challenges Mira's optimism, Void mediates)
-- **Debate style**: How the agent argues (Kael: data-first, Mira: user-impact, Void: architectural purity)
+- **Team dynamics**: How agents interact with each other (Advisor A challenges Advisor B's optimism, Advisor C mediates)
+- **Debate style**: How the agent argues (Advisor A: data-first, Advisor B: user-impact, Advisor C: architectural purity)
 
 ## Adding a New Advisor
 
-1. Add to `config/system.toml`:
+1. Add to `config/sigil.toml`:
 ```toml
 [[agents]]
 name = "newadvisor"

@@ -11,5 +11,20 @@ agents/*/.sigil/
 *.db-wal
 *.db-shm
 
-# Local config (commit platform.example.toml instead)
+# Local config (commit sigil.example.toml instead)
+config/sigil.toml
 config/platform.toml
+
+# Agent directories (personal — create your own)
+agents/*/
+!agents/shared/
+!agents/README.md
+
+# Project directories (personal — create your own)
+projects/*/
+!projects/shared/
+!projects/README.md
+
+# Secrets
+.env
+.env.local

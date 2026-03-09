@@ -49,18 +49,18 @@ needs = ["test"]
 ### Pour a template
 
 ```bash
-rm mol pour feature-dev --rig algostaking --var issue_id=as-123
+sigil pipelinepour feature-dev --rig myproject --var issue_id=mp-123
 ```
 
 Creates a parent task with child steps linked by dependencies:
 
 ```
-as-042 [Pending] feature-dev
-  as-042.1 [Pending] Research the requirement       (ready -- no dependencies)
-  as-042.2 [Pending] Plan the implementation        (blocked by as-042.1)
-  as-042.3 [Pending] Implement the solution         (blocked by as-042.2)
-  as-042.4 [Pending] Test the implementation        (blocked by as-042.3)
-  as-042.5 [Pending] Review and create PR           (blocked by as-042.4)
+mp-042 [Pending] feature-dev
+  mp-042.1 [Pending] Research the requirement       (ready -- no dependencies)
+  mp-042.2 [Pending] Plan the implementation        (blocked by mp-042.1)
+  mp-042.3 [Pending] Implement the solution         (blocked by mp-042.2)
+  mp-042.4 [Pending] Test the implementation        (blocked by mp-042.3)
+  mp-042.5 [Pending] Review and create PR           (blocked by mp-042.4)
 ```
 
 Workers execute steps in order. When a step's task is closed, downstream steps become unblocked automatically.
@@ -68,26 +68,26 @@ Workers execute steps in order. When a step's task is closed, downstream steps b
 ### List available templates
 
 ```bash
-rm mol list                     # All projects
-rm mol list --rig algostaking   # Specific project
+sigil pipelinelist                     # All projects
+sigil pipelinelist --rig myproject   # Specific project
 ```
 
 ### Check pipeline progress
 
 ```bash
-rm mol status as-042
+sigil pipelinestatus mp-042
 ```
 
 Output:
 ```
-as-042 [InProgress] feature-dev
+mp-042 [InProgress] feature-dev
 Progress: 2/5
 
-  [x] as-042.1 Research the requirement
-  [x] as-042.2 Plan the implementation
-  [~] as-042.3 Implement the solution       <- in progress
-  [ ] as-042.4 Test the implementation
-  [ ] as-042.5 Review and create PR
+  [x] mp-042.1 Research the requirement
+  [x] mp-042.2 Plan the implementation
+  [~] mp-042.3 Implement the solution       <- in progress
+  [ ] mp-042.4 Test the implementation
+  [ ] mp-042.5 Review and create PR
 ```
 
 ## Variable Interpolation
@@ -107,7 +107,7 @@ instructions = "Read issue {{issue_id}} and understand the problem."
 Pass variables with `--var`:
 
 ```bash
-rm mol pour template --rig myproject --var issue_id=mp-001 --var priority=high
+sigil pipelinepour template --rig myproject --var issue_id=mp-001 --var priority=high
 ```
 
 Missing required variables cause an error. Missing optional variables are left as empty strings.
