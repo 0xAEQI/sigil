@@ -116,6 +116,7 @@ impl ProjectRegistry {
     pub async fn patrol_all(&self) -> Result<()> {
         let whispers = self.dispatch_bus.read(&self.leader_agent_name).await;
         for w in &whispers {
+            let mut handled = true;
             match &w.kind {
                 crate::message::DispatchKind::PatrolReport { project, active, pending } => {
                     info!(from = %w.from, project = %project, active = active, pending = pending, "supervisor report");
@@ -123,9 +124,29 @@ impl ProjectRegistry {
                 crate::message::DispatchKind::WorkerCrashed { project, worker, error } => {
                     warn!(from = %w.from, project = %project, worker = %worker, error = %error, "worker crashed");
                 }
+                crate::message::DispatchKind::TaskDone { task_id, .. } => {
+                    if let Some(ref operation_store) = self.operation_store {
+                        let qid = sigil_tasks::TaskId(task_id.clone());
+                        let mut store = operation_store.lock().await;
+                        match store.mark_task_closed(&qid) {
+                            Ok(completed_ops) => {
+                                for op_id in completed_ops {
+                                    info!(operation = %op_id, "operation completed");
+                                }
+                            }
+                            Err(e) => {
+                                handled = false;
+                                warn!(task = %task_id, error = %e, "failed to update operation store");
+                            }
+                        }
+                    }
+                }
                 _ => {
                     info!(from = %w.from, kind = %w.kind.subject_tag(), "dispatch received");
                 }
+            }
+            if handled && w.requires_ack {
+                self.dispatch_bus.acknowledge(&w.id).await;
             }
         }
 
@@ -161,25 +182,8 @@ impl ProjectRegistry {
                     info!(project = %project_name, task = %task_id, "dispatching resolution to supervisor");
                     let s = sup.lock().await;
                     s.handle_resolution(task_id, answer).await;
-                }
-            }
-        }
-
-        // Track completed tasks in operation store.
-        if let Some(ref operation_store) = self.operation_store {
-            for w in &whispers {
-                if let crate::message::DispatchKind::TaskDone { task_id, .. } = &w.kind {
-                    let qid = sigil_tasks::TaskId(task_id.clone());
-                    let mut store = operation_store.lock().await;
-                    match store.mark_task_closed(&qid) {
-                        Ok(completed_ops) => {
-                            for op_id in completed_ops {
-                                info!(operation = %op_id, "operation completed");
-                            }
-                        }
-                        Err(e) => {
-                            warn!(task = %task_id, error = %e, "failed to update operation store");
-                        }
+                    if w.requires_ack {
+                        self.dispatch_bus.acknowledge(&w.id).await;
                     }
                 }
             }
@@ -495,5 +499,43 @@ mod tests {
         let store = operation_store.lock().await;
         let op = store.get(&operation_id).unwrap();
         assert!(op.closed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn patrol_all_acknowledges_processed_taskdone_dispatches() {
+        let dispatch_bus = Arc::new(DispatchBus::new());
+        let mut registry = ProjectRegistry::new(dispatch_bus.clone(), "leader".to_string());
+
+        let op_dir = TempDir::new().unwrap();
+        let operation_store = Arc::new(Mutex::new(
+            OperationStore::open(Path::new(&op_dir.path().join("operations.json"))).unwrap(),
+        ));
+        registry.set_operation_store(operation_store.clone());
+
+        let (project, _project_dir) = temp_project("demo", "dm").unwrap();
+        registry.register_project_only(project.clone()).await;
+        let task = registry.assign("demo", "acked close", "").await.unwrap();
+        {
+            let mut store = operation_store.lock().await;
+            store
+                .create("acked-op", vec![(task.id.clone(), "demo".to_string())])
+                .unwrap();
+        }
+
+        dispatch_bus
+            .send(Dispatch::new_typed(
+                "supervisor-demo",
+                "leader",
+                DispatchKind::TaskDone {
+                    task_id: task.id.to_string(),
+                    summary: "done".to_string(),
+                },
+            ))
+            .await;
+
+        registry.patrol_all().await.unwrap();
+
+        let retries = dispatch_bus.retry_unacked(0).await;
+        assert!(retries.is_empty(), "processed TaskDone dispatch should be acknowledged");
     }
 }

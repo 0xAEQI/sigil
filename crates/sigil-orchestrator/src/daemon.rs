@@ -14,6 +14,8 @@ use crate::lifecycle::LifecycleEngine;
 use crate::registry::ProjectRegistry;
 use crate::watchdog::WatchdogEngine;
 
+const ACK_RETRY_AGE_SECS: u64 = 60;
+
 /// The Daemon: background process that runs the ProjectRegistry patrol loop,
 /// pulses, and cron jobs.
 pub struct Daemon {
@@ -368,23 +370,43 @@ impl Daemon {
                 warn!(error = %e, "failed to save cost ledger");
             }
 
-            // 8. Update daily cost gauge.
+            // 8. Surface dispatch retries / dead letters for critical mail.
+            let retried = self.dispatch_bus.retry_unacked(ACK_RETRY_AGE_SECS).await;
+            for dispatch in &retried {
+                warn!(
+                    to = %dispatch.to,
+                    subject = %dispatch.kind.subject_tag(),
+                    retry = dispatch.retry_count,
+                    "retrying unacknowledged dispatch"
+                );
+            }
+            let dead_letters = self.dispatch_bus.dead_letters().await;
+            for dispatch in &dead_letters {
+                warn!(
+                    to = %dispatch.to,
+                    subject = %dispatch.kind.subject_tag(),
+                    retries = dispatch.retry_count,
+                    "dispatch moved to dead-letter state"
+                );
+            }
+
+            // 9. Update daily cost gauge.
             let (spent, _, _) = self.registry.cost_ledger.budget_status();
             self.registry.metrics.daily_cost_usd.set(spent);
             let pending_dispatches = self.dispatch_bus.pending_count();
             self.registry.metrics.dispatch_queue_depth.set(pending_dispatches as f64);
 
-            // 9. Prune old cost entries (older than 7 days) every cycle.
+            // 10. Prune old cost entries (older than 7 days) every cycle.
             self.registry.cost_ledger.prune_old();
 
-            // 10. Prune expired blackboard entries.
+            // 11. Prune expired blackboard entries.
             if let Some(ref bb) = self.registry.blackboard
                 && let Err(e) = bb.prune_expired()
             {
                 warn!(error = %e, "failed to prune blackboard");
             }
 
-            // 11. Evaluate watchdog rules.
+            // 12. Evaluate watchdog rules.
             if let Some(ref mut watchdog) = self.watchdog
                 && let Some(ref audit) = self.registry.audit_log
             {

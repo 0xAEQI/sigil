@@ -364,6 +364,8 @@ Dispatch {
 - SQLite WAL persistence: `~/.sigil/dispatches.db`
 - `read(recipient)` -> return unread messages and mark them delivered
 - Ack-required dispatches remain retryable until explicitly acknowledged
+- Critical control-plane mail (`TaskDone`, `TaskBlocked`, `TaskFailed`, `Resolution`, `Escalation`, `WorkerCrashed`, `HeartbeatAlert`) requires ack by default
+- Daemon patrol surfaces retried and dead-lettered dispatches for operator visibility
 - `unread_count(recipient)` -> peek without consuming
 
 ### Self-Improvement

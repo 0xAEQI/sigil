@@ -98,6 +98,19 @@ pub enum DispatchKind {
 }
 
 impl DispatchKind {
+    pub fn requires_ack_by_default(&self) -> bool {
+        matches!(
+            self,
+            Self::TaskDone { .. }
+                | Self::TaskBlocked { .. }
+                | Self::TaskFailed { .. }
+                | Self::WorkerCrashed { .. }
+                | Self::HeartbeatAlert { .. }
+                | Self::Resolution { .. }
+                | Self::Escalation { .. }
+        )
+    }
+
     pub fn subject_tag(&self) -> &'static str {
         match self {
             Self::TaskDone { .. } => "DONE",
@@ -247,6 +260,7 @@ fn default_max_retries() -> u32 {
 impl Dispatch {
     pub fn new_typed(from: &str, to: &str, kind: DispatchKind) -> Self {
         let now = Utc::now();
+        let requires_ack = kind.requires_ack_by_default();
         Self {
             from: from.to_string(),
             to: to.to_string(),
@@ -254,7 +268,7 @@ impl Dispatch {
             timestamp: now,
             read: false,
             id: default_dispatch_id(),
-            requires_ack: false,
+            requires_ack,
             retry_count: 0,
             max_retries: 3,
             first_sent_at: now,
@@ -1197,5 +1211,37 @@ mod tests {
         let retries = bus.retry_unacked(0).await;
         assert_eq!(retries.len(), 1);
         assert_eq!(retries[0].id, id);
+    }
+
+    #[test]
+    fn test_critical_dispatches_require_ack_by_default() {
+        assert!(Dispatch::new_typed(
+            "a",
+            "leader",
+            DispatchKind::TaskDone {
+                task_id: "t1".into(),
+                summary: "done".into(),
+            },
+        )
+        .requires_ack);
+        assert!(Dispatch::new_typed(
+            "a",
+            "leader",
+            DispatchKind::Resolution {
+                task_id: "t1".into(),
+                answer: "yes".into(),
+            },
+        )
+        .requires_ack);
+        assert!(!Dispatch::new_typed(
+            "a",
+            "leader",
+            DispatchKind::PatrolReport {
+                project: "demo".into(),
+                active: 1,
+                pending: 2,
+            },
+        )
+        .requires_ack);
     }
 }
