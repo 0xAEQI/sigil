@@ -11,7 +11,7 @@ Sigil currently has two real execution paths:
 
 - 8 crates in one Cargo workspace
 - 25 top-level CLI commands
-- 204 unit tests passing with `cargo test --workspace`
+- 209 unit tests passing with `cargo test --workspace`
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - Implemented subsystems: task DAGs, missions, operations, memory, audit log, blackboard, schedules, watchdogs, project teams, Telegram ingress, Claude Code worker execution
 
@@ -26,14 +26,14 @@ What changed in this documentation pass:
 ```bash
 cargo build
 
-sigil init
+sigil setup --service
 sigil secrets set OPENROUTER_API_KEY sk-or-...
 
-# add agents/<name>/ and projects/<name>/ plus config/sigil.toml entries
+# add projects/<name>/ plus config/sigil.toml entries
 sigil doctor --strict
 
 sigil run "summarize the repository layout"
-sigil daemon start
+sigil daemon install --start
 sigil daemon query readiness
 ```
 
@@ -43,7 +43,7 @@ Use [config/sigil.example.toml](/home/claudedev/sigil/config/sigil.example.toml)
 
 ### Operator Surface
 
-- Core: `run`, `init`, `doctor`, `status`, `config`, `team`, `agent`, `secrets`
+- Core: `run`, `init`, `setup`, `doctor`, `status`, `config`, `team`, `agent`, `secrets`
 - Work management: `assign`, `ready`, `tasks`, `close`, `hook`, `done`, `mission`, `operation`, `deps`
 - Knowledge and automation: `recall`, `remember`, `skill`, `pipeline`, `cron`
 - Long-running orchestration: `daemon`, `audit`, `blackboard`
@@ -76,6 +76,15 @@ sigil daemon query metrics
 3. Register projects and advisor agents as supervised task owners
 4. Patrol ready work and spawn workers
 5. Persist orchestration state and serve daemon IPC on `~/.sigil/rm.sock`
+
+Runtime presets now select the worker provider and execution mode per project or agent. Built-ins:
+
+- `openrouter_agent`
+- `openrouter_claude_code`
+- `anthropic_agent`
+- `anthropic_claude_code`
+- `ollama_agent`
+- `ollama_claude_code`
 
 ### Claude Code Workers
 
@@ -120,13 +129,14 @@ The worker protocol supports `DONE`, `BLOCKED:`, `FAILED:`, and `HANDOFF:` outco
 - `~/.sigil/operations.json`: cross-project operation tracking
 - `~/.sigil/memory.db`: global memory
 - `projects/<name>/.sigil/memory.db`: project memory
+- `~/.config/systemd/user/sigil.service`: optional user service on Linux
 
 ## Current Boundaries
 
 - There is no first-class `sigil council` CLI subcommand. Council mode is driven from the daemon's message path, most visibly through Telegram `/council ...`.
 - There is no top-level `sigil cost` CLI subcommand. Use `sigil daemon query cost`.
 - Readiness is daemon-driven. Use `sigil daemon query readiness` for a machine-readable “can this harness accept work now?” answer.
-- Provider crates exist for Anthropic and Ollama, but the main CLI/daemon provider factory is still wired through the OpenRouter path today.
+- Worker/provider runtime presets are wired through the CLI and daemon now, but advisor routing and usage-credit inspection are still OpenRouter-oriented.
 - Recursive worker orchestration depends on an installed, authenticated `claude` binary when projects use `claude_code`.
 
 ## Working On Sigil

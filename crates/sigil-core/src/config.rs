@@ -11,6 +11,8 @@ pub struct SigilConfig {
     #[serde(default)]
     pub providers: ProvidersConfig,
     #[serde(default)]
+    pub runtime_presets: HashMap<String, RuntimePresetConfig>,
+    #[serde(default)]
     pub security: SecurityConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
@@ -52,6 +54,9 @@ pub struct SigilMeta {
     pub name: String,
     #[serde(default = "default_data_dir")]
     pub data_dir: String,
+    /// Default runtime preset name used when projects/agents don't override it.
+    #[serde(default)]
+    pub default_runtime: Option<String>,
     /// Patrol interval in seconds (daemon loop sleep).
     #[serde(default)]
     pub patrol_interval_secs: Option<u64>,
@@ -69,6 +74,34 @@ pub struct ProvidersConfig {
     pub anthropic: Option<AnthropicConfig>,
     #[serde(default)]
     pub ollama: Option<OllamaConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    OpenRouter,
+    Anthropic,
+    Ollama,
+}
+
+impl std::fmt::Display for ProviderKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::OpenRouter => "openrouter",
+            Self::Anthropic => "anthropic",
+            Self::Ollama => "ollama",
+        };
+        write!(f, "{name}")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimePresetConfig {
+    pub provider: ProviderKind,
+    #[serde(default)]
+    pub execution_mode: Option<ExecutionMode>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,14 +224,30 @@ impl Default for MemoryConfig {
     }
 }
 
-fn default_memory_backend() -> String { "sqlite".to_string() }
-fn default_embedding_dims() -> usize { 1536 }
-fn default_vector_weight() -> f64 { 0.6 }
-fn default_keyword_weight() -> f64 { 0.4 }
-fn default_decay_halflife() -> f64 { 30.0 }
-fn default_mmr_lambda() -> f64 { 0.7 }
-fn default_chunk_size() -> usize { 400 }
-fn default_chunk_overlap() -> usize { 80 }
+fn default_memory_backend() -> String {
+    "sqlite".to_string()
+}
+fn default_embedding_dims() -> usize {
+    1536
+}
+fn default_vector_weight() -> f64 {
+    0.6
+}
+fn default_keyword_weight() -> f64 {
+    0.4
+}
+fn default_decay_halflife() -> f64 {
+    30.0
+}
+fn default_mmr_lambda() -> f64 {
+    0.7
+}
+fn default_chunk_size() -> usize {
+    400
+}
+fn default_chunk_overlap() -> usize {
+    80
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatConfig {
@@ -223,8 +272,12 @@ impl Default for HeartbeatConfig {
     }
 }
 
-fn default_pulse_interval() -> u32 { 30 }
-fn default_reflection_interval() -> u32 { 240 }
+fn default_pulse_interval() -> u32 {
+    30
+}
+fn default_reflection_interval() -> u32 {
+    240
+}
 
 // ──────────────────────────────────────────────────────────────
 // Agent configuration
@@ -264,6 +317,9 @@ pub struct PeerAgentConfig {
     pub prefix: String,
     #[serde(default)]
     pub model: Option<String>,
+    /// Runtime preset name. If omitted, falls back to `[sigil].default_runtime`.
+    #[serde(default, alias = "runtime_preset")]
+    pub runtime: Option<String>,
     #[serde(default)]
     pub role: AgentRole,
     #[serde(default)]
@@ -290,8 +346,12 @@ pub struct PeerAgentConfig {
     pub telegram_token_secret: Option<String>,
 }
 
-fn default_agent_prefix() -> String { "ag".to_string() }
-fn default_agent_max_workers() -> u32 { 1 }
+fn default_agent_prefix() -> String {
+    "ag".to_string()
+}
+fn default_agent_max_workers() -> u32 {
+    1
+}
 
 /// System-level team settings — manages the overarching orchestrator and router.
 /// This is the "system team" that coordinates across all projects.
@@ -351,10 +411,18 @@ impl ProjectTeamConfig {
     }
 }
 
-fn default_leader() -> String { "leader".to_string() }
-fn default_router_model() -> String { "google/gemini-2.0-flash-001".to_string() }
-fn default_router_cooldown() -> u64 { 60 }
-fn default_max_background_cost() -> f64 { 0.50 }
+fn default_leader() -> String {
+    "leader".to_string()
+}
+fn default_router_model() -> String {
+    "google/gemini-2.0-flash-001".to_string()
+}
+fn default_router_cooldown() -> u64 {
+    60
+}
+fn default_max_background_cost() -> f64 {
+    0.50
+}
 
 // ──────────────────────────────────────────────────────────────
 // Channel, Session, ExecutionMode, Project configs (unchanged)
@@ -375,7 +443,9 @@ pub struct TelegramChannelConfig {
     pub debounce_window_ms: u64,
 }
 
-fn default_debounce_window() -> u64 { 3000 }
+fn default_debounce_window() -> u64 {
+    3000
+}
 
 /// Context budget limits for worker system prompts (char-based, ~4 chars/token).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -416,15 +486,33 @@ impl Default for ContextBudgetConfig {
     }
 }
 
-fn default_budget_max_shared_workflow() -> usize { 2000 }
-fn default_budget_max_persona() -> usize { 4000 }
-fn default_budget_max_agents() -> usize { 8000 }
-fn default_budget_max_knowledge() -> usize { 12000 }
-fn default_budget_max_preferences() -> usize { 4000 }
-fn default_budget_max_memory() -> usize { 8000 }
-fn default_budget_max_checkpoints() -> usize { 8000 }
-fn default_budget_max_checkpoint_count() -> usize { 5 }
-fn default_budget_max_total() -> usize { 120000 }
+fn default_budget_max_shared_workflow() -> usize {
+    2000
+}
+fn default_budget_max_persona() -> usize {
+    4000
+}
+fn default_budget_max_agents() -> usize {
+    8000
+}
+fn default_budget_max_knowledge() -> usize {
+    12000
+}
+fn default_budget_max_preferences() -> usize {
+    4000
+}
+fn default_budget_max_memory() -> usize {
+    8000
+}
+fn default_budget_max_checkpoints() -> usize {
+    8000
+}
+fn default_budget_max_checkpoint_count() -> usize {
+    5
+}
+fn default_budget_max_total() -> usize {
+    120000
+}
 
 /// Agent lifecycle engine — autonomous processes that make agents feel alive.
 ///
@@ -464,11 +552,21 @@ impl Default for LifecycleConfig {
     }
 }
 
-fn default_lifecycle_memory_interval() -> u32 { 4 }
-fn default_lifecycle_evolution_interval() -> u32 { 24 }
-fn default_lifecycle_proactive_interval() -> u32 { 6 }
-fn default_lifecycle_ideation_interval() -> u32 { 48 }
-fn default_lifecycle_evolution_budget() -> usize { 2000 }
+fn default_lifecycle_memory_interval() -> u32 {
+    4
+}
+fn default_lifecycle_evolution_interval() -> u32 {
+    24
+}
+fn default_lifecycle_proactive_interval() -> u32 {
+    6
+}
+fn default_lifecycle_ideation_interval() -> u32 {
+    48
+}
+fn default_lifecycle_evolution_budget() -> usize {
+    2000
+}
 
 /// Session alarm and progress heartbeat configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -500,9 +598,15 @@ impl Default for SessionConfig {
     }
 }
 
-fn default_checkin_interval() -> u64 { 30 }
-fn default_alarm_interval() -> u64 { 60 }
-fn default_min_flood_interval() -> u64 { 30 }
+fn default_checkin_interval() -> u64 {
+    30
+}
+fn default_alarm_interval() -> u64 {
+    60
+}
+fn default_min_flood_interval() -> u64 {
+    30
+}
 
 /// Tunable orchestration parameters. All fields have sensible defaults matching
 /// the previous hardcoded values, so existing configs work without changes.
@@ -589,16 +693,36 @@ impl Default for OrchestratorConfig {
     }
 }
 
-fn default_max_resolution_attempts() -> u32 { 1 }
-fn default_max_task_retries() -> u32 { 3 }
-fn default_shell_timeout_secs() -> u64 { 30 }
-fn default_max_description_chars() -> usize { 8000 }
-fn default_executor_max_retries() -> u32 { 3 }
-fn default_dispatch_ttl_secs() -> u64 { 3600 }
-fn default_council_max_rounds() -> u32 { 1 }
-fn default_blackboard_transient_ttl_hours() -> u64 { 24 }
-fn default_blackboard_durable_ttl_days() -> u64 { 7 }
-fn default_preflight_max_cost_usd() -> f64 { 0.01 }
+fn default_max_resolution_attempts() -> u32 {
+    1
+}
+fn default_max_task_retries() -> u32 {
+    3
+}
+fn default_shell_timeout_secs() -> u64 {
+    30
+}
+fn default_max_description_chars() -> usize {
+    8000
+}
+fn default_executor_max_retries() -> u32 {
+    3
+}
+fn default_dispatch_ttl_secs() -> u64 {
+    3600
+}
+fn default_council_max_rounds() -> u32 {
+    1
+}
+fn default_blackboard_transient_ttl_hours() -> u64 {
+    24
+}
+fn default_blackboard_durable_ttl_days() -> u64 {
+    7
+}
+fn default_preflight_max_cost_usd() -> f64 {
+    0.01
+}
 
 /// How workers execute quests.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -619,6 +743,9 @@ pub struct ProjectConfig {
     pub repo: String,
     #[serde(default)]
     pub model: Option<String>,
+    /// Runtime preset name. If omitted, falls back to `[sigil].default_runtime`.
+    #[serde(default, alias = "runtime_preset")]
+    pub runtime: Option<String>,
     #[serde(default = "default_max_workers")]
     pub max_workers: u32,
     #[serde(default)]
@@ -641,15 +768,144 @@ pub struct ProjectConfig {
     pub orchestrator: Option<OrchestratorConfig>,
 }
 
-fn default_max_workers() -> u32 { 2 }
-fn default_max_turns() -> Option<u32> { Some(25) }
-fn default_worker_timeout() -> u64 { 1800 }
+fn default_max_workers() -> u32 {
+    2
+}
+fn default_max_turns() -> Option<u32> {
+    Some(25)
+}
+fn default_worker_timeout() -> u64 {
+    1800
+}
 
 // ──────────────────────────────────────────────────────────────
 // SigilConfig methods
 // ──────────────────────────────────────────────────────────────
 
 impl SigilConfig {
+    fn built_in_runtime_preset(name: &str) -> Option<RuntimePresetConfig> {
+        let (provider, execution_mode) = match name {
+            "openrouter_agent" => (ProviderKind::OpenRouter, ExecutionMode::Agent),
+            "openrouter_claude_code" => (ProviderKind::OpenRouter, ExecutionMode::ClaudeCode),
+            "anthropic_agent" => (ProviderKind::Anthropic, ExecutionMode::Agent),
+            "anthropic_claude_code" => (ProviderKind::Anthropic, ExecutionMode::ClaudeCode),
+            "ollama_agent" => (ProviderKind::Ollama, ExecutionMode::Agent),
+            "ollama_claude_code" => (ProviderKind::Ollama, ExecutionMode::ClaudeCode),
+            _ => return None,
+        };
+
+        Some(RuntimePresetConfig {
+            provider,
+            execution_mode: Some(execution_mode),
+            model: None,
+        })
+    }
+
+    pub fn runtime_preset_named(&self, name: &str) -> Option<RuntimePresetConfig> {
+        self.runtime_presets
+            .get(name)
+            .cloned()
+            .or_else(|| Self::built_in_runtime_preset(name))
+    }
+
+    pub fn provider_is_configured(&self, provider: ProviderKind) -> bool {
+        match provider {
+            ProviderKind::OpenRouter => self.providers.openrouter.is_some(),
+            ProviderKind::Anthropic => self.providers.anthropic.is_some(),
+            ProviderKind::Ollama => self.providers.ollama.is_some(),
+        }
+    }
+
+    pub fn default_provider_kind(&self) -> Option<ProviderKind> {
+        if self.providers.openrouter.is_some() {
+            Some(ProviderKind::OpenRouter)
+        } else if self.providers.anthropic.is_some() {
+            Some(ProviderKind::Anthropic)
+        } else if self.providers.ollama.is_some() {
+            Some(ProviderKind::Ollama)
+        } else {
+            None
+        }
+    }
+
+    pub fn default_model_for_provider(&self, provider: ProviderKind) -> String {
+        match provider {
+            ProviderKind::OpenRouter => self
+                .providers
+                .openrouter
+                .as_ref()
+                .map(|cfg| cfg.default_model.clone())
+                .unwrap_or_else(default_openrouter_model),
+            ProviderKind::Anthropic => self
+                .providers
+                .anthropic
+                .as_ref()
+                .map(|cfg| cfg.default_model.clone())
+                .unwrap_or_else(default_anthropic_model),
+            ProviderKind::Ollama => self
+                .providers
+                .ollama
+                .as_ref()
+                .map(|cfg| cfg.default_model.clone())
+                .unwrap_or_else(default_ollama_model),
+        }
+    }
+
+    fn resolve_runtime_preset(
+        &self,
+        preset_name: Option<&str>,
+        fallback_mode: ExecutionMode,
+    ) -> RuntimePresetConfig {
+        if let Some(name) = preset_name
+            && let Some(mut preset) = self.runtime_preset_named(name)
+        {
+            if preset.execution_mode.is_none() {
+                preset.execution_mode = Some(fallback_mode);
+            }
+            return preset;
+        }
+
+        RuntimePresetConfig {
+            provider: self
+                .default_provider_kind()
+                .unwrap_or(ProviderKind::OpenRouter),
+            execution_mode: Some(fallback_mode),
+            model: None,
+        }
+    }
+
+    pub fn runtime_for_project(&self, project_name: &str) -> RuntimePresetConfig {
+        let project = self.project(project_name);
+        let fallback_mode = project
+            .map(|p| p.execution_mode.clone())
+            .unwrap_or_default();
+        let preset_name = project
+            .and_then(|p| p.runtime.as_deref())
+            .or(self.sigil.default_runtime.as_deref());
+        self.resolve_runtime_preset(preset_name, fallback_mode)
+    }
+
+    pub fn runtime_for_agent(&self, agent_name: &str) -> RuntimePresetConfig {
+        let agent = self.agent(agent_name);
+        let fallback_mode = agent.map(|a| a.execution_mode.clone()).unwrap_or_default();
+        let preset_name = agent
+            .and_then(|a| a.runtime.as_deref())
+            .or(self.sigil.default_runtime.as_deref());
+        self.resolve_runtime_preset(preset_name, fallback_mode)
+    }
+
+    pub fn execution_mode_for_project(&self, project_name: &str) -> ExecutionMode {
+        self.runtime_for_project(project_name)
+            .execution_mode
+            .unwrap_or_default()
+    }
+
+    pub fn execution_mode_for_agent(&self, agent_name: &str) -> ExecutionMode {
+        self.runtime_for_agent(agent_name)
+            .execution_mode
+            .unwrap_or_default()
+    }
+
     /// Load config from a TOML file.
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
@@ -659,8 +915,7 @@ impl SigilConfig {
 
     /// Parse config from TOML string.
     pub fn parse(content: &str) -> Result<Self> {
-        let mut config: Self = toml::from_str(content)
-            .context("failed to parse sigil.toml")?;
+        let mut config: Self = toml::from_str(content).context("failed to parse sigil.toml")?;
 
         // Resolve environment variables in API keys.
         if let Some(ref mut or) = config.providers.openrouter {
@@ -729,7 +984,7 @@ impl SigilConfig {
             }
         }
 
-        anyhow::bail!("No sigil.toml found. Run 'sigil init' to create one.")
+        anyhow::bail!("No sigil.toml found. Run 'sigil setup' to create one.")
     }
 
     /// Get project config by name.
@@ -744,28 +999,20 @@ impl SigilConfig {
 
     /// Get the default model for a project, falling back to provider default.
     pub fn model_for_project(&self, project_name: &str) -> String {
+        let runtime = self.runtime_for_project(project_name);
         self.project(project_name)
             .and_then(|r| r.model.clone())
-            .or_else(|| {
-                self.providers
-                    .openrouter
-                    .as_ref()
-                    .map(|or| or.default_model.clone())
-            })
-            .unwrap_or_else(|| "anthropic/claude-sonnet-4.6".to_string())
+            .or(runtime.model)
+            .unwrap_or_else(|| self.default_model_for_provider(runtime.provider))
     }
 
     /// Get the model for an agent, falling back to provider default.
     pub fn model_for_agent(&self, agent_name: &str) -> String {
+        let runtime = self.runtime_for_agent(agent_name);
         self.agent(agent_name)
             .and_then(|a| a.model.clone())
-            .or_else(|| {
-                self.providers
-                    .openrouter
-                    .as_ref()
-                    .map(|or| or.default_model.clone())
-            })
-            .unwrap_or_else(|| "anthropic/claude-sonnet-4.6".to_string())
+            .or(runtime.model)
+            .unwrap_or_else(|| self.default_model_for_provider(runtime.provider))
     }
 
     /// Get the effective orchestrator config for a project (project override or global).
@@ -782,8 +1029,11 @@ impl SigilConfig {
 
     /// Get the team leader agent config (point-of-contact).
     pub fn leader_agent(&self) -> Option<&PeerAgentConfig> {
-        self.agent(&self.team.leader)
-            .or_else(|| self.agents_with_role(AgentRole::Orchestrator).first().copied())
+        self.agent(&self.team.leader).or_else(|| {
+            self.agents_with_role(AgentRole::Orchestrator)
+                .first()
+                .copied()
+        })
     }
 
     /// Get all agents with a specific role.
@@ -807,16 +1057,20 @@ impl SigilConfig {
 
     /// Resolve all repos to paths.
     pub fn resolve_all_repos(&self) -> HashMap<String, PathBuf> {
-        self.repos.iter().map(|(k, v)| (k.clone(), PathBuf::from(v))).collect()
+        self.repos
+            .iter()
+            .map(|(k, v)| (k.clone(), PathBuf::from(v)))
+            .collect()
     }
 
     /// Get the effective team for a project.
     /// Returns the project's own team if configured, otherwise builds one from the system team.
     pub fn project_team(&self, project_name: &str) -> ProjectTeamConfig {
         if let Some(project) = self.project(project_name)
-            && let Some(ref team) = project.team {
-                return team.clone();
-            }
+            && let Some(ref team) = project.team
+        {
+            return team.clone();
+        }
         // Fall back to system team.
         ProjectTeamConfig {
             leader: self.team.leader.clone(),
@@ -837,9 +1091,8 @@ impl SigilConfig {
     /// Skips validation if no agents are defined (they may be discovered from disk later).
     pub fn validate_teams(&self) -> Vec<String> {
         let mut errors = Vec::new();
-        let agent_names: std::collections::HashSet<&str> = self.agents.iter()
-            .map(|a| a.name.as_str())
-            .collect();
+        let agent_names: std::collections::HashSet<&str> =
+            self.agents.iter().map(|a| a.name.as_str()).collect();
 
         // Skip team validation if no agents defined yet (they'll be discovered from disk).
         if agent_names.is_empty() {
@@ -857,9 +1110,7 @@ impl SigilConfig {
         // Validate system team agents.
         for name in &self.team.agents {
             if !agent_names.contains(name.as_str()) {
-                errors.push(format!(
-                    "system team references unknown agent: '{name}'"
-                ));
+                errors.push(format!("system team references unknown agent: '{name}'"));
             }
         }
 
@@ -916,10 +1167,20 @@ impl SigilConfig {
             if d.max_workers == 0 {
                 errors.push(format!("project '{}' has zero max_workers", d.name));
             }
+            if let Some(ref runtime) = d.runtime
+                && self.runtime_preset_named(runtime).is_none()
+            {
+                errors.push(format!(
+                    "project '{}' references unknown runtime preset: '{}'",
+                    d.name, runtime
+                ));
+            }
         }
 
         // Agent validation.
-        let orchestrator_count = self.agents.iter()
+        let orchestrator_count = self
+            .agents
+            .iter()
             .filter(|a| a.role == AgentRole::Orchestrator)
             .count();
         if !self.agents.is_empty() && orchestrator_count == 0 {
@@ -937,12 +1198,44 @@ impl SigilConfig {
             if !a.prefix.is_empty() && !seen_agent_prefixes.insert(&a.prefix) {
                 errors.push(format!("duplicate agent prefix: '{}'", a.prefix));
             }
+            if let Some(ref runtime) = a.runtime
+                && self.runtime_preset_named(runtime).is_none()
+            {
+                errors.push(format!(
+                    "agent '{}' references unknown runtime preset: '{}'",
+                    a.name, runtime
+                ));
+            }
+        }
+
+        if let Some(ref runtime) = self.sigil.default_runtime
+            && self.runtime_preset_named(runtime).is_none()
+        {
+            errors.push(format!(
+                "default runtime preset '{}' is not defined",
+                runtime
+            ));
+        }
+
+        for (name, preset) in &self.runtime_presets {
+            if !self.provider_is_configured(preset.provider) {
+                errors.push(format!(
+                    "runtime preset '{}' references unconfigured provider '{}'",
+                    name, preset.provider
+                ));
+            }
         }
 
         // Repo refs resolve.
         for d in &self.projects {
-            if !d.repo.starts_with('/') && !d.repo.starts_with('~') && !self.repos.contains_key(&d.repo) {
-                errors.push(format!("project '{}' references unknown repo key: '{}'", d.name, d.repo));
+            if !d.repo.starts_with('/')
+                && !d.repo.starts_with('~')
+                && !self.repos.contains_key(&d.repo)
+            {
+                errors.push(format!(
+                    "project '{}' references unknown repo key: '{}'",
+                    d.name, d.repo
+                ));
             }
         }
 
@@ -996,7 +1289,12 @@ pub fn discover_agents(agents_dir: &Path) -> Result<Vec<PeerAgentConfig>> {
     let entries = match std::fs::read_dir(agents_dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(agents),
-        Err(e) => return Err(e).context(format!("failed to read agents dir: {}", agents_dir.display())),
+        Err(e) => {
+            return Err(e).context(format!(
+                "failed to read agents dir: {}",
+                agents_dir.display()
+            ));
+        }
     };
 
     for entry in entries {
@@ -1074,7 +1372,9 @@ impl SigilConfig {
         }
 
         // Keep TOML agents that are NOT on disk, then add all disk agents.
-        let mut merged: Vec<PeerAgentConfig> = self.agents.drain(..)
+        let mut merged: Vec<PeerAgentConfig> = self
+            .agents
+            .drain(..)
             .filter(|a| !disk_names.contains(a.name.as_str()))
             .collect();
         merged.extend(disk_agents);
@@ -1098,9 +1398,10 @@ fn resolve_env(s: &str) -> String {
 /// Expand ~ to home directory.
 fn expand_tilde(s: &str) -> String {
     if s.starts_with('~')
-        && let Some(home) = dirs::home_dir() {
-            return s.replacen('~', &home.to_string_lossy(), 1);
-        }
+        && let Some(home) = dirs::home_dir()
+    {
+        return s.replacen('~', &home.to_string_lossy(), 1);
+    }
     s.to_string()
 }
 
@@ -1181,7 +1482,12 @@ repo = "/tmp/beta"
 "#;
         let config = SigilConfig::parse(toml).unwrap();
         let issues = config.validate();
-        assert!(issues.iter().any(|i| i.contains("duplicate project prefix")), "expected duplicate prefix: {issues:?}");
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("duplicate project prefix")),
+            "expected duplicate prefix: {issues:?}"
+        );
     }
 
     #[test]
@@ -1196,7 +1502,10 @@ keyword_weight = 0.9
 "#;
         let config = SigilConfig::parse(toml).unwrap();
         let issues = config.validate();
-        assert!(issues.iter().any(|i| i.contains("weights sum")), "expected weight warning: {issues:?}");
+        assert!(
+            issues.iter().any(|i| i.contains("weights sum")),
+            "expected weight warning: {issues:?}"
+        );
     }
 
     #[test]
@@ -1211,7 +1520,10 @@ chunk_overlap_tokens = 150
 "#;
         let config = SigilConfig::parse(toml).unwrap();
         let issues = config.validate();
-        assert!(issues.iter().any(|i| i.contains("chunk_overlap_tokens")), "expected overlap warning: {issues:?}");
+        assert!(
+            issues.iter().any(|i| i.contains("chunk_overlap_tokens")),
+            "expected overlap warning: {issues:?}"
+        );
     }
 
     #[test]
@@ -1271,7 +1583,10 @@ name = "test"
 sigil = "/home/user/sigil"
 "#;
         let config = SigilConfig::parse(toml).unwrap();
-        assert_eq!(config.resolve_repo("sigil"), PathBuf::from("/home/user/sigil"));
+        assert_eq!(
+            config.resolve_repo("sigil"),
+            PathBuf::from("/home/user/sigil")
+        );
         assert_eq!(config.resolve_repo("/raw/path"), PathBuf::from("/raw/path"));
     }
 
@@ -1368,8 +1683,10 @@ team.agents = ["ghost"]
 "#;
         let config = SigilConfig::parse(toml).unwrap();
         let issues = config.validate_teams();
-        assert!(issues.iter().any(|i| i.contains("ghost")),
-            "expected team validation to flag unknown agent 'ghost': {issues:?}");
+        assert!(
+            issues.iter().any(|i| i.contains("ghost")),
+            "expected team validation to flag unknown agent 'ghost': {issues:?}"
+        );
     }
 
     #[test]
@@ -1475,7 +1792,8 @@ role = "orchestrator"
         std::fs::write(
             dir.join("agent.toml"),
             "name = \"alice\"\nprefix = \"al\"\nrole = \"advisor\"\nmodel = \"disk-model\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let toml_str = r#"
 [sigil]
@@ -1539,6 +1857,7 @@ role = "orchestrator"
             name: "test".to_string(),
             prefix: "tt".to_string(),
             model: Some("claude-opus-4-6".to_string()),
+            runtime: Some("anthropic_claude_code".to_string()),
             role: AgentRole::Advisor,
             voice: AgentVoice::Vocal,
             execution_mode: ExecutionMode::ClaudeCode,
@@ -1557,11 +1876,76 @@ role = "orchestrator"
         assert_eq!(loaded.name, "test");
         assert_eq!(loaded.prefix, "tt");
         assert_eq!(loaded.model.as_deref(), Some("claude-opus-4-6"));
+        assert_eq!(loaded.runtime.as_deref(), Some("anthropic_claude_code"));
         assert_eq!(loaded.role, AgentRole::Advisor);
         assert_eq!(loaded.execution_mode, ExecutionMode::ClaudeCode);
         assert_eq!(loaded.max_workers, 2);
         assert_eq!(loaded.max_turns, Some(15));
         assert_eq!(loaded.expertise, vec!["testing"]);
+    }
+
+    #[test]
+    fn test_runtime_resolution_uses_defaults() {
+        let toml = r#"
+[sigil]
+name = "test"
+default_runtime = "anthropic_claude_code"
+
+[providers.anthropic]
+api_key = "${ANTHROPIC_API_KEY}"
+default_model = "claude-sonnet-4-20250514"
+
+[[agents]]
+name = "leader"
+prefix = "ld"
+role = "orchestrator"
+
+[[projects]]
+name = "sigil"
+prefix = "sg"
+repo = "/tmp/sigil"
+"#;
+        let config = SigilConfig::parse(toml).unwrap();
+
+        let project_runtime = config.runtime_for_project("sigil");
+        assert_eq!(project_runtime.provider, ProviderKind::Anthropic);
+        assert_eq!(
+            config.execution_mode_for_project("sigil"),
+            ExecutionMode::ClaudeCode
+        );
+        assert_eq!(
+            config.model_for_project("sigil"),
+            "claude-sonnet-4-20250514".to_string()
+        );
+
+        let agent_runtime = config.runtime_for_agent("leader");
+        assert_eq!(agent_runtime.provider, ProviderKind::Anthropic);
+        assert_eq!(
+            config.execution_mode_for_agent("leader"),
+            ExecutionMode::ClaudeCode
+        );
+    }
+
+    #[test]
+    fn test_runtime_validation_flags_unknown_preset() {
+        let toml = r#"
+[sigil]
+name = "test"
+default_runtime = "missing"
+
+[[agents]]
+name = "leader"
+prefix = "ld"
+role = "orchestrator"
+"#;
+        let config = SigilConfig::parse(toml).unwrap();
+        let issues = config.validate();
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("default runtime preset 'missing'")),
+            "expected unknown runtime error: {issues:?}"
+        );
     }
 
     #[test]
@@ -1574,7 +1958,8 @@ role = "orchestrator"
         std::fs::write(
             dir.join("agent.toml"),
             "name = \"wrong\"\nprefix = \"al\"\nrole = \"advisor\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let agents = discover_agents(&agents_dir).unwrap();
         assert_eq!(agents.len(), 1);

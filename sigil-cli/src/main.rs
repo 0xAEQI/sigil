@@ -1,6 +1,7 @@
 mod cli;
 mod cmd;
 mod helpers;
+mod service;
 
 use anyhow::Result;
 use clap::Parser;
@@ -49,6 +50,11 @@ async fn main() -> Result<()> {
             .await
         }
         Commands::Init => cmd::init::cmd_init().await,
+        Commands::Setup {
+            runtime,
+            service,
+            force,
+        } => cmd::setup::cmd_setup(&runtime, service, force).await,
         Commands::Secrets { action } => cmd::secrets::cmd_secrets(&cli.config, action).await,
         Commands::Doctor { fix, strict } => cmd::doctor::cmd_doctor(&cli.config, fix, strict).await,
         Commands::Status => cmd::status::cmd_status(&cli.config).await,

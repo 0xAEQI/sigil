@@ -11,12 +11,13 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 use tracing::{debug, info, warn};
 
-use crate::audit::AuditLog;
+use crate::audit::{AuditEvent, AuditLog, DecisionType};
 use crate::blackboard::Blackboard;
 use crate::checkpoint::AgentCheckpoint;
 use crate::executor::{ClaudeCodeExecutor, TaskOutcome};
+use crate::failure_analysis::{FailureAnalysis, FailureMode};
 use crate::hook::Hook;
-use crate::message::DispatchBus;
+use crate::message::{Dispatch, DispatchBus, DispatchKind};
 
 /// Worker states.
 #[derive(Debug, Clone, PartialEq)]
@@ -260,6 +261,81 @@ impl AgentWorker {
         }
     }
 
+    async fn build_resume_brief(&self, task: &Task) -> String {
+        let mut sections = Vec::new();
+
+        if let Some(ref audit) = self.audit_log {
+            let mut events = audit.query_by_task(&task.id.0).unwrap_or_default();
+            if !events.is_empty() {
+                if events.len() > 6 {
+                    events = events.split_off(events.len() - 6);
+                }
+                let lines = events
+                    .iter()
+                    .map(|event| {
+                        format!(
+                            "- {} [{}] {}",
+                            event.timestamp.format("%Y-%m-%d %H:%M:%S UTC"),
+                            event.decision_type,
+                            truncate_for_prompt(&event.reasoning, 220),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                sections.push(format!("### Audit trail\n{lines}"));
+            }
+        }
+
+        if let Some(ref blackboard) = self.blackboard {
+            let entries = blackboard
+                .query(&self.project_name, &task.labels, 5)
+                .unwrap_or_default();
+            if !entries.is_empty() {
+                let lines = entries
+                    .iter()
+                    .map(|entry| {
+                        format!(
+                            "- [{}] {}: {}",
+                            entry.agent,
+                            entry.key,
+                            truncate_for_prompt(&entry.content, 220),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                sections.push(format!("### Blackboard\n{lines}"));
+            }
+        }
+
+        let mut dispatches = self
+            .dispatch_bus
+            .all()
+            .await
+            .into_iter()
+            .filter(|dispatch| is_relevant_dispatch(dispatch, &self.project_name, &task.id.0))
+            .collect::<Vec<_>>();
+        if !dispatches.is_empty() {
+            if dispatches.len() > 6 {
+                dispatches = dispatches.split_off(dispatches.len() - 6);
+            }
+            let lines = dispatches
+                .iter()
+                .map(format_dispatch_for_prompt)
+                .collect::<Vec<_>>()
+                .join("\n");
+            sections.push(format!("### Control plane\n{lines}"));
+        }
+
+        if sections.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\n## Resume Brief\n\n{}\n\nUse this to avoid repeating earlier failures or redundant work.\n",
+                sections.join("\n\n")
+            )
+        }
+    }
+
     /// Execute the hooked work. Dispatches to Agent or Claude Code based on execution mode.
     /// Returns (outcome, cost_usd, turns_used) for the Supervisor to record.
     pub async fn execute(&mut self) -> Result<(TaskOutcome, f64, u32)> {
@@ -296,39 +372,47 @@ impl AgentWorker {
         }
 
         // Build the prompt from the task (including any previous checkpoints).
-        let task_context = {
+        let task_snapshot = {
             let store = self.tasks.lock().await;
-            match store.get(&hook.task_id.0) {
-                Some(b) => {
-                    let mut ctx = format!("## Task: {}\n\n", b.subject);
-                    if !b.description.is_empty() {
-                        ctx.push_str(&format!("{}\n\n", b.description));
-                    }
-                    ctx.push_str(&format!("Task ID: {}\nPriority: {}\n", b.id, b.priority));
-
-                    // Include budgeted checkpoints from previous attempts.
-                    if !b.checkpoints.is_empty() {
-                        let budget = crate::context_budget::ContextBudget::default();
-                        ctx.push_str(&budget.budget_checkpoints(&b.checkpoints));
-                        ctx.push_str(
-                            "Review the above before starting. Skip work that's already done.\n\n",
-                        );
-                    }
-
-                    // Include acceptance criteria if defined.
-                    if let Some(ref criteria) = b.acceptance_criteria {
-                        ctx.push_str(&format!(
-                            "\n## Acceptance Criteria\n\n{}\n\n\
-                             Verify your work meets these criteria before marking as DONE.\n\n",
-                            criteria
-                        ));
-                    }
-
-                    ctx
-                }
-                None => format!("Task: {}", hook.subject),
-            }
+            store.get(&hook.task_id.0).cloned()
         };
+
+        let mut task_context = match task_snapshot.as_ref() {
+            Some(b) => {
+                let mut ctx = format!("## Task: {}\n\n", b.subject);
+                if !b.description.is_empty() {
+                    ctx.push_str(&format!("{}\n\n", b.description));
+                }
+                ctx.push_str(&format!("Task ID: {}\nPriority: {}\n", b.id, b.priority));
+
+                // Include budgeted checkpoints from previous attempts.
+                if !b.checkpoints.is_empty() {
+                    let budget = crate::context_budget::ContextBudget::default();
+                    ctx.push_str(&budget.budget_checkpoints(&b.checkpoints));
+                    ctx.push_str(
+                        "Review the above before starting. Skip work that's already done.\n\n",
+                    );
+                }
+
+                // Include acceptance criteria if defined.
+                if let Some(ref criteria) = b.acceptance_criteria {
+                    ctx.push_str(&format!(
+                        "\n## Acceptance Criteria\n\n{}\n\n\
+                         Verify your work meets these criteria before marking as DONE.\n\n",
+                        criteria
+                    ));
+                }
+
+                ctx
+            }
+            None => format!("Task: {}", hook.subject),
+        };
+        if let Some(task) = task_snapshot.as_ref() {
+            let resume_brief = self.build_resume_brief(task).await;
+            if !resume_brief.is_empty() {
+                task_context.push_str(&resume_brief);
+            }
+        }
 
         // Enrich identity with dynamic memory recall (single search, system prompt only).
         let enriched_identity = if let Some(ref mem) = self.memory {
@@ -539,10 +623,103 @@ impl AgentWorker {
                     turns,
                 )
                 .await;
+
+                // Attempt LLM-based failure analysis before locking the task store.
+                let failure_result: Option<(String, FailureMode)> = if self.adaptive_retry
+                    && let Some(ref provider) = self.reflect_provider
+                {
+                    let fa_model = if self.failure_analysis_model.is_empty() {
+                        self.reflect_model.clone()
+                    } else {
+                        self.failure_analysis_model.clone()
+                    };
+                    if !fa_model.is_empty() {
+                        let (task_desc, task_labels) = {
+                            let store = self.tasks.lock().await;
+                            store
+                                .get(&hook.task_id.0)
+                                .map(|t| (t.description.clone(), t.labels.clone()))
+                                .unwrap_or_default()
+                        };
+                        let prompt =
+                            FailureAnalysis::analysis_prompt(&hook.subject, &task_desc, error_text);
+                        let request = ChatRequest {
+                            model: fa_model,
+                            messages: vec![Message {
+                                role: Role::User,
+                                content: MessageContent::text(&prompt),
+                            }],
+                            tools: vec![],
+                            max_tokens: 256,
+                            temperature: 0.0,
+                        };
+                        match provider.chat(&request).await {
+                            Ok(response) if response.content.is_some() => {
+                                let analysis =
+                                    FailureAnalysis::parse(response.content.as_deref().unwrap());
+                                info!(
+                                    worker = %self.name,
+                                    task = %hook.task_id,
+                                    mode = ?analysis.mode,
+                                    "failure analysis completed"
+                                );
+
+                                // Record audit event.
+                                if let Some(ref audit) = self.audit_log {
+                                    let _ = audit.record(
+                                        &AuditEvent::new(
+                                            &self.project_name,
+                                            DecisionType::FailureAnalyzed,
+                                            format!(
+                                                "Mode: {:?}, Reasoning: {}",
+                                                analysis.mode, analysis.reasoning
+                                            ),
+                                        )
+                                        .with_task(&hook.task_id.0)
+                                        .with_agent(&self.name),
+                                    );
+                                }
+
+                                // Mode-specific: query blackboard for MissingContext.
+                                let mut enrichment = analysis.enrich_description();
+                                if analysis.mode == FailureMode::MissingContext
+                                    && let Some(ref bb) = self.blackboard
+                                {
+                                    let bb_entries = bb
+                                        .query(&self.project_name, &task_labels, 5)
+                                        .unwrap_or_default();
+                                    if !bb_entries.is_empty() {
+                                        let bb_ctx = bb_entries
+                                            .iter()
+                                            .map(|e| {
+                                                format!("- [{}] {}: {}", e.agent, e.key, e.content)
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join("\n");
+                                        enrichment.push_str(&format!(
+                                            "\n### Blackboard context\n{bb_ctx}\n"
+                                        ));
+                                    }
+                                }
+
+                                let mode = analysis.mode;
+                                Some((enrichment, mode))
+                            }
+                            Ok(_) | Err(_) => None,
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let auto_cancelled = {
                     let mut store = self.tasks.lock().await;
                     let mut cancelled = false;
                     let max_retries = self.max_task_retries;
+                    let enrichment = failure_result.as_ref().map(|(e, _)| e.clone());
+                    let failure_mode = failure_result.as_ref().map(|(_, m)| *m);
                     if let Err(e) = store.update(&hook.task_id.0, |b| {
                         b.retry_count += 1;
                         if b.retry_count >= max_retries {
@@ -554,17 +731,39 @@ impl AgentWorker {
                             ));
                             cancelled = true;
                         } else {
-                            // Append failure context so the next worker knows what went wrong
-                            // and can try a different approach.
-                            b.description.push_str(&format!(
-                                "\n\n---\n## Previous Failure (attempt {})\n\n\
-                                 The previous worker failed with this error. \
-                                 Try a different approach to avoid the same failure.\n\n\
-                                 **Error:**\n{}\n",
-                                b.retry_count, error_text
-                            ));
-                            b.status = TaskStatus::Pending;
-                            b.assignee = None;
+                            // Mode-specific status overrides.
+                            match failure_mode {
+                                Some(FailureMode::ExternalBlocker) => {
+                                    b.status = TaskStatus::Blocked;
+                                    b.assignee = None;
+                                    b.closed_reason =
+                                        Some("Blocked: external blocker detected".to_string());
+                                    cancelled = true;
+                                }
+                                Some(FailureMode::BudgetExhausted) => {
+                                    b.status = TaskStatus::Blocked;
+                                    b.assignee = None;
+                                    b.closed_reason =
+                                        Some("Blocked: budget exhausted".to_string());
+                                    b.labels.push("budget-blocked".to_string());
+                                    cancelled = true;
+                                }
+                                _ => {
+                                    let failure_context =
+                                        enrichment.clone().unwrap_or_else(|| {
+                                            format!(
+                                                "\n\n---\n## Previous Failure (attempt {})\n\n\
+                                                 The previous worker failed with this error. \
+                                                 Try a different approach to avoid the same failure.\n\n\
+                                                 **Error:**\n{}\n",
+                                                b.retry_count, error_text
+                                            )
+                                        });
+                                    b.description.push_str(&failure_context);
+                                    b.status = TaskStatus::Pending;
+                                    b.assignee = None;
+                                }
+                            }
                         }
                     }) {
                         warn!(task = %hook.task_id, error = %e, "failed to re-queue task after failure");
@@ -574,6 +773,17 @@ impl AgentWorker {
                 self.task_notify.notify_waiters();
                 if auto_cancelled {
                     warn!(worker = %self.name, task = %hook.task_id, "task auto-cancelled after 3 failed retries");
+                    if let Some(ref audit) = self.audit_log {
+                        let _ = audit.record(
+                            &AuditEvent::new(
+                                &self.project_name,
+                                DecisionType::TaskCancelled,
+                                format!("Auto-cancelled after max retries: {}", error_text),
+                            )
+                            .with_task(&hook.task_id.0)
+                            .with_agent(&self.name),
+                        );
+                    }
                 }
                 self.state = WorkerState::Failed(error_text.to_string());
             }
@@ -776,4 +986,48 @@ impl AgentWorker {
             .unwrap_or(text.len());
         &text[..cut]
     }
+}
+
+fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
+    let mut out = text.chars().take(max_chars).collect::<String>();
+    if text.chars().count() > max_chars {
+        out.push_str("...");
+    }
+    out
+}
+
+fn is_relevant_dispatch(dispatch: &Dispatch, project: &str, task_id: &str) -> bool {
+    match &dispatch.kind {
+        DispatchKind::TaskDone { task_id: id, .. }
+        | DispatchKind::TaskBlocked { task_id: id, .. }
+        | DispatchKind::TaskFailed { task_id: id, .. }
+        | DispatchKind::Resolution { task_id: id, .. } => id == task_id,
+        DispatchKind::Escalation {
+            project: dispatch_project,
+            task_id: id,
+            ..
+        }
+        | DispatchKind::HumanEscalation {
+            project: dispatch_project,
+            task_id: id,
+            ..
+        } => dispatch_project == project && id == task_id,
+        DispatchKind::DependencySuggestion {
+            project: dispatch_project,
+            from_task,
+            to_task,
+            ..
+        } => dispatch_project == project && (from_task == task_id || to_task == task_id),
+        _ => false,
+    }
+}
+
+fn format_dispatch_for_prompt(dispatch: &Dispatch) -> String {
+    format!(
+        "- {} [{} -> {}] {}",
+        dispatch.timestamp.format("%Y-%m-%d %H:%M:%S UTC"),
+        dispatch.from,
+        dispatch.to,
+        truncate_for_prompt(&dispatch.kind.body_text(), 220),
+    )
 }

@@ -14,6 +14,7 @@ This is the live reference for the Sigil workspace as it exists today.
 ### Core
 
 - `sigil init`
+- `sigil setup`
 - `sigil doctor [--fix]`
 - `sigil status`
 - `sigil config show`
@@ -136,6 +137,8 @@ Top-level sections in `sigil.toml`:
 
 - `[sigil]`: workspace name, data dir, patrol interval
 - `[providers.*]`: OpenRouter, Anthropic, Ollama configs
+- `[sigil].default_runtime`: default runtime preset name
+- `runtime` on `[[projects]]` and `[[agents]]`: per-owner runtime override
 - `[security]`: autonomy mode, workspace restriction, daily budget
 - `[memory]`: backend and ranking parameters
 - `[heartbeat]`: periodic heartbeats and reflections
@@ -147,7 +150,7 @@ Top-level sections in `sigil.toml`:
 
 Provider reality:
 
-- OpenRouter is the provider path used by the main CLI and daemon factory today
+- Worker/provider runtime presets are wired in the main CLI and daemon factory today
 - Anthropic and Ollama clients exist in the workspace, but are not selected by the common factory yet
 
 ## Identity Assembly
@@ -216,6 +219,7 @@ Useful extension targets:
 - Council routing is daemon-driven, most visibly from Telegram `/council ...`
 - Cost inspection is daemon-driven via `sigil daemon query cost`
 - Readiness inspection is daemon-driven via `sigil daemon query readiness`
+- Daemon service install/print/uninstall is available via `sigil daemon ...`
 - Claude Code recursion requires an external `claude` installation and authentication
 
 ## Recommended Validation

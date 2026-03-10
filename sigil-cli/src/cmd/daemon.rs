@@ -16,10 +16,11 @@ use tracing::{info, warn};
 
 use crate::cli::DaemonAction;
 use crate::helpers::{
-    build_project_tools, build_provider, build_tools, find_agent_dir, find_project_dir,
-    get_api_key, handle_fast_lane, load_config, load_config_with_agents, open_memory,
-    pid_file_path,
+    build_project_tools, build_provider, build_provider_for_agent, build_provider_for_project,
+    build_tools, find_agent_dir, find_project_dir, get_api_key, handle_fast_lane, load_config,
+    load_config_with_agents, open_memory, pid_file_path,
 };
+use crate::service::{install_user_service, render_user_service, uninstall_user_service};
 
 pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonAction) -> Result<()> {
     match action {
@@ -50,7 +51,6 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             registry_inner.set_cost_ledger(cost_ledger.clone());
 
             // Initialize v3 subsystems (SQLite-backed).
-            let orch = &config.orchestrator;
             match AuditLog::open(&data_dir.join("audit.db")) {
                 Ok(al) => {
                     let al = Arc::new(al);
@@ -69,8 +69,8 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             }
             match Blackboard::open(
                 &data_dir.join("blackboard.db"),
-                orch.blackboard_transient_ttl_hours,
-                orch.blackboard_durable_ttl_days,
+                config.orchestrator.blackboard_transient_ttl_hours,
+                config.orchestrator.blackboard_durable_ttl_days,
             ) {
                 Ok(bb) => {
                     let bb = Arc::new(bb);
@@ -81,7 +81,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             }
 
             let registry = Arc::new(registry_inner);
-            let provider = build_provider(&config)?;
+            let lifecycle_provider = build_provider(&config)?;
             let mut heartbeats = Vec::new();
             let advisor_agents = config.advisor_agents();
             let mut skipped_projects = Vec::new();
@@ -107,17 +107,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                         continue;
                     }
                 };
-                let default_model = config
-                    .providers
-                    .openrouter
-                    .as_ref()
-                    .map(|or| or.default_model.as_str())
-                    .unwrap_or("minimax/minimax-m2.5");
+                let default_model = config.model_for_project(&project_cfg.name);
 
                 let rig = Arc::new(Project::from_config(
                     project_cfg,
                     &project_dir,
-                    default_model,
+                    &default_model,
                 )?);
                 let workdir = rig.repo.clone();
                 let tasks_dir = project_dir.join(".tasks");
@@ -127,21 +122,17 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     &project_cfg.prefix,
                     Some(&rig.worktree_root),
                 );
+                let provider = build_provider_for_project(&config, &project_cfg.name)?;
                 let mut witness =
                     Supervisor::new(&rig, provider.clone(), tools.clone(), dispatch_bus.clone());
+                let project_orch = config.orchestrator_for_project(&project_cfg.name);
 
                 // Wire memory + reflection for worker post-execution insight extraction.
                 if let Ok(mem) = open_memory(&config, Some(&project_cfg.name)) {
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     witness.memory = Some(mem);
                     witness.reflect_provider = Some(provider.clone());
-                    let reflect_model = config
-                        .providers
-                        .openrouter
-                        .as_ref()
-                        .map(|or| or.default_model.clone())
-                        .unwrap_or_else(|| "minimax/minimax-m2.5".to_string());
-                    witness.reflect_model = reflect_model;
+                    witness.reflect_model = config.model_for_project(&project_cfg.name);
                 }
 
                 // Load emotional state for personality tracking.
@@ -157,17 +148,19 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 witness.set_team(project_team, config.leader());
 
                 // Wire v3 orchestrator config fields.
-                witness.expertise_routing = config.orchestrator.expertise_routing;
-                witness.preflight_enabled = config.orchestrator.preflight_enabled;
-                witness.preflight_model = config.orchestrator.preflight_model.clone();
-                witness.preflight_max_cost_usd = config.orchestrator.preflight_max_cost_usd;
-                witness.adaptive_retry = config.orchestrator.adaptive_retry;
-                witness.failure_analysis_model = config.orchestrator.failure_analysis_model.clone();
-                witness.auto_redecompose = config.orchestrator.auto_redecompose;
-                witness.decomposition_model = config.orchestrator.decomposition_model.clone();
+                witness.expertise_routing = project_orch.expertise_routing;
+                witness.preflight_enabled = project_orch.preflight_enabled;
+                witness.preflight_model = project_orch.preflight_model.clone();
+                witness.preflight_max_cost_usd = project_orch.preflight_max_cost_usd;
+                witness.adaptive_retry = project_orch.adaptive_retry;
+                witness.failure_analysis_model = project_orch.failure_analysis_model.clone();
+                witness.auto_redecompose = project_orch.auto_redecompose;
+                witness.decomposition_model = project_orch.decomposition_model.clone();
+                witness.infer_deps_threshold = project_orch.infer_deps_threshold;
 
                 // Configure execution mode for workers.
-                if project_cfg.execution_mode == ExecutionMode::ClaudeCode {
+                if config.execution_mode_for_project(&project_cfg.name) == ExecutionMode::ClaudeCode
+                {
                     let cc_model = config.model_for_project(&project_cfg.name);
                     let cc_max_turns = project_cfg.max_turns.unwrap_or(25);
                     witness.set_claude_code_mode(
@@ -199,7 +192,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                         provider.clone(),
                         tools.clone(),
                         rig.project_identity.clone(),
-                        rig.model.clone(),
+                        config.model_for_project(&project_cfg.name),
                         dispatch_bus.clone(),
                     );
                     heartbeats.push(heartbeat_cfg);
@@ -224,10 +217,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 let agent_tasks_dir = agent_dir.join(".tasks");
                 std::fs::create_dir_all(&agent_tasks_dir).ok();
                 let agent_task_board = sigil_tasks::TaskBoard::open(&agent_tasks_dir)?;
-                let agent_model = agent_cfg
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
+                let agent_model = config.model_for_agent(&agent_cfg.name);
                 let agent_workdir = agent_cfg
                     .default_repo
                     .as_ref()
@@ -249,6 +239,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
                 let agent_tools: Vec<Arc<dyn sigil_core::traits::Tool>> =
                     build_tools(&agent_workdir);
+                let provider = build_provider_for_agent(&config, &agent_cfg.name)?;
                 let mut agent_scout = Supervisor::new(
                     &agent_project,
                     provider.clone(),
@@ -256,26 +247,21 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     dispatch_bus.clone(),
                 );
 
-                // Advisors always use Claude Code mode.
-                agent_scout.set_claude_code_mode(
-                    agent_workdir.clone(),
-                    agent_model.clone(),
-                    agent_cfg.max_turns.unwrap_or(15),
-                    agent_cfg.max_budget_usd,
-                );
+                if config.execution_mode_for_agent(&agent_cfg.name) == ExecutionMode::ClaudeCode {
+                    agent_scout.set_claude_code_mode(
+                        agent_workdir.clone(),
+                        agent_model.clone(),
+                        agent_cfg.max_turns.unwrap_or(15),
+                        agent_cfg.max_budget_usd,
+                    );
+                }
 
                 // Wire memory + reflection for advisor agents (same pattern as project supervisors).
                 if let Ok(mem) = open_memory(&config, Some(&agent_cfg.name)) {
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     agent_scout.memory = Some(mem);
                     agent_scout.reflect_provider = Some(provider.clone());
-                    let reflect_model = config
-                        .providers
-                        .openrouter
-                        .as_ref()
-                        .map(|or| or.default_model.clone())
-                        .unwrap_or_else(|| "minimax/minimax-m2.5".to_string());
-                    agent_scout.reflect_model = reflect_model;
+                    agent_scout.reflect_model = config.model_for_agent(&agent_cfg.name);
                 }
 
                 // Load emotional state for advisor personality tracking.
@@ -470,21 +456,20 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             );
             fa_tools.extend(orch_tools);
 
-            let mut fa_witness =
-                Supervisor::new(&fa_rig, provider.clone(), fa_tools, dispatch_bus.clone());
+            let leader_provider = build_provider_for_agent(&config, &leader_name)?;
+            let mut fa_witness = Supervisor::new(
+                &fa_rig,
+                leader_provider.clone(),
+                fa_tools,
+                dispatch_bus.clone(),
+            );
 
             // Wire memory + reflection for leader agent worker insight extraction.
             if let Ok(mem) = open_memory(&config, Some(&leader_name)) {
                 let mem: Arc<dyn Memory> = Arc::new(mem);
                 fa_witness.memory = Some(mem);
-                fa_witness.reflect_provider = Some(provider.clone());
-                let reflect_model = config
-                    .providers
-                    .openrouter
-                    .as_ref()
-                    .map(|or| or.default_model.clone())
-                    .unwrap_or_else(|| "minimax/minimax-m2.5".to_string());
-                fa_witness.reflect_model = reflect_model;
+                fa_witness.reflect_provider = Some(leader_provider.clone());
+                fa_witness.reflect_model = config.model_for_agent(&leader_name);
             }
 
             // Load emotional state for leader agent personality tracking.
@@ -496,7 +481,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             }
 
             // Configure Claude Code execution mode for leader agent.
-            if leader_cfg.execution_mode == ExecutionMode::ClaudeCode {
+            if config.execution_mode_for_agent(&leader_name) == ExecutionMode::ClaudeCode {
                 let cc_model = config.model_for_agent(&leader_name);
                 let cc_max_turns = leader_cfg.max_turns.unwrap_or(25);
                 fa_witness.set_claude_code_mode(
@@ -536,7 +521,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             let lifecycle_engine = if config.lifecycle.enabled {
                 Some(build_lifecycle_engine(
                     &config,
-                    &provider,
+                    &lifecycle_provider,
                     &registry,
                     &dispatch_bus,
                     &leader_name,
@@ -585,6 +570,25 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             daemon.run().await?;
         }
 
+        DaemonAction::Install { start, force } => {
+            let (_, path) = load_config(config_path)?;
+            let (unit_path, warnings) = install_user_service(&path, start, force)?;
+            println!("Installed daemon service: {}", unit_path.display());
+            for warning in warnings {
+                println!("[WARN] {warning}");
+            }
+            if start {
+                println!("Requested service start for sigil.service");
+            } else {
+                println!("Run `systemctl --user start sigil.service` to start it.");
+            }
+        }
+
+        DaemonAction::PrintService => {
+            let (_, path) = load_config(config_path)?;
+            println!("{}", render_user_service(&path)?);
+        }
+
         DaemonAction::Stop => {
             let (config, _) = load_config(config_path)?;
             let pid_path = pid_file_path(&config);
@@ -619,6 +623,17 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     "Daemon stop not supported on this platform. Remove {} manually.",
                     pid_path.display()
                 );
+            }
+        }
+
+        DaemonAction::Uninstall { stop } => {
+            let (unit_path, warnings) = uninstall_user_service(stop)?;
+            match unit_path {
+                Some(path) => println!("Removed daemon service: {}", path.display()),
+                None => println!("Daemon service file was not installed."),
+            }
+            for warning in warnings {
+                println!("[WARN] {warning}");
             }
         }
 

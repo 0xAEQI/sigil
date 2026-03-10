@@ -14,6 +14,18 @@ pub enum Commands {
     },
     /// Initialize Sigil in the current directory.
     Init,
+    /// Bootstrap a ready-to-run Sigil workspace.
+    Setup {
+        /// Default runtime preset (for example: openrouter_claude_code, anthropic_agent, ollama_agent).
+        #[arg(long, default_value = "openrouter_claude_code")]
+        runtime: String,
+        /// Install a per-user daemon service after bootstrapping the workspace.
+        #[arg(long)]
+        service: bool,
+        /// Overwrite starter files that already exist.
+        #[arg(long)]
+        force: bool,
+    },
     /// Manage encrypted secrets.
     Secrets {
         #[command(subcommand)]
@@ -238,8 +250,25 @@ pub enum SecretsAction {
 pub enum DaemonAction {
     /// Start the daemon (runs in foreground).
     Start,
+    /// Install a per-user daemon service.
+    Install {
+        /// Start the service immediately after installing it.
+        #[arg(long)]
+        start: bool,
+        /// Overwrite an existing service definition.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print the generated service definition.
+    PrintService,
     /// Stop a running daemon.
     Stop,
+    /// Uninstall the per-user daemon service.
+    Uninstall {
+        /// Stop the service before removing it.
+        #[arg(long)]
+        stop: bool,
+    },
     /// Show daemon status.
     Status,
     /// Query the running daemon via IPC socket.

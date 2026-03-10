@@ -1,12 +1,13 @@
 use anyhow::{Result, bail};
 use sigil_core::SecretStore;
-use sigil_core::traits::Provider;
 use sigil_orchestrator::ScheduleStore;
-use sigil_providers::OpenRouterProvider;
 use sigil_tools::Skill;
 use std::path::PathBuf;
 
-use crate::helpers::{find_agent_dir, find_project_dir, load_config_with_agents};
+use crate::helpers::{
+    build_provider_for_runtime, find_agent_dir, find_project_dir, load_config_with_agents,
+    provider_secret_store_path,
+};
 
 pub(crate) async fn cmd_doctor(
     config_path: &Option<PathBuf>,
@@ -33,26 +34,29 @@ pub(crate) async fn cmd_doctor(
                 println!("[WARN] Config validation: {issue}");
                 issues_found += 1;
             }
+            if let Some(ref runtime) = config.sigil.default_runtime {
+                println!("[OK] Default runtime: {runtime}");
+            }
+
+            let store_path = provider_secret_store_path(&config);
+            let secret_store = SecretStore::open(&store_path).ok();
 
             if let Some(ref or) = config.providers.openrouter {
-                // Try config api_key first, then fall back to secret store.
                 let api_key = if !or.api_key.is_empty() {
                     Some(or.api_key.clone())
                 } else {
-                    let store_path = config
-                        .security
-                        .secret_store
+                    secret_store
                         .as_ref()
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| config.data_dir().join("secrets"));
-                    SecretStore::open(&store_path)
-                        .ok()
                         .and_then(|s| s.get("OPENROUTER_API_KEY").ok())
                 };
 
                 match api_key {
-                    Some(key) => {
-                        let provider = OpenRouterProvider::new(key, or.default_model.clone());
+                    Some(_) => {
+                        let provider = build_provider_for_runtime(
+                            &config,
+                            sigil_core::ProviderKind::OpenRouter,
+                            Some(&or.default_model),
+                        )?;
                         match provider.health_check().await {
                             Ok(()) => println!("[OK] OpenRouter API key valid"),
                             Err(e) => {
@@ -67,14 +71,70 @@ pub(crate) async fn cmd_doctor(
                     }
                 }
             }
+            if let Some(ref anthropic) = config.providers.anthropic {
+                let api_key = if !anthropic.api_key.is_empty() {
+                    Some(anthropic.api_key.clone())
+                } else {
+                    secret_store
+                        .as_ref()
+                        .and_then(|s| s.get("ANTHROPIC_API_KEY").ok())
+                };
+
+                match api_key {
+                    Some(_) => {
+                        let provider = build_provider_for_runtime(
+                            &config,
+                            sigil_core::ProviderKind::Anthropic,
+                            Some(&anthropic.default_model),
+                        )?;
+                        match provider.health_check().await {
+                            Ok(()) => println!("[OK] Anthropic API key valid"),
+                            Err(e) => {
+                                println!("[FAIL] Anthropic: {e}");
+                                issues_found += 1;
+                            }
+                        }
+                    }
+                    None => {
+                        println!("[WARN] Anthropic API key not set (config or secret store)");
+                        issues_found += 1;
+                    }
+                }
+            }
+            if let Some(ref ollama) = config.providers.ollama {
+                let provider = build_provider_for_runtime(
+                    &config,
+                    sigil_core::ProviderKind::Ollama,
+                    Some(&ollama.default_model),
+                )?;
+                match provider.health_check().await {
+                    Ok(()) => println!("[OK] Ollama reachable at {}", ollama.url),
+                    Err(e) => {
+                        println!("[WARN] Ollama: {e}");
+                        issues_found += 1;
+                    }
+                }
+            }
+            if config.providers.openrouter.is_none()
+                && config.providers.anthropic.is_none()
+                && config.providers.ollama.is_none()
+            {
+                println!("[WARN] No providers configured");
+                issues_found += 1;
+            }
 
             for pcfg in &config.projects {
+                let runtime = config.runtime_for_project(&pcfg.name);
+                let mode = config.execution_mode_for_project(&pcfg.name);
                 let repo_ok = PathBuf::from(&pcfg.repo).exists();
                 println!(
-                    "[{}] Project '{}' repo: {}",
+                    "[{}] Project '{}' repo: {} | runtime={} | mode={:?} | model={}",
                     if repo_ok { "OK" } else { "WARN" },
                     pcfg.name,
-                    pcfg.repo
+                    pcfg.repo,
+                    runtime.provider,
+                    mode,
+                    config.model_for_project(&pcfg.name),
                 );
                 if !repo_ok {
                     issues_found += 1;
@@ -146,6 +206,8 @@ pub(crate) async fn cmd_doctor(
 
             // Check agent identity files.
             for agent_cfg in &config.agents {
+                let runtime = config.runtime_for_agent(&agent_cfg.name);
+                let mode = config.execution_mode_for_agent(&agent_cfg.name);
                 match find_agent_dir(&agent_cfg.name) {
                     Ok(d) => {
                         let has_persona = d.join("PERSONA.md").exists();
@@ -157,13 +219,16 @@ pub(crate) async fn cmd_doctor(
                             issues_found += 1;
                         }
                         println!(
-                            "[{}] Agent '{}': PERSONA={has_persona} IDENTITY={has_identity}",
+                            "[{}] Agent '{}': PERSONA={has_persona} IDENTITY={has_identity} | runtime={} | mode={:?} | model={}",
                             if has_persona && has_identity {
                                 "OK"
                             } else {
                                 "WARN"
                             },
-                            agent_cfg.name
+                            agent_cfg.name,
+                            runtime.provider,
+                            mode,
+                            config.model_for_agent(&agent_cfg.name),
                         );
                     }
                     Err(_) => {
@@ -173,12 +238,6 @@ pub(crate) async fn cmd_doctor(
                 }
             }
 
-            let store_path = config
-                .security
-                .secret_store
-                .as_ref()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| config.data_dir().join("secrets"));
             if store_path.exists() {
                 println!("[OK] Secret store: {}", store_path.display());
             } else {
@@ -223,10 +282,24 @@ pub(crate) async fn cmd_doctor(
                     println!("[WARN] Data dir missing: {}", data_dir.display());
                 }
             }
+
+            let claude_required = config.projects.iter().any(|p| {
+                config.execution_mode_for_project(&p.name) == sigil_core::ExecutionMode::ClaudeCode
+            }) || config.agents.iter().any(|a| {
+                config.execution_mode_for_agent(&a.name) == sigil_core::ExecutionMode::ClaudeCode
+            });
+            if claude_required {
+                if command_on_path("claude") {
+                    println!("[OK] Claude Code CLI available");
+                } else {
+                    println!("[WARN] Claude Code runtime selected but `claude` is not on PATH");
+                    issues_found += 1;
+                }
+            }
         }
         Err(e) => {
             println!("[FAIL] Config: {e}");
-            println!("       Run `sigil init` to create one.");
+            println!("       Run `sigil setup` to create one.");
             issues_found += 1;
         }
     }
@@ -249,4 +322,9 @@ pub(crate) async fn cmd_doctor(
     }
 
     Ok(())
+}
+
+fn command_on_path(command: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(command).exists()))
 }

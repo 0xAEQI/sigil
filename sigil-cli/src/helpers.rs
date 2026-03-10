@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use sigil_core::traits::{Provider, Tool};
-use sigil_core::{AgentRole, SecretStore, SigilConfig};
+use sigil_core::{AgentRole, ExecutionMode, ProviderKind, SecretStore, SigilConfig};
 use sigil_memory::SqliteMemory;
 use sigil_orchestrator::ProjectRegistry;
-use sigil_providers::{OpenRouterEmbedder, OpenRouterProvider};
+use sigil_providers::{AnthropicProvider, OllamaProvider, OpenRouterEmbedder, OpenRouterProvider};
 use sigil_tasks::TaskBoard;
 use sigil_tools::{
     FileReadTool, FileWriteTool, GitWorktreeTool, ListDirTool, PorkbunTool, ShellTool,
@@ -96,27 +96,98 @@ pub(crate) fn get_api_key(config: &SigilConfig) -> Result<String> {
     if !or_config.api_key.is_empty() {
         return Ok(or_config.api_key.clone());
     }
-    let store_path = config
-        .security
-        .secret_store
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config.data_dir().join("secrets"));
+    let store_path = provider_secret_store_path(config);
     let store = SecretStore::open(&store_path)?;
     store
         .get("OPENROUTER_API_KEY")
         .context("OPENROUTER_API_KEY not set. Use `sigil secrets set OPENROUTER_API_KEY <key>`")
 }
 
-pub(crate) fn build_provider(config: &SigilConfig) -> Result<Arc<dyn Provider>> {
-    let api_key = get_api_key(config)?;
-    let model = config
-        .providers
-        .openrouter
+pub(crate) fn provider_secret_store_path(config: &SigilConfig) -> PathBuf {
+    config
+        .security
+        .secret_store
         .as_ref()
-        .map(|or| or.default_model.clone())
-        .unwrap_or_else(|| "minimax/minimax-m2.5".to_string());
-    Ok(Arc::new(OpenRouterProvider::new(api_key, model)))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config.data_dir().join("secrets"))
+}
+
+fn get_anthropic_api_key(config: &SigilConfig) -> Result<String> {
+    let anthropic = config
+        .providers
+        .anthropic
+        .as_ref()
+        .context("no Anthropic provider configured")?;
+    if !anthropic.api_key.is_empty() {
+        return Ok(anthropic.api_key.clone());
+    }
+    let store = SecretStore::open(&provider_secret_store_path(config))?;
+    store
+        .get("ANTHROPIC_API_KEY")
+        .context("ANTHROPIC_API_KEY not set. Use `sigil secrets set ANTHROPIC_API_KEY <key>`")
+}
+
+pub(crate) fn build_provider_for_runtime(
+    config: &SigilConfig,
+    provider_kind: ProviderKind,
+    model_override: Option<&str>,
+) -> Result<Arc<dyn Provider>> {
+    let model = model_override
+        .filter(|m| !m.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| config.default_model_for_provider(provider_kind));
+
+    match provider_kind {
+        ProviderKind::OpenRouter => {
+            let api_key = get_api_key(config)?;
+            Ok(Arc::new(OpenRouterProvider::new(api_key, model)))
+        }
+        ProviderKind::Anthropic => {
+            let api_key = get_anthropic_api_key(config)?;
+            Ok(Arc::new(AnthropicProvider::new(api_key, model)))
+        }
+        ProviderKind::Ollama => {
+            let ollama = config.providers.ollama.as_ref();
+            let url = ollama
+                .map(|cfg| cfg.url.clone())
+                .unwrap_or_else(|| "http://localhost:11434".to_string());
+            Ok(Arc::new(OllamaProvider::new(url, model)))
+        }
+    }
+}
+
+pub(crate) fn build_provider(config: &SigilConfig) -> Result<Arc<dyn Provider>> {
+    let runtime = config
+        .sigil
+        .default_runtime
+        .as_deref()
+        .and_then(|name| config.runtime_preset_named(name))
+        .unwrap_or_else(|| sigil_core::RuntimePresetConfig {
+            provider: config
+                .default_provider_kind()
+                .unwrap_or(ProviderKind::OpenRouter),
+            execution_mode: Some(ExecutionMode::Agent),
+            model: None,
+        });
+    build_provider_for_runtime(config, runtime.provider, runtime.model.as_deref())
+}
+
+pub(crate) fn build_provider_for_project(
+    config: &SigilConfig,
+    project_name: &str,
+) -> Result<Arc<dyn Provider>> {
+    let runtime = config.runtime_for_project(project_name);
+    let model = config.model_for_project(project_name);
+    build_provider_for_runtime(config, runtime.provider, Some(&model))
+}
+
+pub(crate) fn build_provider_for_agent(
+    config: &SigilConfig,
+    agent_name: &str,
+) -> Result<Arc<dyn Provider>> {
+    let runtime = config.runtime_for_agent(agent_name);
+    let model = config.model_for_agent(agent_name);
+    build_provider_for_runtime(config, runtime.provider, Some(&model))
 }
 
 pub(crate) fn build_tools(workdir: &Path) -> Vec<Arc<dyn Tool>> {

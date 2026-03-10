@@ -113,6 +113,8 @@ pub struct Supervisor {
     pub auto_redecompose: bool,
     /// Model for mission decomposition / redecomposition.
     pub decomposition_model: String,
+    /// Threshold for inferring dependencies between tasks (0.0 = disabled).
+    pub infer_deps_threshold: f64,
 }
 
 impl Supervisor {
@@ -166,6 +168,7 @@ impl Supervisor {
             paused: false,
             auto_redecompose: false,
             decomposition_model: String::new(),
+            infer_deps_threshold: 0.0,
         }
     }
 
@@ -699,10 +702,22 @@ impl Supervisor {
             if let Some(ref m) = self.metrics {
                 m.workers_spawned.inc();
             }
+            if let Some(ref audit) = self.audit_log {
+                let _ = audit.record(
+                    &AuditEvent::new(
+                        &self.project_name,
+                        DecisionType::WorkerSpawned,
+                        format!("Worker {} spawned for task {}", worker_name, task.id),
+                    )
+                    .with_task(&task.id.0)
+                    .with_agent(&worker_name),
+                );
+            }
             let emo_state = self.emotional_state.clone();
             let emo_path = self.emotional_state_path.clone();
             let tasks_for_err = self.tasks.clone();
             let expertise_ledger = self.expertise_ledger.clone();
+            let blackboard_worker = self.blackboard.clone();
             let audit_log_worker = self.audit_log.clone();
             let dispatch_bus_worker = self.dispatch_bus.clone();
             let outcome_recipient = self.system_escalation_target.clone();
@@ -803,6 +818,43 @@ impl Supervisor {
                                         },
                                     ))
                                     .await;
+
+                                // Post completion summary to blackboard for sibling workers.
+                                if let Some(ref bb) = blackboard_worker
+                                    && !summary.is_empty()
+                                {
+                                    let key = format!("completed:{}", task_id_clone);
+                                    let content = format!(
+                                        "Task '{}' completed: {}",
+                                        task_subject,
+                                        summary.chars().take(500).collect::<String>()
+                                    );
+                                    if bb
+                                        .post(
+                                            &key,
+                                            &content,
+                                            &worker_name_for_records,
+                                            &project_name_task,
+                                            &task_labels,
+                                            crate::blackboard::EntryDurability::Transient,
+                                        )
+                                        .is_ok()
+                                        && let Some(ref audit) = audit_log_worker
+                                    {
+                                        let _ = audit.record(
+                                            &AuditEvent::new(
+                                                &project_name_task,
+                                                DecisionType::BlackboardPost,
+                                                format!(
+                                                    "Posted completion summary for task {}",
+                                                    task_id_clone
+                                                ),
+                                            )
+                                            .with_task(&task_id_clone)
+                                            .with_agent(&worker_name_for_records),
+                                        );
+                                    }
+                                }
                             }
                             TaskOutcome::Blocked {
                                 question,
@@ -940,6 +992,35 @@ impl Supervisor {
                                     new_tasks = task_ids.len(),
                                     "redecomposed stalled mission"
                                 );
+                                // Infer dependencies between newly created tasks.
+                                if self.infer_deps_threshold > 0.0 {
+                                    match store
+                                        .apply_inferred_dependencies(self.infer_deps_threshold)
+                                    {
+                                        Ok(n) if n > 0 => {
+                                            info!(
+                                                project = %self.project_name,
+                                                mission = %mission_id,
+                                                inferred = n,
+                                                "inferred task dependencies"
+                                            );
+                                            if let Some(ref audit) = self.audit_log {
+                                                let _ = audit.record(
+                                                    &AuditEvent::new(
+                                                        &self.project_name,
+                                                        DecisionType::DependencyInferred,
+                                                        format!(
+                                                            "Inferred {n} dependencies in mission {mission_id}"
+                                                        ),
+                                                    )
+                                                    .with_task(&mission_id),
+                                                );
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
                                 if let Some(ref audit) = self.audit_log {
                                     let _ = audit.record(
                                         &AuditEvent::new(

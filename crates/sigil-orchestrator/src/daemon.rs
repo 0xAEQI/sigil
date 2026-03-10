@@ -402,6 +402,7 @@ impl Daemon {
                                 s.failure_analysis_model = orch.failure_analysis_model.clone();
                                 s.auto_redecompose = orch.auto_redecompose;
                                 s.decomposition_model = orch.decomposition_model.clone();
+                                s.infer_deps_threshold = orch.infer_deps_threshold;
 
                                 debug!(
                                     project = %pcfg.name,

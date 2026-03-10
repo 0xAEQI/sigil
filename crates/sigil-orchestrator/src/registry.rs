@@ -132,6 +132,7 @@ impl ProjectRegistry {
         description: &str,
         decomposition_model: &str,
         provider: &Arc<dyn Provider>,
+        infer_deps_threshold: f64,
     ) -> Result<sigil_tasks::Mission> {
         let projects = self.projects.read().await;
         let project = projects
@@ -172,6 +173,29 @@ impl ProjectRegistry {
                         critical_path = result.critical_path.len(),
                         "mission decomposed into task DAG"
                     );
+
+                    // Infer dependencies between newly created tasks.
+                    if infer_deps_threshold > 0.0
+                        && let Ok(n) = store.apply_inferred_dependencies(infer_deps_threshold)
+                        && n > 0
+                    {
+                        info!(
+                            project = %project_name,
+                            mission = %mission.id,
+                            inferred = n,
+                            "inferred task dependencies"
+                        );
+                        if let Some(ref audit) = self.audit_log {
+                            let _ = audit.record(
+                                &AuditEvent::new(
+                                    project_name,
+                                    DecisionType::DependencyInferred,
+                                    format!("Inferred {n} dependencies in mission {}", mission.id),
+                                )
+                                .with_task(&mission.id),
+                            );
+                        }
+                    }
 
                     if let Some(ref audit) = self.audit_log {
                         let _ = audit.record(
@@ -538,6 +562,7 @@ mod tests {
             prefix: prefix.to_string(),
             repo: dir.path().display().to_string(),
             model: Some("test-model".to_string()),
+            runtime: None,
             max_workers: 1,
             worktree_root: None,
             execution_mode: ExecutionMode::Agent,

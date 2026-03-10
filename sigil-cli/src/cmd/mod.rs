@@ -13,6 +13,7 @@ pub(crate) mod operation;
 pub(crate) mod pipeline;
 pub(crate) mod run;
 pub(crate) mod secrets;
+pub(crate) mod setup;
 pub(crate) mod skill;
 pub(crate) mod status;
 pub(crate) mod tasks;

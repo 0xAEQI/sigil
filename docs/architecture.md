@@ -182,7 +182,8 @@ Examples:
 
 - Council mode exists in the daemon message path and Telegram flow, not as `sigil council`
 - Budget inspection exists through daemon IPC, not as `sigil cost`
-- Anthropic and Ollama providers exist as crates, but the standard CLI provider factory still selects OpenRouter
+- Worker/provider runtime presets now select OpenRouter, Anthropic, or Ollama per project or agent
+- Agent routing and usage-credit inspection still assume OpenRouter in a few control-plane paths
 
 When documenting or extending Sigil, treat the daemon and CLI entrypoints as the source of truth for what operators can use today.
 
