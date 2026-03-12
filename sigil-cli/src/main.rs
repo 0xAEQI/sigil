@@ -58,6 +58,15 @@ async fn main() -> Result<()> {
         Commands::Secrets { action } => cmd::secrets::cmd_secrets(&cli.config, action).await,
         Commands::Doctor { fix, strict } => cmd::doctor::cmd_doctor(&cli.config, fix, strict).await,
         Commands::Status => cmd::status::cmd_status(&cli.config).await,
+        Commands::Monitor {
+            project,
+            watch,
+            interval_secs,
+            json,
+        } => {
+            cmd::monitor::cmd_monitor(&cli.config, project.as_deref(), watch, interval_secs, json)
+                .await
+        }
         Commands::Assign {
             subject,
             project,

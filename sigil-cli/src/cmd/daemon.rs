@@ -17,9 +17,9 @@ use tracing::{info, warn};
 use crate::cli::DaemonAction;
 use crate::helpers::{
     augment_identity_with_org_context, build_project_tools, build_provider,
-    build_provider_for_agent, build_provider_for_project, build_tools, find_agent_dir,
-    find_project_dir, get_api_key, handle_fast_lane, load_config, load_config_with_agents,
-    open_memory, pid_file_path,
+    build_provider_for_agent, build_provider_for_project, build_tools, daemon_ipc_request,
+    find_agent_dir, find_project_dir, get_api_key, handle_fast_lane, load_config,
+    load_config_with_agents, open_memory, pid_file_path,
 };
 use crate::service::{install_user_service, render_user_service, uninstall_user_service};
 
@@ -690,42 +690,9 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
         }
 
         DaemonAction::Query { cmd } => {
-            let (config, _) = load_config(config_path)?;
-            let socket_path = config.data_dir().join("rm.sock");
-
-            if !socket_path.exists() {
-                anyhow::bail!(
-                    "IPC socket not found: {}. Is the daemon running?",
-                    socket_path.display()
-                );
-            }
-
-            #[cfg(unix)]
-            {
-                use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-                let stream = tokio::net::UnixStream::connect(&socket_path)
-                    .await
-                    .context(format!(
-                        "failed to connect to IPC socket: {}",
-                        socket_path.display()
-                    ))?;
-
-                let (reader, mut writer) = stream.into_split();
-                let request = serde_json::json!({"cmd": cmd});
-                let mut req_bytes = serde_json::to_vec(&request)?;
-                req_bytes.push(b'\n');
-                writer.write_all(&req_bytes).await?;
-
-                let mut lines = BufReader::new(reader).lines();
-                if let Some(line) = lines.next_line().await? {
-                    let response: serde_json::Value = serde_json::from_str(&line)?;
-                    println!("{}", serde_json::to_string_pretty(&response)?);
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                anyhow::bail!("IPC socket queries not supported on this platform");
-            }
+            let response =
+                daemon_ipc_request(config_path, &serde_json::json!({ "cmd": cmd })).await?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
         }
     }
     Ok(())

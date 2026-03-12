@@ -10,8 +10,8 @@ Sigil currently has two real execution paths:
 ## Current State
 
 - 8 crates in one Cargo workspace
-- 25 top-level CLI commands
-- 214 unit tests passing with `cargo test --workspace`
+- 26 top-level CLI commands
+- 217 unit tests passing with `cargo test --workspace`
 - `cargo clippy --workspace --all-targets -- -D warnings` clean
 - Implemented subsystems: task DAGs, missions, operations, memory, audit log, blackboard, schedules, watchdogs, project teams, organization kernel config, Telegram ingress, Claude Code worker execution
 
@@ -32,10 +32,11 @@ sigil secrets set OPENROUTER_API_KEY sk-or-...
 # add projects/<name>/ plus config/sigil.toml entries
 sigil doctor --strict
 sigil team
+sigil monitor
 
 sigil run "summarize the repository layout"
 sigil daemon install --start
-sigil daemon query readiness
+sigil monitor --watch
 ```
 
 Use [config/sigil.example.toml](/home/claudedev/sigil/config/sigil.example.toml) as the starting config.
@@ -44,12 +45,19 @@ Use [config/sigil.example.toml](/home/claudedev/sigil/config/sigil.example.toml)
 
 ### Operator Surface
 
-- Core: `run`, `init`, `setup`, `doctor`, `status`, `config`, `team`, `agent`, `secrets`
+- Core: `run`, `init`, `setup`, `doctor`, `status`, `monitor`, `config`, `team`, `agent`, `secrets`
 - Work management: `assign`, `ready`, `tasks`, `close`, `hook`, `done`, `mission`, `operation`, `deps`
 - Knowledge and automation: `recall`, `remember`, `skill`, `pipeline`, `cron`
 - Long-running orchestration: `daemon`, `audit`, `blackboard`
 
-For daemon state and budget inspection, use:
+For operator inspection, start with:
+
+```bash
+sigil monitor
+sigil monitor --watch
+```
+
+For raw daemon state and budget inspection, use:
 
 ```bash
 sigil daemon query status
@@ -77,6 +85,21 @@ sigil daemon query metrics
 3. Register projects and advisor agents as supervised task owners
 4. Patrol ready work and spawn workers
 5. Persist orchestration state and serve daemon IPC on `~/.sigil/rm.sock`
+
+### Native Operator Monitor
+
+`sigil monitor` is the new native control-plane view.
+
+- When the daemon is running, it combines live readiness data with local task-board state.
+- When the daemon is offline, it degrades cleanly to local project/task inspection and tells you that patrols, watchdogs, and chat ingress are inactive.
+- It surfaces recommended interventions instead of only raw counts: stalled blocked work, critical ready work, budget pressure, missing repos, and dispatch trouble.
+
+Useful modes:
+
+- `sigil monitor`
+- `sigil monitor --watch`
+- `sigil monitor --project NAME`
+- `sigil monitor --json`
 
 Runtime presets now select the worker provider and execution mode per project or agent. Built-ins:
 
@@ -157,6 +180,7 @@ The worker protocol supports `DONE`, `BLOCKED:`, `FAILED:`, and `HANDOFF:` outco
 - There is no first-class `sigil council` CLI subcommand. Council mode is driven from the daemon's message path, most visibly through Telegram `/council ...`.
 - There is no top-level `sigil cost` CLI subcommand. Use `sigil daemon query cost`.
 - Readiness is daemon-driven. Use `sigil daemon query readiness` for a machine-readable “can this harness accept work now?” answer.
+- `sigil monitor` is the native operator surface today, but it is still a text CLI view, not a full TUI or web console.
 - The organization kernel is native, but per-role direct chat surfaces like `@ceo` or `@incident-lead` are not first-class CLI commands yet. Today the org model primarily shapes identity, project-team resolution, and operator inspection.
 - Worker/provider runtime presets are wired through the CLI and daemon now, but advisor routing and usage-credit inspection are still OpenRouter-oriented.
 - Recursive worker orchestration depends on an installed, authenticated `claude` binary when projects use `claude_code`.

@@ -7,6 +7,8 @@ Sigil is a Rust workspace with two practical execution planes:
 - The internal agent plane, used by `sigil run` and `sigil skill run`
 - The orchestration plane, used by `sigil daemon start`
 
+On top of those planes, the main native operator surface is now `sigil monitor`, which combines daemon IPC state with local task-board inspection.
+
 The codebase already contains more orchestration primitives than the top-level CLI exposes directly. This document focuses on the runtime paths that are actually wired today.
 
 ## Crate Layers
@@ -76,8 +78,14 @@ The daemon owns:
 
 Useful daemon probes today:
 
+- `sigil monitor`: operator-focused summary plus recommended interventions
 - `sigil daemon query status`: broad inventory of projects, budgets, pulses, and dispatch state
 - `sigil daemon query readiness`: stricter control-plane readiness, including skipped registrations, worker capacity, and budget exhaustion
+
+`sigil monitor` is not a separate runtime. It is a CLI aggregation layer over:
+
+- daemon readiness / dispatch / budget state when the daemon is live
+- local project task boards and repo presence checks even when the daemon is down
 
 ## Worker Execution Modes
 
@@ -204,6 +212,7 @@ Examples:
 
 - Council mode exists in the daemon message path and Telegram flow, not as `sigil council`
 - Budget inspection exists through daemon IPC, not as `sigil cost`
+- `sigil monitor` is the current native operator summary, but not yet a full TUI or web console
 - Worker/provider runtime presets now select OpenRouter, Anthropic, or Ollama per project or agent
 - Organization graphs are first-class config and identity input, but per-role chat surfaces are not a dedicated top-level CLI yet
 - Agent routing and usage-credit inspection still assume OpenRouter in a few control-plane paths

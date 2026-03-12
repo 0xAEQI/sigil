@@ -42,6 +42,21 @@ pub enum Commands {
     },
     /// Show system status.
     Status,
+    /// Show a consolidated operator monitor view.
+    Monitor {
+        /// Focus on a single project.
+        #[arg(short = 'r', long = "project", alias = "rig")]
+        project: Option<String>,
+        /// Refresh the monitor continuously.
+        #[arg(long)]
+        watch: bool,
+        /// Refresh interval in seconds when --watch is enabled.
+        #[arg(long, default_value = "5")]
+        interval_secs: u64,
+        /// Emit the monitor report as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 
     // --- Phase 2: Tasks ---
     /// Assign a task to a project.

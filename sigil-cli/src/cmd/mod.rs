@@ -9,6 +9,7 @@ pub(crate) mod doctor;
 pub(crate) mod init;
 pub(crate) mod memory;
 pub(crate) mod mission;
+pub(crate) mod monitor;
 pub(crate) mod operation;
 pub(crate) mod pipeline;
 pub(crate) mod run;

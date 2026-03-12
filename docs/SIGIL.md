@@ -6,8 +6,8 @@ This is the live reference for the Sigil workspace as it exists today.
 
 - Cargo workspace with 8 crates
 - CLI binary in `sigil-cli/`
-- 25 top-level CLI commands
-- 214 unit tests currently passing
+- 26 top-level CLI commands
+- 217 unit tests currently passing
 
 ## Command Surface
 
@@ -17,6 +17,7 @@ This is the live reference for the Sigil workspace as it exists today.
 - `sigil setup`
 - `sigil doctor [--fix]`
 - `sigil status`
+- `sigil monitor [--project NAME] [--watch] [--json]`
 - `sigil config show`
 - `sigil config reload`
 - `sigil team`
@@ -76,6 +77,7 @@ Project-local pipeline names override shared names.
 
 - `sigil recall "query" [--project NAME]`
 - `sigil remember KEY CONTENT [--project NAME]`
+- `sigil monitor`
 - `sigil audit [--project NAME] [--task TASK_ID] [--last N]`
 - `sigil blackboard list|post|query`
 
@@ -97,6 +99,21 @@ Useful daemon IPC commands:
 - `metrics`
 - `cost`
 - `audit`
+
+### Operator Monitor
+
+`sigil monitor` is the native operator-facing summary for the current CLI.
+
+- It merges daemon readiness data with local task-board inspection.
+- It works even when the daemon is down, but then reports local state only.
+- It emits recommended interventions for stalled work, critical ready work, dispatch failures, budget pressure, and missing repos.
+
+Use:
+
+- `sigil monitor`
+- `sigil monitor --watch`
+- `sigil monitor --project NAME`
+- `sigil monitor --json`
 
 ## Directory Layout
 
@@ -236,6 +253,7 @@ Useful extension targets:
 - Council routing is daemon-driven, most visibly from Telegram `/council ...`
 - Cost inspection is daemon-driven via `sigil daemon query cost`
 - Readiness inspection is daemon-driven via `sigil daemon query readiness`
+- `sigil monitor` is available as a native operator summary, but there is still no first-class TUI or web console
 - Daemon service install/print/uninstall is available via `sigil daemon ...`
 - `sigil team`, `sigil status`, and `sigil agent list` expose the current organization model and resolved org context
 - Claude Code recursion requires an external `claude` installation and authentication

@@ -12,6 +12,7 @@ use sigil_tools::{
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tracing::warn;
 
 pub(crate) fn load_config(config_path: &Option<PathBuf>) -> Result<(SigilConfig, PathBuf)> {
@@ -516,4 +517,49 @@ pub(crate) fn role_str(role: &AgentRole) -> &str {
 
 pub(crate) fn pid_file_path(config: &SigilConfig) -> PathBuf {
     config.data_dir().join("rm.pid")
+}
+
+pub(crate) async fn daemon_ipc_request(
+    config_path: &Option<PathBuf>,
+    request: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let (config, _) = load_config(config_path)?;
+    let socket_path = config.data_dir().join("rm.sock");
+
+    if !socket_path.exists() {
+        anyhow::bail!(
+            "IPC socket not found: {}. Is the daemon running?",
+            socket_path.display()
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        let stream = tokio::net::UnixStream::connect(&socket_path)
+            .await
+            .with_context(|| {
+                format!("failed to connect to IPC socket: {}", socket_path.display())
+            })?;
+
+        let (reader, mut writer) = stream.into_split();
+        let mut req_bytes = serde_json::to_vec(request)?;
+        req_bytes.push(b'\n');
+        writer.write_all(&req_bytes).await?;
+
+        let mut lines = BufReader::new(reader).lines();
+        let Some(line) = lines.next_line().await? else {
+            anyhow::bail!(
+                "IPC socket closed without a response: {}",
+                socket_path.display()
+            );
+        };
+
+        let response: serde_json::Value = serde_json::from_str(&line)?;
+        Ok(response)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = request;
+        anyhow::bail!("IPC socket queries not supported on this platform");
+    }
 }
