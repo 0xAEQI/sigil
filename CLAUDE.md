@@ -1,6 +1,6 @@
 # Sigil
 
-AI agent orchestration framework in Rust. 9 crates, 355 tests, 28 CLI commands.
+AI agent orchestration framework in Rust. 9 crates, 433 tests, 28 CLI commands.
 
 ## Crates
 
@@ -8,10 +8,10 @@ AI agent orchestration framework in Rust. 9 crates, 355 tests, 28 CLI commands.
 |-------|------|---------|
 | `sigil` | `sigil-cli/` | CLI binary and command handlers |
 | `sigil-core` | `crates/sigil-core/` | Config (SigilConfig, WebConfig, DepartmentConfig), traits, agent loop, identity, secrets |
-| `sigil-orchestrator` | `crates/sigil-orchestrator/` | Daemon, Supervisor, AgentWorker, ChatEngine, ConversationStore, DispatchBus, Audit, Expertise, Blackboard, Watchdog, Preflight, Decomposition, FailureAnalysis, Lifecycle |
+| `sigil-orchestrator` | `crates/sigil-orchestrator/` | Daemon, Supervisor, AgentWorker, ChatEngine, ConversationStore, DispatchBus, Audit, Expertise, Blackboard, Watchdog, Preflight, Decomposition, FailureAnalysis, Lifecycle, Middleware Chain, Verification Pipeline, Escalation, Notes, Proactive Engine, Skill Promotion |
 | `sigil-web` | `crates/sigil-web/` | Axum REST API + WebSocket server (JWT auth, IPC proxy to daemon) |
 | `sigil-tasks` | `crates/sigil-tasks/` | Task DAG (JSONL), missions, dependency inference |
-| `sigil-memory` | `crates/sigil-memory/` | SQLite+FTS5, vector search (OpenRouter embeddings), hybrid ranking |
+| `sigil-memory` | `crates/sigil-memory/` | SQLite+FTS5, vector search, hybrid ranking, memory graph (relationships, dedup, hotness), hierarchical L0/L1/L2, intelligent retrieval (query planning, multi-signal scoring), lifecycle management, debounced writes |
 | `sigil-providers` | `crates/sigil-providers/` | OpenRouter, Anthropic, Ollama + cost estimation |
 | `sigil-gates` | `crates/sigil-gates/` | Telegram, Discord, Slack channels |
 | `sigil-tools` | `crates/sigil-tools/` | Shell, file, git, tasks, delegate, skills |
@@ -42,7 +42,7 @@ ChatEngine (orchestrator/src/chat_engine.rs)
 ## Quality Bar
 
 ```bash
-cargo test --workspace    # 217 tests
+cargo test --workspace    # 433 tests
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 

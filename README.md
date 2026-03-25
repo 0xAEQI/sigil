@@ -2,27 +2,30 @@
 
 [![CI](https://github.com/0xAEQI/sigil/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0xAEQI/sigil/actions/workflows/ci.yml)
 
-**The AI Company Orchestrator.** Run your entire company through teams of AI agents. One dashboard, every project, full control.
+**Proactive AI.** The agent orchestrator that doesn't wait. It routes to the right agents, executes via Claude Code, verifies its own work, learns from results, and messages you with what got done.
 
 ## What It Does
 
-You tell Sigil what you want. It routes to the right agent, executes via Claude Code, learns from the result, and builds your knowledge base automatically. You wake up to a daily brief showing what got done overnight.
+You tell Sigil what you want. It decomposes into tasks, routes to specialist agents, executes in isolated environments, verifies outcomes, extracts knowledge, and wakes you up to a brief. Your notes become reality.
 
 ```
-User → Rei (system leader) → Project Teams → Claude Code Workers
-         ↓
-    Web Dashboard (entity.business)
-    Telegram / WhatsApp channels
+Intent → Understand → Orchestrate → Execute → Verify → Learn → Proact
+   ↑                                                              │
+   └──────────────────────────────────────────────────────────────┘
 ```
 
 ## Architecture
 
-- **9 Rust crates**, 222+ tests, zero clippy warnings
-- **28 CLI commands** including `sigil daemon start` and `sigil web start`
-- **Web dashboard** — Vite + React 19 with VS Code-style tree navigation
-- **Knowledge system** — SQLite + FTS5 + vector embeddings with hybrid search
-- **Chat** — knowledge-aware with memory search, note storage, auto-insight extraction
-- **Execution** — one adaptive pipeline with stable agent ownership, strong verification, and fallback-safe orchestration parsing
+- **9 Rust crates**, 433 tests, zero clippy warnings
+- **Composable middleware chain** — loop detection, guardrails, cost tracking, checkpoints
+- **Verification pipeline** — 5-stage with confidence scoring, three-strikes escalation
+- **Memory graph** — relationships, deduplication, hotness scoring (7d half-life), hierarchical L0/L1/L2
+- **Intelligent retrieval** — intent-driven query planning, multi-signal scoring (BM25 + vector + hotness + confidence + graph)
+- **Notes system** — directives that manifest into tasks with status tracking
+- **Proactive engine** — morning briefs, anomaly detection, suggestions, notifications
+- **Skill promotion** — recurring patterns auto-promoted to formal skill definitions
+- **Web dashboard** — chat-first UI (Vite + React 19), context panel, command palette
+- **Chat** — dual-path (quick + agent execution), multi-channel (web, Telegram, API)
 
 ## Quick Start
 
