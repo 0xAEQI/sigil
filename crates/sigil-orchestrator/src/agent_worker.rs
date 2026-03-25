@@ -14,10 +14,14 @@ use tracing::{debug, info, warn};
 use crate::audit::{AuditEvent, AuditLog, DecisionType};
 use crate::blackboard::Blackboard;
 use crate::checkpoint::AgentCheckpoint;
+use crate::execution_events::{EventBroadcaster, ExecutionEvent};
 use crate::executor::{ClaudeCodeExecutor, TaskOutcome};
 use crate::failure_analysis::{FailureAnalysis, FailureMode};
 use crate::hook::Hook;
 use crate::message::{Dispatch, DispatchBus, DispatchKind};
+use crate::middleware::{
+    MiddlewareAction, MiddlewareChain, Outcome, OutcomeStatus, WorkerContext,
+};
 
 /// Worker states.
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +76,10 @@ pub struct AgentWorker {
     pub adaptive_retry: bool,
     /// Model used for failure analysis when adaptive retry is enabled.
     pub failure_analysis_model: String,
+    /// Middleware chain for composable execution behavior (guardrails, cost tracking, etc.).
+    pub middleware_chain: Option<MiddlewareChain>,
+    /// Event broadcaster for real-time execution event streaming.
+    pub event_broadcaster: Option<Arc<EventBroadcaster>>,
 }
 
 impl AgentWorker {
@@ -113,6 +121,8 @@ impl AgentWorker {
             audit_log: None,
             adaptive_retry: false,
             failure_analysis_model: String::new(),
+            middleware_chain: None,
+            event_broadcaster: None,
         }
     }
 
@@ -148,6 +158,8 @@ impl AgentWorker {
             audit_log: None,
             adaptive_retry: false,
             failure_analysis_model: String::new(),
+            middleware_chain: None,
+            event_broadcaster: None,
         }
     }
 
@@ -176,6 +188,16 @@ impl AgentWorker {
         self.adaptive_retry = true;
         self.failure_analysis_model = model;
         self
+    }
+
+    /// Set the middleware chain for this worker.
+    pub fn set_middleware(&mut self, chain: MiddlewareChain) {
+        self.middleware_chain = Some(chain);
+    }
+
+    /// Set the event broadcaster for real-time execution event streaming.
+    pub fn set_broadcaster(&mut self, broadcaster: Arc<EventBroadcaster>) {
+        self.event_broadcaster = Some(broadcaster);
     }
 
     /// Get the child PID tracker (for process group kill on timeout).
@@ -355,6 +377,63 @@ impl AgentWorker {
             }
         };
 
+        let execution_start = std::time::Instant::now();
+
+        // Build WorkerContext for middleware chain.
+        let task_description_for_ctx = {
+            let store = self.tasks.lock().await;
+            store
+                .get(&hook.task_id.0)
+                .map(|t| t.description.clone())
+                .unwrap_or_else(|| hook.subject.clone())
+        };
+        let mut worker_ctx = WorkerContext::new(
+            &hook.task_id.0,
+            &task_description_for_ctx,
+            &self.agent_name,
+            &self.project_name,
+        );
+
+        // Run middleware on_start — check for Halt before proceeding.
+        if let Some(ref chain) = self.middleware_chain {
+            let action = chain.run_on_start(&mut worker_ctx).await;
+            match action {
+                MiddlewareAction::Halt(reason) => {
+                    warn!(
+                        worker = %self.name,
+                        task = %hook.task_id,
+                        reason = %reason,
+                        "middleware halted execution on start"
+                    );
+                    if let Some(ref broadcaster) = self.event_broadcaster {
+                        broadcaster.publish(ExecutionEvent::TaskFailed {
+                            task_id: hook.task_id.0.clone(),
+                            reason: reason.clone(),
+                            artifacts_preserved: false,
+                        });
+                    }
+                    self.hook = None;
+                    return Ok((
+                        TaskOutcome::Failed(format!("Middleware halted: {reason}")),
+                        0.0,
+                        0,
+                    ));
+                }
+                MiddlewareAction::Continue
+                | MiddlewareAction::Inject(_)
+                | MiddlewareAction::Skip => {}
+            }
+        }
+
+        // Publish TaskStarted event.
+        if let Some(ref broadcaster) = self.event_broadcaster {
+            broadcaster.publish(ExecutionEvent::TaskStarted {
+                task_id: hook.task_id.0.clone(),
+                agent: self.agent_name.clone(),
+                project: self.project_name.clone(),
+            });
+        }
+
         info!(
             worker = %self.name,
             task = %hook.task_id,
@@ -500,8 +579,110 @@ impl AgentWorker {
         // Parse into structured outcome.
         let (outcome, cost, turns) = match raw_result {
             Ok((result_text, cost, turns)) => (TaskOutcome::parse(&result_text), cost, turns),
-            Err(e) => (TaskOutcome::Failed(e.to_string()), 0.0, 0),
+            Err(e) => {
+                // Run middleware on_error.
+                if let Some(ref chain) = self.middleware_chain {
+                    let error_str = e.to_string();
+                    chain.run_on_error(&mut worker_ctx, &error_str).await;
+                }
+                // Publish TaskFailed event.
+                if let Some(ref broadcaster) = self.event_broadcaster {
+                    broadcaster.publish(ExecutionEvent::TaskFailed {
+                        task_id: hook.task_id.0.clone(),
+                        reason: e.to_string(),
+                        artifacts_preserved: false,
+                    });
+                }
+                (TaskOutcome::Failed(e.to_string()), 0.0, 0)
+            }
         };
+
+        // Run middleware on_complete with structured outcome.
+        let duration_ms = execution_start.elapsed().as_millis() as u64;
+        if let Some(ref chain) = self.middleware_chain {
+            let mw_outcome = match &outcome {
+                TaskOutcome::Done(_) => Outcome {
+                    status: OutcomeStatus::Done,
+                    confidence: 1.0,
+                    artifacts: Vec::new(),
+                    cost_usd: cost,
+                    turns,
+                    duration_ms,
+                    reason: None,
+                },
+                TaskOutcome::Blocked { question, .. } => Outcome {
+                    status: OutcomeStatus::Blocked,
+                    confidence: 0.5,
+                    artifacts: Vec::new(),
+                    cost_usd: cost,
+                    turns,
+                    duration_ms,
+                    reason: Some(question.clone()),
+                },
+                TaskOutcome::Handoff { checkpoint } => Outcome {
+                    status: OutcomeStatus::NeedsContext,
+                    confidence: 0.3,
+                    artifacts: Vec::new(),
+                    cost_usd: cost,
+                    turns,
+                    duration_ms,
+                    reason: Some(checkpoint.clone()),
+                },
+                TaskOutcome::Failed(error) => Outcome {
+                    status: OutcomeStatus::Failed,
+                    confidence: 0.0,
+                    artifacts: Vec::new(),
+                    cost_usd: cost,
+                    turns,
+                    duration_ms,
+                    reason: Some(error.clone()),
+                },
+            };
+            worker_ctx.cost_usd = cost;
+            chain.run_on_complete(&mut worker_ctx, &mw_outcome).await;
+        }
+
+        // Publish outcome-specific execution events.
+        if let Some(ref broadcaster) = self.event_broadcaster {
+            match &outcome {
+                TaskOutcome::Done(summary) => {
+                    broadcaster.publish(ExecutionEvent::TaskCompleted {
+                        task_id: hook.task_id.0.clone(),
+                        outcome: summary.chars().take(500).collect(),
+                        confidence: 1.0,
+                        cost_usd: cost,
+                        turns,
+                        duration_ms,
+                    });
+                }
+                TaskOutcome::Blocked { question, .. } => {
+                    broadcaster.publish(ExecutionEvent::ClarificationNeeded {
+                        task_id: hook.task_id.0.clone(),
+                        question: question.clone(),
+                        options: Vec::new(),
+                    });
+                }
+                TaskOutcome::Handoff { checkpoint } => {
+                    broadcaster.publish(ExecutionEvent::CheckpointCreated {
+                        task_id: hook.task_id.0.clone(),
+                        message: format!(
+                            "HANDOFF: {}",
+                            checkpoint.chars().take(500).collect::<String>()
+                        ),
+                    });
+                }
+                TaskOutcome::Failed(reason) => {
+                    // TaskFailed event may already be published in the Err arm above,
+                    // but if the failure came from TaskOutcome::parse on a successful
+                    // execution (FAILED: prefix in response text), publish here.
+                    broadcaster.publish(ExecutionEvent::TaskFailed {
+                        task_id: hook.task_id.0.clone(),
+                        reason: reason.chars().take(500).collect(),
+                        artifacts_preserved: false,
+                    });
+                }
+            }
+        }
 
         // Process outcome: save checkpoint, update task status, notify supervisor.
         match &outcome {

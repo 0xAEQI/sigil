@@ -15,8 +15,13 @@ use crate::checkpoint::AgentCheckpoint;
 use crate::cost_ledger::{CostEntry, CostLedger};
 use crate::decomposition::DecompositionResult;
 use crate::emotional_state::EmotionalState;
+use crate::execution_events::EventBroadcaster;
 use crate::executor::{ClaudeCodeExecutor, TaskOutcome};
 use crate::expertise::{ExpertiseLedger, ExpertiseRecord, TaskOutcomeKind};
+use crate::middleware::{
+    ContextBudgetMiddleware, CostTrackingMiddleware, GuardrailsMiddleware,
+    LoopDetectionMiddleware, MiddlewareChain,
+};
 use crate::message::{Dispatch, DispatchBus, DispatchKind};
 use crate::metrics::SigilMetrics;
 use crate::preflight::{PreflightAssessment, PreflightVerdict};
@@ -122,6 +127,8 @@ pub struct Supervisor {
     pub decomposition_model: String,
     /// Threshold for inferring dependencies between tasks (0.0 = disabled).
     pub infer_deps_threshold: f64,
+    /// Event broadcaster for real-time execution events (Priority 2).
+    pub event_broadcaster: Option<Arc<EventBroadcaster>>,
 }
 
 impl Supervisor {
@@ -246,6 +253,7 @@ impl Supervisor {
             decomposition_model: String::new(),
             infer_deps_threshold: 0.0,
             skills_dirs: Vec::new(),
+            event_broadcaster: None,
         }
     }
 
@@ -411,6 +419,21 @@ impl Supervisor {
         if !hints.is_empty() {
             let existing = worker.identity.memory.clone().unwrap_or_default();
             worker.identity.memory = Some(format!("{existing}\n\n{hints}"));
+        }
+
+        // Build default middleware chain for this worker.
+        let budget = self.cc_max_budget_usd.unwrap_or(10.0);
+        let chain = MiddlewareChain::new(vec![
+            Box::new(LoopDetectionMiddleware::new()),
+            Box::new(CostTrackingMiddleware::new(budget)),
+            Box::new(ContextBudgetMiddleware::new(200)),
+            Box::new(GuardrailsMiddleware::with_defaults()),
+        ]);
+        worker.set_middleware(chain);
+
+        // Inject event broadcaster if available.
+        if let Some(ref broadcaster) = self.event_broadcaster {
+            worker.set_broadcaster(broadcaster.clone());
         }
 
         (worker.with_max_task_retries(self.max_task_retries), progress_rx)

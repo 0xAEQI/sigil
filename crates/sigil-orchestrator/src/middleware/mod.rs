@@ -8,16 +8,22 @@
 //!
 //! This is the architectural foundation for Sigil v4's composable execution layer.
 
+pub mod clarification;
 pub mod context_budget;
+pub mod context_compression;
 pub mod cost_tracking;
 pub mod guardrails;
 pub mod loop_detection;
+pub mod memory_refresh;
 pub mod safety_net;
 
+pub use clarification::ClarificationMiddleware;
 pub use context_budget::ContextBudgetMiddleware;
+pub use context_compression::ContextCompressionMiddleware;
 pub use cost_tracking::CostTrackingMiddleware;
 pub use guardrails::GuardrailsMiddleware;
 pub use loop_detection::LoopDetectionMiddleware;
+pub use memory_refresh::MemoryRefreshMiddleware;
 pub use safety_net::SafetyNetMiddleware;
 
 use async_trait::async_trait;
