@@ -7,7 +7,7 @@
 //!
 //! Weights per the architecture doc (Layer 4: Verify):
 //!   - artifacts present:      +0.2
-//!   - tests pass:             +0.3
+//!   - test artifacts present:  +0.3
 //!   - spec compliant:         +0.3
 //!   - quality approved:       +0.1
 //!   - worker self-confidence: +0.1
@@ -27,10 +27,15 @@ use crate::middleware::{Outcome, OutcomeStatus};
 pub enum VerificationSignal {
     /// Worker produced identifiable artifacts (files, commits, diffs).
     ArtifactPresent,
-    /// Automated tests passed.
-    TestsPassed,
-    /// Automated tests failed.
-    TestsFailed,
+    /// Test-related artifacts are present in the worker output.
+    ///
+    /// NOTE: This is a heuristic signal — it means the worker *mentioned* or
+    /// produced test-related artifacts (e.g. "cargo test" in output), **not**
+    /// that tests were actually executed and passed. A future implementation
+    /// should shell out to the real test runner and parse exit codes.
+    TestArtifactsPresent,
+    /// Test-related artifacts indicate failure.
+    TestArtifactsFailed,
     /// Output satisfies the task's done condition / spec.
     SpecCompliant,
     /// Output violates the task's done condition / spec.
@@ -175,8 +180,8 @@ impl VerificationPipeline {
                 VerificationSignal::NoArtifacts => {
                     suggestions.push("No artifacts found — worker may not have produced output".into());
                 }
-                VerificationSignal::TestsFailed => {
-                    suggestions.push("Tests failed — fix failing tests before accepting".into());
+                VerificationSignal::TestArtifactsFailed => {
+                    suggestions.push("Test artifacts indicate failure — verify tests pass before accepting".into());
                 }
                 VerificationSignal::SpecViolation => {
                     suggestions.push("Output does not satisfy the done condition — re-examine requirements".into());
@@ -245,11 +250,11 @@ impl VerificationPipeline {
         }
     }
 
-    /// Stage 2: Run automated tests (placeholder — checks for test-related artifacts).
+    /// Stage 2: Check for test-related artifacts (heuristic — not actual test execution).
     ///
-    /// In a full implementation this would shell out to `cargo test` or equivalent.
-    /// For now we check whether the worker's tool call history (via artifacts) indicates
-    /// test execution and whether the outcome signals test results.
+    /// In a full implementation this would shell out to `cargo test` or equivalent
+    /// and parse exit codes. For now we only check whether the worker's artifacts
+    /// mention test-related keywords, which is a weak proxy for "tests passed".
     async fn check_tests(&self, task: &TaskContext) -> Vec<VerificationSignal> {
         // Look for test-related artifacts in the task context.
         let has_test_artifacts = task.artifacts.iter().any(|a| {
@@ -262,10 +267,10 @@ impl VerificationPipeline {
             return Vec::new();
         }
 
-        // If test artifacts are present, assume they passed (the actual test runner
-        // would parse exit codes here).
-        debug!(task_id = %task.task_id, "test artifacts found — marking as passed");
-        vec![VerificationSignal::TestsPassed]
+        // Test artifacts are present — treat as a positive signal. This is heuristic:
+        // we cannot confirm tests actually passed without running them.
+        debug!(task_id = %task.task_id, "test artifacts found — marking as present (heuristic)");
+        vec![VerificationSignal::TestArtifactsPresent]
     }
 
     /// Stage 3: Check spec / done-condition compliance.
@@ -314,7 +319,7 @@ impl VerificationPipeline {
     ///
     /// Weights from the architecture doc:
     ///   artifacts present:      0.2
-    ///   tests pass:             0.3
+    ///   test artifacts present:  0.3
     ///   spec compliant:         0.3
     ///   quality approved:       0.1
     ///   worker self-confidence: 0.1 (scaled by outcome.confidence)
@@ -328,8 +333,8 @@ impl VerificationPipeline {
             match signal {
                 VerificationSignal::ArtifactPresent => score += 0.2,
                 VerificationSignal::NoArtifacts => { /* no positive contribution */ }
-                VerificationSignal::TestsPassed => score += 0.3,
-                VerificationSignal::TestsFailed => { /* no positive contribution, penalizes by absence */ }
+                VerificationSignal::TestArtifactsPresent => score += 0.3,
+                VerificationSignal::TestArtifactsFailed => { /* no positive contribution */ }
                 VerificationSignal::SpecCompliant => score += 0.3,
                 VerificationSignal::SpecViolation => { /* no positive contribution */ }
                 VerificationSignal::QualityApproved => score += 0.1,
@@ -381,7 +386,7 @@ mod tests {
         let outcome = make_outcome(OutcomeStatus::Done, 1.0, vec!["file.rs".into()]);
         let signals = vec![
             VerificationSignal::ArtifactPresent,
-            VerificationSignal::TestsPassed,
+            VerificationSignal::TestArtifactsPresent,
             VerificationSignal::SpecCompliant,
             VerificationSignal::QualityApproved,
         ];
@@ -416,7 +421,7 @@ mod tests {
         let outcome = make_outcome(OutcomeStatus::Done, 0.0, vec![]);
         let signals = vec![
             VerificationSignal::NoArtifacts,
-            VerificationSignal::TestsFailed,
+            VerificationSignal::TestArtifactsFailed,
             VerificationSignal::SpecViolation,
             VerificationSignal::QualityConcern,
         ];
@@ -433,7 +438,7 @@ mod tests {
         let signals = vec![
             VerificationSignal::ArtifactPresent,
             VerificationSignal::ArtifactPresent,
-            VerificationSignal::TestsPassed,
+            VerificationSignal::TestArtifactsPresent,
             VerificationSignal::SpecCompliant,
             VerificationSignal::QualityApproved,
         ];
@@ -447,7 +452,7 @@ mod tests {
         let outcome = make_outcome(OutcomeStatus::Done, 0.5, vec!["f.rs".into()]);
         let signals = vec![
             VerificationSignal::ArtifactPresent,
-            VerificationSignal::TestsPassed,
+            VerificationSignal::TestArtifactsPresent,
         ];
         let confidence = pipeline.compute_confidence(&signals, &outcome);
         // 0.2 + 0.3 + (0.1 * 0.5) = 0.55
@@ -507,13 +512,13 @@ mod tests {
     }
 
     #[test]
-    fn weight_tests_passed() {
+    fn weight_test_artifacts_present() {
         let pipeline = VerificationPipeline::with_defaults();
         let outcome = make_outcome(OutcomeStatus::Done, 0.0, vec![]);
         let base = pipeline.compute_confidence(&[], &outcome);
-        let with = pipeline.compute_confidence(&[VerificationSignal::TestsPassed], &outcome);
+        let with = pipeline.compute_confidence(&[VerificationSignal::TestArtifactsPresent], &outcome);
         let delta = with - base;
-        assert!((delta - 0.3).abs() < 0.001, "tests passed weight should be 0.3, got {delta}");
+        assert!((delta - 0.3).abs() < 0.001, "test artifacts present weight should be 0.3, got {delta}");
     }
 
     #[test]

@@ -17,7 +17,7 @@ Intent → Understand → Orchestrate → Execute → Verify → Learn → Proac
 ## Architecture
 
 - **9 Rust crates**, 466 tests, zero clippy warnings
-- **Composable middleware chain** — 8 layers: loop detection, guardrails, cost tracking, context compression, memory refresh, clarification, safety net, checkpoints
+- **Composable middleware chain** — 8 implementations: loop detection, guardrails, cost tracking, context compression, context budget, memory refresh, clarification, safety net
 - **Verification pipeline** — 5-stage with confidence scoring, three-strikes escalation
 - **Memory graph** — relationships, deduplication, hotness scoring (7d half-life), hierarchical L0/L1/L2
 - **Intelligent retrieval** — intent-driven query planning, multi-signal scoring (BM25 + vector + hotness + confidence + graph)
@@ -42,10 +42,10 @@ sigil web start       # web API on :8400
 |-------|---------|
 | `sigil-cli` | CLI binary (28 commands) |
 | `sigil-core` | Config, traits, agent loop, identity |
-| `sigil-orchestrator` | Daemon, supervisor, worker, chat engine, memory, audit, expertise |
+| `sigil-orchestrator` | Daemon, supervisor, worker, chat engine, middleware, verification, notes, proactive engine |
 | `sigil-web` | Axum REST API + WebSocket |
 | `sigil-tasks` | Task DAG (JSONL), missions |
-| `sigil-memory` | SQLite + FTS5 + vector search |
+| `sigil-memory` | SQLite + FTS5 + vector search, memory graph, intelligent retrieval |
 | `sigil-providers` | OpenRouter, Anthropic, Ollama |
 | `sigil-gates` | Telegram, Discord, Slack |
 | `sigil-tools` | Shell, file, git, tasks, delegate, skills |

@@ -13,7 +13,7 @@ and the hard decisions that need to be made. It supersedes the earlier audit fro
 Sigil is an AI company orchestrator. You tell it what you want. It routes to the right agents,
 executes via Claude Code, learns from results, and reports back.
 
-**Backend (sigil — Rust, 9 crates, 217 tests):**
+**Backend (sigil — Rust, 9 crates, 466 tests):**
 - Long-running daemon with supervisor patrol loop
 - Task DAGs, missions, dependency inference
 - Expertise routing (right agent for right task)
@@ -57,7 +57,7 @@ executes via Claude Code, learns from results, and reports back.
 - 20+ new daemon IPC commands (tasks, missions, memories, skills, pipelines, knowledge, agent files, chat)
 - MCP command added to CLI
 - Legacy agents retired to .retired-agents/
-- Clippy clean, cargo fmt, all 217 tests passing
+- Clippy clean, cargo fmt, all 466 tests passing
 - Repo hygiene: fixed URLs, added crate descriptions, LICENSE
 
 ### Frontend
@@ -90,7 +90,7 @@ executes via Claude Code, learns from results, and reports back.
 3. **The brand is clear.** "Proactive AI" is an unclaimed category. "Wake up ahead" is a real
    feeling people want. sigil.ceo is memorable and self-explanatory.
 
-4. **The backend is production-quality.** 9 Rust crates, 217 tests, clippy clean. Not a prototype.
+4. **The backend is production-quality.** 9 Rust crates, 466 tests, clippy clean. Not a prototype.
 
 5. **The dual-path chat is a strong pattern.** Quick path for instant responses, full path for
    agent execution with polling. This is the right split for UX — most requests resolve instantly,

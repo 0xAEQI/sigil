@@ -225,6 +225,42 @@ pub trait Middleware: Send + Sync + 'static {
 }
 
 // ---------------------------------------------------------------------------
+// run_chain! macro — DRY helper for middleware iteration
+// ---------------------------------------------------------------------------
+
+/// Iterates through middleware layers, invoking a hook on each one and handling
+/// `Continue`, `Inject`, and short-circuit (`Halt`/`Skip`) actions uniformly.
+///
+/// Uses a macro instead of a generic async fn to avoid borrow-checker issues
+/// with closures that capture `&mut WorkerContext`.
+macro_rules! run_chain {
+    ($layers:expr, $ctx:expr, $hook:expr, |$mw:ident, $ctx_arg:ident| $call:expr) => {{
+        for layer in $layers {
+            let $mw = layer.as_ref();
+            let $ctx_arg = &mut *$ctx;
+            let action = $call.await;
+            match action {
+                MiddlewareAction::Continue => continue,
+                MiddlewareAction::Inject(msgs) => {
+                    $ctx.messages.extend(msgs);
+                    continue;
+                }
+                other => {
+                    debug!(
+                        middleware = $mw.name(),
+                        action = ?other,
+                        hook = $hook,
+                        "middleware short-circuited"
+                    );
+                    return other;
+                }
+            }
+        }
+        MiddlewareAction::Continue
+    }};
+}
+
+// ---------------------------------------------------------------------------
 // MiddlewareChain
 // ---------------------------------------------------------------------------
 
@@ -263,71 +299,17 @@ impl MiddlewareChain {
 
     /// Run `on_start` across all middleware.
     pub async fn run_on_start(&self, ctx: &mut WorkerContext) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.on_start(ctx).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "on_start short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "on_start", |mw, ctx| mw.on_start(ctx))
     }
 
     /// Run `before_model` across all middleware.
     pub async fn run_before_model(&self, ctx: &mut WorkerContext) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.before_model(ctx).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "before_model short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "before_model", |mw, ctx| mw.before_model(ctx))
     }
 
     /// Run `after_model` across all middleware.
     pub async fn run_after_model(&self, ctx: &mut WorkerContext) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.after_model(ctx).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "after_model short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "after_model", |mw, ctx| mw.after_model(ctx))
     }
 
     /// Run `before_tool` across all middleware for a specific tool call.
@@ -336,25 +318,7 @@ impl MiddlewareChain {
         ctx: &mut WorkerContext,
         call: &ToolCall,
     ) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.before_tool(ctx, call).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "before_tool short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "before_tool", |mw, ctx| mw.before_tool(ctx, call))
     }
 
     /// Run `after_tool` across all middleware for a specific tool call/result.
@@ -364,25 +328,7 @@ impl MiddlewareChain {
         call: &ToolCall,
         result: &ToolResult,
     ) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.after_tool(ctx, call, result).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "after_tool short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "after_tool", |mw, ctx| mw.after_tool(ctx, call, result))
     }
 
     /// Run `on_complete` across all middleware.
@@ -391,25 +337,7 @@ impl MiddlewareChain {
         ctx: &mut WorkerContext,
         outcome: &Outcome,
     ) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.on_complete(ctx, outcome).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "on_complete short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "on_complete", |mw, ctx| mw.on_complete(ctx, outcome))
     }
 
     /// Run `on_error` across all middleware.
@@ -418,25 +346,7 @@ impl MiddlewareChain {
         ctx: &mut WorkerContext,
         error: &str,
     ) -> MiddlewareAction {
-        for mw in &self.layers {
-            let action = mw.on_error(ctx, error).await;
-            match action {
-                MiddlewareAction::Continue => continue,
-                MiddlewareAction::Inject(msgs) => {
-                    ctx.messages.extend(msgs);
-                    continue;
-                }
-                other => {
-                    debug!(
-                        middleware = mw.name(),
-                        action = ?other,
-                        "on_error short-circuited"
-                    );
-                    return other;
-                }
-            }
-        }
-        MiddlewareAction::Continue
+        run_chain!(&self.layers, ctx, "on_error", |mw, ctx| mw.on_error(ctx, error))
     }
 
 }

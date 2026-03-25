@@ -261,6 +261,52 @@ impl DirectiveDetector {
 // SQLite-backed note storage
 // ---------------------------------------------------------------------------
 
+/// Parse a `Note` from a `rusqlite::Row` with columns:
+/// `(id, channel, content, version, created_at, updated_at)`.
+fn parse_note_row(row: &rusqlite::Row) -> rusqlite::Result<Note> {
+    let created_str: String = row.get(4)?;
+    let updated_str: String = row.get(5)?;
+    Ok(Note {
+        id: row.get(0)?,
+        channel: row.get(1)?,
+        content: row.get(2)?,
+        version: row.get(3)?,
+        created_at: DateTime::parse_from_rfc3339(&created_str)
+            .unwrap_or_default()
+            .with_timezone(&Utc),
+        updated_at: DateTime::parse_from_rfc3339(&updated_str)
+            .unwrap_or_default()
+            .with_timezone(&Utc),
+    })
+}
+
+/// Parse a `Directive` from a `rusqlite::Row` with columns:
+/// `(id, note_id, line_number, content, status, task_id, matched_task_id,
+///   confidence, created_at, updated_at)`.
+fn parse_directive_row(row: &rusqlite::Row) -> rusqlite::Result<Directive> {
+    let status_str: String = row.get(4)?;
+    let task_id: Option<String> = row.get(5)?;
+    let matched_task_id: Option<String> = row.get(6)?;
+    let created_str: String = row.get(8)?;
+    let updated_str: String = row.get(9)?;
+    Ok(Directive {
+        id: row.get(0)?,
+        note_id: row.get(1)?,
+        line_number: row.get(2)?,
+        content: row.get(3)?,
+        status: DirectiveStatus::from_str_lossy(&status_str),
+        task_id,
+        matched_task_id,
+        confidence: row.get(7)?,
+        created_at: DateTime::parse_from_rfc3339(&created_str)
+            .unwrap_or_default()
+            .with_timezone(&Utc),
+        updated_at: DateTime::parse_from_rfc3339(&updated_str)
+            .unwrap_or_default()
+            .with_timezone(&Utc),
+    })
+}
+
 /// Persistent storage for notes and their directives.
 pub struct NoteStore {
     conn: Mutex<Connection>,
@@ -384,22 +430,7 @@ impl NoteStore {
             .query_row(
                 "SELECT id, channel, content, version, created_at, updated_at FROM notes WHERE channel = ?1",
                 params![channel],
-                |row| {
-                    let created_str: String = row.get(4)?;
-                    let updated_str: String = row.get(5)?;
-                    Ok(Note {
-                        id: row.get(0)?,
-                        channel: row.get(1)?,
-                        content: row.get(2)?,
-                        version: row.get(3)?,
-                        created_at: DateTime::parse_from_rfc3339(&created_str)
-                            .unwrap_or_default()
-                            .with_timezone(&Utc),
-                        updated_at: DateTime::parse_from_rfc3339(&updated_str)
-                            .unwrap_or_default()
-                            .with_timezone(&Utc),
-                    })
-                },
+                parse_note_row,
             )
             .ok();
 
@@ -416,22 +447,7 @@ impl NoteStore {
             .context("failed to prepare list notes query")?;
 
         let notes = stmt
-            .query_map([], |row| {
-                let created_str: String = row.get(4)?;
-                let updated_str: String = row.get(5)?;
-                Ok(Note {
-                    id: row.get(0)?,
-                    channel: row.get(1)?,
-                    content: row.get(2)?,
-                    version: row.get(3)?,
-                    created_at: DateTime::parse_from_rfc3339(&created_str)
-                        .unwrap_or_default()
-                        .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(&updated_str)
-                        .unwrap_or_default()
-                        .with_timezone(&Utc),
-                })
-            })
+            .query_map([], parse_note_row)
             .context("failed to query notes")?
             .collect::<std::result::Result<Vec<_>, _>>()
             .context("failed to collect notes")?;
@@ -509,29 +525,7 @@ impl NoteStore {
             .context("failed to prepare get directives query")?;
 
         let directives = stmt
-            .query_map(params![note_id], |row| {
-                let status_str: String = row.get(4)?;
-                let task_id: Option<String> = row.get(5)?;
-                let matched_task_id: Option<String> = row.get(6)?;
-                let created_str: String = row.get(8)?;
-                let updated_str: String = row.get(9)?;
-                Ok(Directive {
-                    id: row.get(0)?,
-                    note_id: row.get(1)?,
-                    line_number: row.get(2)?,
-                    content: row.get(3)?,
-                    status: DirectiveStatus::from_str_lossy(&status_str),
-                    task_id,
-                    matched_task_id,
-                    confidence: row.get(7)?,
-                    created_at: DateTime::parse_from_rfc3339(&created_str)
-                        .unwrap_or_default()
-                        .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(&updated_str)
-                        .unwrap_or_default()
-                        .with_timezone(&Utc),
-                })
-            })
+            .query_map(params![note_id], parse_directive_row)
             .context("failed to query directives")?
             .collect::<std::result::Result<Vec<_>, _>>()
             .context("failed to collect directives")?;
@@ -550,29 +544,7 @@ impl NoteStore {
             .context("failed to prepare get pending directives query")?;
 
         let directives = stmt
-            .query_map([], |row| {
-                let status_str: String = row.get(4)?;
-                let task_id: Option<String> = row.get(5)?;
-                let matched_task_id: Option<String> = row.get(6)?;
-                let created_str: String = row.get(8)?;
-                let updated_str: String = row.get(9)?;
-                Ok(Directive {
-                    id: row.get(0)?,
-                    note_id: row.get(1)?,
-                    line_number: row.get(2)?,
-                    content: row.get(3)?,
-                    status: DirectiveStatus::from_str_lossy(&status_str),
-                    task_id,
-                    matched_task_id,
-                    confidence: row.get(7)?,
-                    created_at: DateTime::parse_from_rfc3339(&created_str)
-                        .unwrap_or_default()
-                        .with_timezone(&Utc),
-                    updated_at: DateTime::parse_from_rfc3339(&updated_str)
-                        .unwrap_or_default()
-                        .with_timezone(&Utc),
-                })
-            })
+            .query_map([], parse_directive_row)
             .context("failed to query pending directives")?
             .collect::<std::result::Result<Vec<_>, _>>()
             .context("failed to collect pending directives")?;

@@ -16,9 +16,9 @@ what exists into a living system.
 
 ---
 
-## Priority 1: Wire the Middleware into Worker Execution
+## Priority 1: Wire the Middleware into Worker Execution [DONE]
 
-**Status:** middleware/mod.rs defines the trait. agent_worker.rs ignores it.
+**Status:** Middleware chain is wired into worker execution. 8 implementations active.
 
 **What to do:**
 - Add `middleware_chain: MiddlewareChain` to AgentWorker
@@ -34,9 +34,9 @@ lighter chain. Build chain in supervisor based on agent role config.
 
 ---
 
-## Priority 2: Replace Polling with Broadcast Streaming
+## Priority 2: Replace Polling with Broadcast Streaming [DONE]
 
-**Status:** ws.rs polls every 5 seconds via IPC. No real-time events.
+**Status:** Implemented. Worker events broadcast via tokio channels, WebSocket forwards to frontend.
 
 **What to do:**
 - Replace `tokio::sync::watch` with `tokio::sync::broadcast` in executor
@@ -57,9 +57,9 @@ to Telegram delivery — edit the same message as worker progresses.
 
 ---
 
-## Priority 3: Context Compression
+## Priority 3: Context Compression [DONE]
 
-**Status:** No compression. Workers hit context limits on long tasks.
+**Status:** ContextCompressionMiddleware implemented. Triggers at 50% window, protects first/last messages.
 
 **What to do (from Hermes):**
 - Add ContextCompressor to sigil-orchestrator
@@ -77,9 +77,9 @@ in the middleware chain (catch context errors in on_error, compress, retry).
 
 ---
 
-## Priority 4: Approval System
+## Priority 4: Approval System [DONE]
 
-**Status:** Guardrails middleware blocks dangerous ops but has no approval flow.
+**Status:** GuardrailsMiddleware implemented with configurable deny patterns. ClarificationMiddleware handles structured approval/question flow.
 
 **What to do (from Hermes):**
 - Extend GuardrailsMiddleware: when it detects a dangerous pattern, instead of
@@ -96,9 +96,9 @@ If the LLM says "safe", auto-approve. If "dangerous", always ask. If
 
 ---
 
-## Priority 5: Memory During Execution (not just before)
+## Priority 5: Memory During Execution (not just before) [DONE]
 
-**Status:** Memory searched once at worker start. Never refreshed.
+**Status:** MemoryRefreshMiddleware implemented. Re-searches memory every N tool calls based on recent activity.
 
 **What to do:**
 - Add MemoryRefreshMiddleware: every 5 tool calls, re-search memory based
@@ -118,9 +118,9 @@ tracking and confidence inheritance.
 
 ---
 
-## Priority 6: Memory as Product (Profile API + MCP)
+## Priority 6: Memory as Product (Profile API + MCP) [PENDING]
 
-**Status:** Deep internal memory. No external surface.
+**Status:** Deep internal memory. No external surface. Profile API, MCP server, and memory graph visualization not yet built.
 
 **What to do (from Supermemory):**
 - Profile API: GET /api/profile?project=X returns { static: [...], dynamic: [...] }
@@ -139,9 +139,9 @@ storage time and surface them differently in retrieval.
 
 ---
 
-## Priority 7: Clarification Interruption
+## Priority 7: Clarification Interruption [DONE]
 
-**Status:** Workers report BLOCKED but have no structured way to ask specific questions.
+**Status:** ClarificationMiddleware implemented. Workers can ask structured questions via ask_clarification tool. Halts execution, pushes question to user, resumes on response.
 
 **What to do (from Deer Flow):**
 - Add `ask_clarification` as a tool available to workers

@@ -4,6 +4,48 @@ One system. One loop. Everything connects.
 
 ---
 
+## Status
+
+### Implementation Status by Phase
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1 | Middleware Foundation | IMPLEMENTED |
+| Phase 2 | Verification & Safety | IMPLEMENTED |
+| Phase 3 | Memory Graph | IMPLEMENTED |
+| Phase 4 | Intelligent Retrieval | IMPLEMENTED |
+| Phase 5 | Notes & Directives | IMPLEMENTED |
+| Phase 6 | Proactive Engine | IMPLEMENTED |
+| Phase 7 | Progressive Intelligence | IMPLEMENTED |
+| Phase 8 | Scale & Polish | PLANNED |
+
+### Middleware Status
+
+8 middleware implementations exist and are wired into worker execution:
+
+| Middleware | Status | File |
+|-----------|--------|------|
+| LoopDetection | IMPLEMENTED | `middleware/loop_detection.rs` |
+| Guardrails | IMPLEMENTED | `middleware/guardrails.rs` |
+| CostTracking | IMPLEMENTED | `middleware/cost_tracking.rs` |
+| ContextCompression | IMPLEMENTED | `middleware/context_compression.rs` |
+| ContextBudget | IMPLEMENTED | `middleware/context_budget.rs` |
+| MemoryRefresh | IMPLEMENTED | `middleware/memory_refresh.rs` |
+| Clarification | IMPLEMENTED | `middleware/clarification.rs` |
+| SafetyNet | IMPLEMENTED | `middleware/safety_net.rs` |
+
+### Not Yet Implemented
+
+These items are described in the architecture below but do not exist in code:
+
+- **PlanningGate** — worker must outline approach before executing
+- **ToolFilter** — progressive tool loading, role-based tool permissions
+- **MessageQueue** — injected messages between tool calls for mid-run course correction
+- **DanglingToolPatch** — detect interrupted tool calls, inject synthetic error responses
+- **Checkpoint-as-middleware** — checkpoint logic exists in workers but is not a standalone middleware implementation
+
+---
+
 ## The Core Abstraction
 
 A sigil is intent that manifests into reality. The entire system is one loop:
@@ -341,20 +383,21 @@ impl MiddlewareChain {
 }
 ```
 
-Default chain per role:
+Default chain (8 implemented middleware):
 
-| Middleware | Engineer | Researcher | Reviewer | Trader |
-|-----------|----------|-----------|----------|--------|
-| ContextBudget | yes | yes | yes | yes |
-| PlanningGate | yes | no | no | yes |
-| ToolFilter | full | read+search | read-only | read+trade |
-| Guardrails | standard | relaxed | strict | financial |
-| LoopDetection | yes | yes | yes | yes |
-| MessageQueue | yes | no | no | yes |
-| CostTracking | yes | yes | yes | strict |
-| Checkpoint | yes | no | no | yes |
-| DanglingToolPatch | yes | yes | yes | yes |
-| SafetyNet | yes | no | no | yes |
+| Middleware | Status | Purpose |
+|-----------|--------|---------|
+| LoopDetection | IMPLEMENTED | MD5 hash sliding window (10 calls), warn at 3, kill at 5 |
+| Guardrails | IMPLEMENTED | Block dangerous ops (rm -rf, force push, drop table) |
+| CostTracking | IMPLEMENTED | Token/cost accumulation, budget ceiling (3x estimate) |
+| ContextCompression | IMPLEMENTED | Compress at 50% window, protect first/last messages |
+| ContextBudget | IMPLEMENTED | Cap enrichment at ~200 lines |
+| MemoryRefresh | IMPLEMENTED | Re-search memory every N tool calls |
+| Clarification | IMPLEMENTED | Structured questions to user, halts execution |
+| SafetyNet | IMPLEMENTED | On failure: scan artifacts, preserve partial work |
+
+Not yet implemented (described in architecture above but no code):
+PlanningGate, ToolFilter, MessageQueue, DanglingToolPatch, Checkpoint-as-middleware
 
 **Key insight from DeerFlow:** This is the architectural unlock. Every feature
 becomes a plugin, not a patch. Loop detection, guardrails, memory, progressive

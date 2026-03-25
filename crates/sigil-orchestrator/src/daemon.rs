@@ -206,9 +206,15 @@ impl Daemon {
         {
             let config_reloaded = self.config_reloaded.clone();
             tokio::spawn(async move {
-                let mut signal =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
-                        .expect("failed to register SIGHUP handler");
+                let mut signal = match tokio::signal::unix::signal(
+                    tokio::signal::unix::SignalKind::hangup(),
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to register SIGHUP handler: {e}");
+                        return;
+                    }
+                };
                 loop {
                     signal.recv().await;
                     info!("received SIGHUP, flagging config reload");
@@ -223,9 +229,15 @@ impl Daemon {
             let running = self.running.clone();
             let shutdown_notify = self.shutdown_notify.clone();
             tokio::spawn(async move {
-                let mut signal =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                        .expect("failed to register SIGTERM handler");
+                let mut signal = match tokio::signal::unix::signal(
+                    tokio::signal::unix::SignalKind::terminate(),
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::error!("failed to register SIGTERM handler: {e}");
+                        return;
+                    }
+                };
                 signal.recv().await;
                 info!("received SIGTERM, shutting down...");
                 running.store(false, std::sync::atomic::Ordering::SeqCst);
