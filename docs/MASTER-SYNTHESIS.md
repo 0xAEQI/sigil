@@ -102,37 +102,46 @@ event broadcasting → brief generation
 
 #### 4. MEMORY PRODUCT
 **Gap:** Deep internals, invisible externally
-**From:** Supermemory (Profile API, MCP, graph viz)
+**From:** Supermemory (Profile API, graph viz), OpenViking (hierarchical retrieval)
 **Build:**
 - GET /api/memory/profile?project=X → { static: [...], dynamic: [...] }
-- MCP server: memory.save, memory.recall, memory.profile, memory.forget
 - Graph visualization API (nodes + edges + positions for D3)
-- Conversation ingestion endpoint
-- Injection safety scanning (Hermes pattern)
-**Files:** new routes in sigil-web, new MCP module in sigil-orchestrator
+- Conversation ingestion endpoint (accept threads → extract facts)
+- Injection safety scanning before storage (Hermes pattern)
+- Workers access memory via existing IPC + CLI (no MCP needed — Sigil is self-contained)
+**Files:** new routes in sigil-web, memory profile logic in sigil-memory
 
 ### TIER 2: HIGH (Significant improvement, builds on Tier 1)
 
 #### 5. TOOLS
-**Gap:** is_tool_allowed() never called, no MCP server, no progressive loading
-**From:** Hermes (toolset composition), GitNexus (MCP tools), Deer Flow (deferred loading)
+**Gap:** is_tool_allowed() never called, no progressive loading
+**From:** Hermes (toolset composition), Deer Flow (deferred loading)
 **Build:**
 - Wire is_tool_allowed() in supervisor before worker execution
 - Tool registry with capability metadata (reads_fs, writes_fs, network, dangerous)
-- MCP server for Sigil capabilities (create_task, task_status, memory.recall, etc.)
+- Workers access Sigil via CLI (`sigil task create`, `sigil daemon query`)
 - Progressive tool loading (ToolFilter middleware — metadata only, schemas on demand)
-**Files:** supervisor.rs, new mcp_server.rs, middleware/tool_filter.rs
+- NOTE on tool gating by execution mode:
+  - Internal agent mode: `is_tool_allowed()` directly filters Rust Tool vec — real enforcement
+  - Claude Code mode: tool restrictions injected as prompt instructions — advisory only
+    (Claude Code manages its own tools; external filters are prompt-level, not enforced)
+  - Both modes benefit from skill-level tool policy, but enforcement differs
+- NOTE: MCP server is DEFERRED — only needed when external consumers exist.
+  Sigil is self-contained: daemon ↔ IPC ↔ workers ↔ Claude Code.
+**Files:** supervisor.rs, middleware/tool_filter.rs
 
 #### 6. EXECUTION
-**Gap:** 5 planned middleware not built, no execution environment abstraction
-**From:** Hermes (7 environments), Deer Flow (13 middleware)
+**Gap:** 5 planned middleware not built
+**From:** Deer Flow (13 middleware), Hermes (context compression error recovery)
 **Build:**
-- RuntimeBackend trait (Local, Docker, SSH)
 - PlanningGate middleware (worker outlines approach before executing)
 - MessageQueue middleware (inject messages between tool calls)
 - DanglingToolPatch middleware (synthetic error for interrupted calls)
-- Checkpoint-as-middleware
-**Files:** new runtime.rs, 4 new middleware files
+- Checkpoint-as-middleware (periodic state snapshots as middleware hook)
+- NOTE: RuntimeBackend trait (Docker, SSH) is DEFERRED — all workers execute locally
+  via Claude Code subprocess or internal agent loop. Environment abstraction adds
+  complexity without current benefit. Revisit when hosted multi-tenant version ships.
+**Files:** 4 new middleware files in middleware/
 
 #### 7. IDENTITY & SKILLS
 **Gap:** Skill schema incomplete, conditional activation not wired, tool gating unused
