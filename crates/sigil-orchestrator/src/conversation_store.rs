@@ -72,9 +72,8 @@ impl ConversationStore {
         .context("failed to initialize conversation schema")?;
 
         // Migration: add source column (idempotent).
-        let _ = conn.execute_batch(
-            "ALTER TABLE conversations ADD COLUMN source TEXT DEFAULT NULL;",
-        );
+        let _ =
+            conn.execute_batch("ALTER TABLE conversations ADD COLUMN source TEXT DEFAULT NULL;");
 
         debug!(path = %path.display(), "conversation store opened");
 

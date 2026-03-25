@@ -4,7 +4,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 
 use crate::server::AppState;
@@ -54,11 +54,7 @@ fn extract_bearer(req: &Request) -> Option<&str> {
 }
 
 /// Axum middleware that validates JWT using auth_secret from AppState.
-pub async fn require_auth(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn require_auth(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let secret = state.auth_secret.as_deref().unwrap_or("");
 
     let Some(token) = extract_bearer(&req) else {

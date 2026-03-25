@@ -148,7 +148,8 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     witness.memory = Some(mem);
                     witness.reflect_provider = Some(provider.clone());
-                    witness.reflect_model = config.default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
+                    witness.reflect_model = config
+                        .default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
                 }
 
                 // Load emotional state for personality tracking.
@@ -297,7 +298,8 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     agent_scout.memory = Some(mem);
                     agent_scout.reflect_provider = Some(provider.clone());
-                    agent_scout.reflect_model = config.default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
+                    agent_scout.reflect_model = config
+                        .default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
                 }
 
                 // Load emotional state for advisor personality tracking.
@@ -331,8 +333,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 HashMap::new();
             for project_cfg in &config.projects {
                 if let Ok(mem) = open_memory(&config, Some(&project_cfg.name)) {
-                    chat_memory_stores
-                        .insert(project_cfg.name.clone(), Arc::new(mem));
+                    chat_memory_stores.insert(project_cfg.name.clone(), Arc::new(mem));
                 }
             }
             info!(
@@ -341,9 +342,8 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             );
 
             // Build the unified ChatEngine.
-            let council_advisors: Arc<Vec<sigil_core::config::PeerAgentConfig>> = Arc::new(
-                config.advisor_agents().into_iter().cloned().collect(),
-            );
+            let council_advisors: Arc<Vec<sigil_core::config::PeerAgentConfig>> =
+                Arc::new(config.advisor_agents().into_iter().cloned().collect());
             let chat_engine = registry.conversation_store.as_ref().map(|cs| {
                 Arc::new(sigil_orchestrator::ChatEngine {
                     conversations: cs.clone(),
@@ -529,7 +529,8 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 let mem: Arc<dyn Memory> = Arc::new(mem);
                 fa_witness.memory = Some(mem);
                 fa_witness.reflect_provider = Some(leader_provider.clone());
-                fa_witness.reflect_model = config.default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
+                fa_witness.reflect_model =
+                    config.default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
             }
 
             // Load emotional state for leader agent personality tracking.
@@ -918,7 +919,9 @@ async fn telegram_message_loop(
                         warn!(error = %e, "failed to deliver telegram reply");
                     }
                     if completion.message_id > 0 {
-                        let _ = tg_deliver.react(completion.chat_id, completion.message_id, emoji).await;
+                        let _ = tg_deliver
+                            .react(completion.chat_id, completion.message_id, emoji)
+                            .await;
                     }
                 }
             }

@@ -2,6 +2,7 @@
 name = "sigil-memory"
 version.workspace = true
 edition.workspace = true
+description = "Hybrid memory system with SQLite FTS5 and vector search"
 
 [dev-dependencies]
 tempfile = { workspace = true }

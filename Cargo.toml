@@ -18,8 +18,8 @@ edition = "2024"
 license = "MIT"
 authors = ["Sigil Contributors"]
 description = "Recursive multi-agent orchestration framework"
-repository = "https://github.com/USER/sigil"
-homepage = "https://github.com/USER/sigil"
+repository = "https://github.com/0xAEQI/sigil"
+homepage = "https://github.com/0xAEQI/sigil"
 categories = ["development-tools", "command-line-utilities"]
 keywords = ["agents", "orchestration", "llm", "claude", "automation"]
 

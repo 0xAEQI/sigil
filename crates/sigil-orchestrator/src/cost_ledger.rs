@@ -422,11 +422,23 @@ mod tests {
         let ledger = CostLedger::new(100.0);
 
         ledger
-            .record(CostEntry::new("test-project", "as-001", "as-worker-1", 0.50, 5))
+            .record(CostEntry::new(
+                "test-project",
+                "as-001",
+                "as-worker-1",
+                0.50,
+                5,
+            ))
             .unwrap();
 
         ledger
-            .record(CostEntry::new("project-b", "rd-001", "rd-worker-1", 0.30, 3))
+            .record(CostEntry::new(
+                "project-b",
+                "rd-001",
+                "rd-worker-1",
+                0.30,
+                3,
+            ))
             .unwrap();
 
         let (spent, budget, remaining) = ledger.budget_status();
@@ -445,7 +457,13 @@ mod tests {
 
         for i in 0..5 {
             ledger
-                .record(CostEntry::new("test-project", &format!("as-{i:03}"), &format!("as-worker-{i}"), 1.0, 5))
+                .record(CostEntry::new(
+                    "test-project",
+                    &format!("as-{i:03}"),
+                    &format!("as-worker-{i}"),
+                    1.0,
+                    5,
+                ))
                 .unwrap();
         }
 

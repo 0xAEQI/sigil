@@ -844,8 +844,13 @@ impl AgentWorker {
                 "overage_status": rl.overage_status,
                 "updated_at": chrono::Utc::now().to_rfc3339(),
             });
-            if let Ok(data_dir) = std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".sigil")) {
-                let _ = std::fs::write(data_dir.join("rate_limit.json"), serde_json::to_string_pretty(&rl_json).unwrap_or_default());
+            if let Ok(data_dir) =
+                std::env::var("HOME").map(|h| std::path::PathBuf::from(h).join(".sigil"))
+            {
+                let _ = std::fs::write(
+                    data_dir.join("rate_limit.json"),
+                    serde_json::to_string_pretty(&rl_json).unwrap_or_default(),
+                );
             }
         }
 

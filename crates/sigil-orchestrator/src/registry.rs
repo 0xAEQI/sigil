@@ -485,23 +485,52 @@ impl ProjectRegistry {
 
         for (name, project) in &project_list {
             // Try to acquire task board lock with a short timeout to avoid blocking.
-            let (open_tasks, total_tasks, pending_tasks, in_progress_tasks, done_tasks, cancelled_tasks, active_missions, total_missions) =
-                if let Ok(board) = project.tasks.try_lock() {
-                    let all_tasks = board.all();
-                    let open = all_tasks.iter().filter(|t| !t.is_closed()).count() as u32;
-                    let total = all_tasks.len() as u32;
-                    let pending = all_tasks.iter().filter(|t| t.status == sigil_tasks::task::TaskStatus::Pending).count() as u32;
-                    let in_progress = all_tasks.iter().filter(|t| t.status == sigil_tasks::task::TaskStatus::InProgress).count() as u32;
-                    let done = all_tasks.iter().filter(|t| t.status == sigil_tasks::task::TaskStatus::Done).count() as u32;
-                    let cancelled = all_tasks.iter().filter(|t| t.status == sigil_tasks::task::TaskStatus::Cancelled).count() as u32;
-                    let missions = board.missions(Some(&project.prefix));
-                    let active_m = missions.iter().filter(|m| !m.is_closed()).count() as u32;
-                    let total_m = missions.len() as u32;
-                    (open, total, pending, in_progress, done, cancelled, active_m, total_m)
-                } else {
-                    // Lock held by patrol — return stale/zero data rather than blocking.
-                    (0, 0, 0, 0, 0, 0, 0, 0)
-                };
+            let (
+                open_tasks,
+                total_tasks,
+                pending_tasks,
+                in_progress_tasks,
+                done_tasks,
+                cancelled_tasks,
+                active_missions,
+                total_missions,
+            ) = if let Ok(board) = project.tasks.try_lock() {
+                let all_tasks = board.all();
+                let open = all_tasks.iter().filter(|t| !t.is_closed()).count() as u32;
+                let total = all_tasks.len() as u32;
+                let pending = all_tasks
+                    .iter()
+                    .filter(|t| t.status == sigil_tasks::task::TaskStatus::Pending)
+                    .count() as u32;
+                let in_progress = all_tasks
+                    .iter()
+                    .filter(|t| t.status == sigil_tasks::task::TaskStatus::InProgress)
+                    .count() as u32;
+                let done = all_tasks
+                    .iter()
+                    .filter(|t| t.status == sigil_tasks::task::TaskStatus::Done)
+                    .count() as u32;
+                let cancelled = all_tasks
+                    .iter()
+                    .filter(|t| t.status == sigil_tasks::task::TaskStatus::Cancelled)
+                    .count() as u32;
+                let missions = board.missions(Some(&project.prefix));
+                let active_m = missions.iter().filter(|m| !m.is_closed()).count() as u32;
+                let total_m = missions.len() as u32;
+                (
+                    open,
+                    total,
+                    pending,
+                    in_progress,
+                    done,
+                    cancelled,
+                    active_m,
+                    total_m,
+                )
+            } else {
+                // Lock held by patrol — return stale/zero data rather than blocking.
+                (0, 0, 0, 0, 0, 0, 0, 0)
+            };
 
             let team_info = supervisor_refs
                 .iter()
@@ -527,12 +556,16 @@ impl ProjectRegistry {
                 cancelled_tasks,
                 active_missions,
                 total_missions,
-                departments: project.departments.iter().map(|d| DepartmentSummary {
-                    name: d.name.clone(),
-                    lead: d.lead.clone(),
-                    agents: d.agents.clone(),
-                    description: d.description.clone(),
-                }).collect(),
+                departments: project
+                    .departments
+                    .iter()
+                    .map(|d| DepartmentSummary {
+                        name: d.name.clone(),
+                        lead: d.lead.clone(),
+                        agents: d.agents.clone(),
+                        description: d.description.clone(),
+                    })
+                    .collect(),
             });
         }
 

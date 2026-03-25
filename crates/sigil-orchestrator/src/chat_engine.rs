@@ -243,7 +243,14 @@ impl ChatEngine {
             String::new()
         } else {
             let mut s = String::from("Recent conversation:\n");
-            for msg_item in recent.iter().rev().take(6).collect::<Vec<_>>().into_iter().rev() {
+            for msg_item in recent
+                .iter()
+                .rev()
+                .take(6)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+            {
                 let truncated = if msg_item.content.len() > 200 {
                     let mut end = 200;
                     while !msg_item.content.is_char_boundary(end) {
@@ -371,9 +378,7 @@ impl ChatEngine {
             let status = {
                 if let Some(rig) = self.registry.get_project(&self.leader_name).await {
                     let store = rig.tasks.lock().await;
-                    store
-                        .get(&qid)
-                        .map(|b| (b.status, b.closed_reason.clone()))
+                    store.get(&qid).map(|b| (b.status, b.closed_reason.clone()))
                 } else {
                     None
                 }
@@ -442,7 +447,9 @@ impl ChatEngine {
                             message_id: pq.message_id,
                             source: pq.source.clone(),
                             status: CompletionStatus::TimedOut,
-                            text: "Sorry, this one took too long. Try again or simplify the request.".to_string(),
+                            text:
+                                "Sorry, this one took too long. Try again or simplify the request."
+                                    .to_string(),
                         });
                         map.remove(&qid);
                     }
@@ -461,12 +468,7 @@ impl ChatEngine {
             let elapsed = pq.created_at.elapsed();
             if elapsed > std::time::Duration::from_secs(120) && !pq.sent_slow_notice {
                 pq.sent_slow_notice = true;
-                slow.push((
-                    qid.clone(),
-                    pq.chat_id,
-                    pq.message_id,
-                    pq.source.clone(),
-                ));
+                slow.push((qid.clone(), pq.chat_id, pq.message_id, pq.source.clone()));
             }
         }
         slow
@@ -601,7 +603,11 @@ impl ChatEngine {
             if let Some(s) = project_summaries.first() {
                 context.push_str(&format!(
                     "{}: {} open tasks ({} pending, {} in progress, {} done), {} missions\n",
-                    s.name, s.open_tasks, s.pending_tasks, s.in_progress_tasks, s.done_tasks,
+                    s.name,
+                    s.open_tasks,
+                    s.pending_tasks,
+                    s.in_progress_tasks,
+                    s.done_tasks,
                     s.active_missions
                 ));
                 if let Some(t) = &s.team {
@@ -699,12 +705,7 @@ impl ChatEngine {
     }
 
     /// Store a note to the project's memory.
-    pub async fn store_note(
-        &self,
-        project: &str,
-        key: &str,
-        content: &str,
-    ) -> Result<String> {
+    pub async fn store_note(&self, project: &str, key: &str, content: &str) -> Result<String> {
         let mem = self
             .memory_stores
             .get(project)
@@ -809,8 +810,7 @@ impl ChatEngine {
         for name in self.registry.project_names().await {
             if let Some(board) = self.registry.get_task_board(&name).await {
                 let mut board = board.lock().await;
-                if board.get(&task_id).is_some()
-                    && board.close(&task_id, "closed via chat").is_ok()
+                if board.get(&task_id).is_some() && board.close(&task_id, "closed via chat").is_ok()
                 {
                     return ChatResponse {
                         ok: true,
@@ -1003,18 +1003,18 @@ impl ChatEngine {
             if let Ok(Some((name, text))) = handle.await
                 && !text.trim().is_empty()
             {
-                    let capitalized = {
-                        let mut c = name.chars();
-                        match c.next() {
-                            None => String::new(),
-                            Some(f) => f.to_uppercase().to_string() + c.as_str(),
-                        }
-                    };
-                    let _ = self
-                        .conversations
-                        .record_with_source(chat_id, &capitalized, text.trim(), Some(source_tag))
-                        .await;
-                    responses.push((name, text.trim().to_string()));
+                let capitalized = {
+                    let mut c = name.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    }
+                };
+                let _ = self
+                    .conversations
+                    .record_with_source(chat_id, &capitalized, text.trim(), Some(source_tag))
+                    .await;
+                responses.push((name, text.trim().to_string()));
             }
         }
 

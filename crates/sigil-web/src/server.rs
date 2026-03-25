@@ -1,5 +1,5 @@
 use anyhow::Result;
-use axum::{middleware, Router};
+use axum::{Router, middleware};
 use sigil_core::config::{PeerAgentConfig, SigilConfig};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};

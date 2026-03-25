@@ -2,6 +2,7 @@
 name = "sigil-tools"
 version.workspace = true
 edition.workspace = true
+description = "Built-in tools for shell, file, git, task, and agent delegation"
 
 [dependencies]
 sigil-core = { workspace = true }

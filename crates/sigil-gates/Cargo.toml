@@ -2,6 +2,7 @@
 name = "sigil-gates"
 version.workspace = true
 edition.workspace = true
+description = "Channel integrations for Telegram, Discord, and Slack"
 
 [dependencies]
 sigil-core = { workspace = true }

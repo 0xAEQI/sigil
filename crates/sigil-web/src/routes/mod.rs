@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::Deserialize;
 
@@ -159,10 +159,7 @@ struct BlackboardQuery {
     limit: Option<u32>,
 }
 
-async fn blackboard(
-    State(state): State<AppState>,
-    Query(q): Query<BlackboardQuery>,
-) -> Response {
+async fn blackboard(State(state): State<AppState>, Query(q): Query<BlackboardQuery>) -> Response {
     let mut params = serde_json::json!({});
     if let Some(project) = &q.project {
         params["project"] = serde_json::Value::String(project.clone());
@@ -225,9 +222,15 @@ struct MemoriesQuery {
 
 async fn memories(State(state): State<AppState>, Query(q): Query<MemoriesQuery>) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(project) = &q.project { params["project"] = serde_json::json!(project); }
-    if let Some(query) = &q.query { params["query"] = serde_json::json!(query); }
-    if let Some(limit) = q.limit { params["limit"] = serde_json::json!(limit); }
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
+    }
+    if let Some(query) = &q.query {
+        params["query"] = serde_json::json!(query);
+    }
+    if let Some(limit) = q.limit {
+        params["limit"] = serde_json::json!(limit);
+    }
     ipc_proxy(state, "memories", params).await
 }
 
@@ -249,7 +252,12 @@ async fn project_knowledge(
     State(state): State<AppState>,
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Response {
-    ipc_proxy(state, "project_knowledge", serde_json::json!({"project": name})).await
+    ipc_proxy(
+        state,
+        "project_knowledge",
+        serde_json::json!({"project": name}),
+    )
+    .await
 }
 
 // --- Channel Knowledge ---
@@ -266,19 +274,31 @@ async fn channel_knowledge(
     Query(q): Query<ChannelKnowledgeQuery>,
 ) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(project) = &q.project { params["project"] = serde_json::json!(project); }
-    if let Some(query) = &q.query { params["query"] = serde_json::json!(query); }
-    if let Some(limit) = q.limit { params["limit"] = serde_json::json!(limit); }
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
+    }
+    if let Some(query) = &q.query {
+        params["query"] = serde_json::json!(query);
+    }
+    if let Some(limit) = q.limit {
+        params["limit"] = serde_json::json!(limit);
+    }
     ipc_proxy(state, "channel_knowledge", params).await
 }
 
 // --- Knowledge CRUD ---
 
-async fn knowledge_store(State(state): State<AppState>, Json(body): Json<serde_json::Value>) -> Response {
+async fn knowledge_store(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
     ipc_proxy(state, "knowledge_store", body).await
 }
 
-async fn knowledge_delete(State(state): State<AppState>, Json(body): Json<serde_json::Value>) -> Response {
+async fn knowledge_delete(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
     ipc_proxy(state, "knowledge_delete", body).await
 }
 
@@ -339,12 +359,7 @@ async fn chat_poll(
     State(state): State<AppState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Response {
-    ipc_proxy(
-        state,
-        "chat_poll",
-        serde_json::json!({"task_id": task_id}),
-    )
-    .await
+    ipc_proxy(state, "chat_poll", serde_json::json!({"task_id": task_id})).await
 }
 
 #[derive(Deserialize, Default)]
@@ -381,7 +396,10 @@ async fn chat_channels(State(state): State<AppState>) -> Response {
 
 // --- Write: Create Task ---
 
-async fn create_task(State(state): State<AppState>, Json(body): Json<serde_json::Value>) -> Response {
+async fn create_task(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
     ipc_proxy(state, "create_task", body).await
 }
 

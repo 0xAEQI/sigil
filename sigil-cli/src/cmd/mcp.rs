@@ -36,7 +36,10 @@ struct ToolDef {
     input_schema: serde_json::Value,
 }
 
-fn ipc_request_sync(data_dir: &std::path::Path, request: &serde_json::Value) -> Result<serde_json::Value> {
+fn ipc_request_sync(
+    data_dir: &std::path::Path,
+    request: &serde_json::Value,
+) -> Result<serde_json::Value> {
     let sock_path = data_dir.join("rm.sock");
     let stream = std::os::unix::net::UnixStream::connect(&sock_path)?;
     let mut writer = io::BufWriter::new(&stream);
@@ -178,7 +181,11 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                 error: None,
             },
             "tools/call" => {
-                let tool_name = request.params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                let tool_name = request
+                    .params
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
                 let args = request.params.get("arguments").cloned().unwrap_or_default();
 
                 let result = match tool_name {
@@ -213,7 +220,10 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         ipc_request_sync(&data_dir, &ipc)
                     }
                     "sigil_blackboard" => {
-                        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("read");
                         if action == "post" {
                             let mut ipc = args.clone();
                             ipc["cmd"] = serde_json::json!("post_blackboard");

@@ -433,7 +433,9 @@ impl ClaudeCodeExecutor {
                             });
                         }
                         StreamEvent::RateLimitEvent { rate_limit_info } => {
-                            if rate_limit_info.status == "warning" || rate_limit_info.status == "limited" {
+                            if rate_limit_info.status == "warning"
+                                || rate_limit_info.status == "limited"
+                            {
                                 warn!(
                                     status = %rate_limit_info.status,
                                     resets_at = rate_limit_info.resets_at,

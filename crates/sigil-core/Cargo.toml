@@ -2,6 +2,7 @@
 name = "sigil-core"
 version.workspace = true
 edition.workspace = true
+description = "Core types, traits, configuration, and identity for Sigil"
 
 [dependencies]
 tokio = { workspace = true }

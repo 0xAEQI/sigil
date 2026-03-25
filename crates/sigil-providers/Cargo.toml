@@ -2,6 +2,7 @@
 name = "sigil-providers"
 version.workspace = true
 edition.workspace = true
+description = "LLM provider clients (OpenRouter, Anthropic, Ollama) with cost estimation"
 
 [dependencies]
 sigil-core = { workspace = true }

@@ -2,6 +2,7 @@
 name = "sigil-tasks"
 version.workspace = true
 edition.workspace = true
+description = "Task DAG management, missions, and dependency inference"
 
 [dev-dependencies]
 tempfile = { workspace = true }
