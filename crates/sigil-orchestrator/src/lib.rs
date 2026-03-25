@@ -35,6 +35,7 @@ pub mod notes;
 pub mod operation;
 pub mod pipeline;
 pub mod preflight;
+pub mod proactive;
 pub mod project;
 pub mod reflection;
 pub mod registry;
