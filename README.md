@@ -16,8 +16,8 @@ Intent → Understand → Orchestrate → Execute → Verify → Learn → Proac
 
 ## Architecture
 
-- **9 Rust crates**, 433 tests, zero clippy warnings
-- **Composable middleware chain** — loop detection, guardrails, cost tracking, checkpoints
+- **9 Rust crates**, 466 tests, zero clippy warnings
+- **Composable middleware chain** — 8 layers: loop detection, guardrails, cost tracking, context compression, memory refresh, clarification, safety net, checkpoints
 - **Verification pipeline** — 5-stage with confidence scoring, three-strikes escalation
 - **Memory graph** — relationships, deduplication, hotness scoring (7d half-life), hierarchical L0/L1/L2
 - **Intelligent retrieval** — intent-driven query planning, multi-signal scoring (BM25 + vector + hotness + confidence + graph)

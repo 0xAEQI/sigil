@@ -1,6 +1,6 @@
 # Sigil
 
-AI agent orchestration framework in Rust. 9 crates, 433 tests, 28 CLI commands.
+AI agent orchestration framework in Rust. 9 crates, 466 tests, 28 CLI commands.
 
 ## Crates
 
@@ -42,7 +42,7 @@ ChatEngine (orchestrator/src/chat_engine.rs)
 ## Quality Bar
 
 ```bash
-cargo test --workspace    # 433 tests
+cargo test --workspace    # 466 tests
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
