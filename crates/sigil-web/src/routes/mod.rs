@@ -32,6 +32,8 @@ pub fn api_routes() -> Router<AppState> {
         .route("/crons", get(crons))
         .route("/watchdogs", get(watchdogs))
         .route("/memories", get(memories))
+        .route("/memory/profile", get(memory_profile))
+        .route("/memory/graph", get(memory_graph))
         .route("/skills", get(skills))
         .route("/pipelines", get(pipelines))
         .route("/projects/{name}/knowledge", get(project_knowledge))
@@ -236,6 +238,46 @@ async fn memories(State(state): State<AppState>, Query(q): Query<MemoriesQuery>)
         params["limit"] = serde_json::json!(limit);
     }
     ipc_proxy(state, "memories", params).await
+}
+
+// --- Memory Profile ---
+
+#[derive(Deserialize, Default)]
+struct MemoryProfileQuery {
+    project: Option<String>,
+}
+
+async fn memory_profile(
+    State(state): State<AppState>,
+    Query(q): Query<MemoryProfileQuery>,
+) -> Response {
+    let mut params = serde_json::json!({});
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
+    }
+    ipc_proxy(state, "memory_profile", params).await
+}
+
+// --- Memory Graph ---
+
+#[derive(Deserialize, Default)]
+struct MemoryGraphQuery {
+    project: Option<String>,
+    limit: Option<u64>,
+}
+
+async fn memory_graph(
+    State(state): State<AppState>,
+    Query(q): Query<MemoryGraphQuery>,
+) -> Response {
+    let mut params = serde_json::json!({});
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
+    }
+    if let Some(limit) = q.limit {
+        params["limit"] = serde_json::json!(limit);
+    }
+    ipc_proxy(state, "memory_graph", params).await
 }
 
 // --- Skills ---

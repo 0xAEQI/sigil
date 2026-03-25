@@ -1866,6 +1866,180 @@ impl Daemon {
                     }
                 }
 
+                "memory_profile" => {
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if project.is_empty() {
+                        serde_json::json!({"ok": false, "error": "project parameter required"})
+                    } else {
+                        let cwd = std::env::current_dir().unwrap_or_default();
+                        let db_path = cwd
+                            .join("projects")
+                            .join(project)
+                            .join(".sigil")
+                            .join("memory.db");
+                        if !db_path.exists() {
+                            serde_json::json!({"ok": true, "profile": {"static": [], "dynamic": []}})
+                        } else if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                            // Static categories: Fact, Preference, Evergreen (stable facts).
+                            // Dynamic categories: Decision, Context, Insight, Procedure (changing context).
+                            // Sort by created_at DESC as hotness proxy (no access_count column in schema).
+                            let fetch = |categories: &[&str]| -> Vec<serde_json::Value> {
+                                let placeholders: Vec<String> =
+                                    categories.iter().map(|c| format!("LOWER('{c}')")).collect();
+                                let sql = format!(
+                                    "SELECT id, key, content, category, scope, created_at \
+                                     FROM memories \
+                                     WHERE LOWER(category) IN ({}) \
+                                     ORDER BY created_at DESC \
+                                     LIMIT 20",
+                                    placeholders.join(", ")
+                                );
+                                conn.prepare(&sql)
+                                    .ok()
+                                    .map(|mut stmt| {
+                                        stmt.query_map([], |row| {
+                                            Ok(serde_json::json!({
+                                                "id": row.get::<_, String>(0)?,
+                                                "key": row.get::<_, String>(1)?,
+                                                "content": row.get::<_, String>(2)?,
+                                                "category": row.get::<_, String>(3)?,
+                                                "scope": row.get::<_, String>(4)?,
+                                                "created_at": row.get::<_, String>(5)?,
+                                            }))
+                                        })
+                                        .ok()
+                                        .map(|iter| iter.filter_map(|r| r.ok()).collect())
+                                        .unwrap_or_default()
+                                    })
+                                    .unwrap_or_default()
+                            };
+
+                            let static_memories = fetch(&["fact", "preference", "evergreen"]);
+                            let dynamic_memories =
+                                fetch(&["decision", "context", "insight", "procedure"]);
+
+                            serde_json::json!({
+                                "ok": true,
+                                "profile": {
+                                    "static": static_memories,
+                                    "dynamic": dynamic_memories,
+                                }
+                            })
+                        } else {
+                            serde_json::json!({"ok": true, "profile": {"static": [], "dynamic": []}})
+                        }
+                    }
+                }
+
+                "memory_graph" => {
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let limit = request
+                        .get("limit")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(50) as usize;
+
+                    if project.is_empty() {
+                        serde_json::json!({"ok": false, "error": "project parameter required"})
+                    } else {
+                        let cwd = std::env::current_dir().unwrap_or_default();
+                        let db_path = cwd
+                            .join("projects")
+                            .join(project)
+                            .join(".sigil")
+                            .join("memory.db");
+                        if !db_path.exists() {
+                            serde_json::json!({"ok": true, "nodes": [], "edges": []})
+                        } else if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                            let sql = format!(
+                                "SELECT id, key, content, category, created_at \
+                                 FROM memories \
+                                 ORDER BY created_at DESC \
+                                 LIMIT {limit}"
+                            );
+                            let nodes: Vec<serde_json::Value> = conn
+                                .prepare(&sql)
+                                .ok()
+                                .map(|mut stmt| {
+                                    stmt.query_map([], |row| {
+                                        let id: String = row.get(0)?;
+                                        let key: String = row.get(1)?;
+                                        let content: String = row.get(2)?;
+                                        let category: String = row.get(3)?;
+                                        let created_at: String = row.get(4)?;
+
+                                        // Simple position: hash of key/content mod 1000.
+                                        use std::hash::{Hash, Hasher};
+                                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                                        key.hash(&mut h);
+                                        let x = (h.finish() % 1000) as u32;
+
+                                        let mut h2 = std::collections::hash_map::DefaultHasher::new();
+                                        content.hash(&mut h2);
+                                        let y = (h2.finish() % 1000) as u32;
+
+                                        // Hotness proxy: parse created_at and use recency.
+                                        let hotness = chrono::NaiveDateTime::parse_from_str(
+                                            &created_at,
+                                            "%Y-%m-%dT%H:%M:%S%.f",
+                                        )
+                                        .or_else(|_| {
+                                            chrono::NaiveDateTime::parse_from_str(
+                                                &created_at,
+                                                "%Y-%m-%d %H:%M:%S",
+                                            )
+                                        })
+                                        .map(|dt| {
+                                            let age_secs = (chrono::Utc::now()
+                                                .naive_utc()
+                                                .signed_duration_since(dt))
+                                            .num_seconds()
+                                            .max(0)
+                                                as f64;
+                                            let days = age_secs / 86400.0;
+                                            // Exponential decay with 7-day half-life.
+                                            let lambda = (2.0_f64).ln() / 7.0;
+                                            (-lambda * days).exp() as f32
+                                        })
+                                        .unwrap_or(0.5);
+
+                                        Ok(serde_json::json!({
+                                            "id": id,
+                                            "key": key,
+                                            "content": content,
+                                            "category": category,
+                                            "x": x,
+                                            "y": y,
+                                            "hotness": hotness,
+                                        }))
+                                    })
+                                    .ok()
+                                    .map(|iter| iter.filter_map(|r| r.ok()).collect())
+                                    .unwrap_or_default()
+                                })
+                                .unwrap_or_default();
+
+                            // Placeholder edges array — real edges need memory_edges table
+                            // which isn't in SQLite yet.
+                            let edges: Vec<serde_json::Value> = Vec::new();
+
+                            serde_json::json!({
+                                "ok": true,
+                                "nodes": nodes,
+                                "edges": edges,
+                            })
+                        } else {
+                            serde_json::json!({"ok": true, "nodes": [], "edges": []})
+                        }
+                    }
+                }
+
                 "skills" => {
                     let cwd = std::env::current_dir().unwrap_or_default();
                     let mut skills = Vec::new();
