@@ -1,9 +1,9 @@
+use crate::graph::{MemoryEdge, MemoryRelation};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use sigil_core::traits::{Embedder, Memory, MemoryCategory, MemoryEntry, MemoryQuery, MemoryScope};
-use crate::graph::{MemoryEdge, MemoryRelation};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -612,20 +612,22 @@ impl SqliteMemory {
                 Ok((source_id, target_id, relation_str, strength, created_str))
             })?
             .filter_map(|r| r.ok())
-            .filter_map(|(source_id, target_id, relation_str, strength, created_str)| {
-                let relation: MemoryRelation =
-                    serde_json::from_value(serde_json::Value::String(relation_str)).ok()?;
-                let created_at = DateTime::parse_from_rfc3339(&created_str)
-                    .ok()?
-                    .with_timezone(&Utc);
-                Some(MemoryEdge {
-                    source_id,
-                    target_id,
-                    relation,
-                    strength,
-                    created_at,
-                })
-            })
+            .filter_map(
+                |(source_id, target_id, relation_str, strength, created_str)| {
+                    let relation: MemoryRelation =
+                        serde_json::from_value(serde_json::Value::String(relation_str)).ok()?;
+                    let created_at = DateTime::parse_from_rfc3339(&created_str)
+                        .ok()?
+                        .with_timezone(&Utc);
+                    Some(MemoryEdge {
+                        source_id,
+                        target_id,
+                        relation,
+                        strength,
+                        created_at,
+                    })
+                },
+            )
             .collect();
         Ok(edges)
     }
@@ -640,14 +642,9 @@ impl SqliteMemory {
             all_edges.extend(self.fetch_edges(id)?);
         }
         // Deduplicate by (source, target, relation).
-        all_edges.sort_by(|a, b| {
-            (&a.source_id, &a.target_id)
-                .cmp(&(&b.source_id, &b.target_id))
-        });
+        all_edges.sort_by(|a, b| (&a.source_id, &a.target_id).cmp(&(&b.source_id, &b.target_id)));
         all_edges.dedup_by(|a, b| {
-            a.source_id == b.source_id
-                && a.target_id == b.target_id
-                && a.relation == b.relation
+            a.source_id == b.source_id && a.target_id == b.target_id && a.relation == b.relation
         });
         Ok(all_edges)
     }

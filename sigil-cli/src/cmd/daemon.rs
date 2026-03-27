@@ -541,9 +541,8 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 fa_witness.memory = Some(mem);
                 if background_automation_enabled {
                     fa_witness.reflect_provider = Some(leader_provider.clone());
-                    fa_witness.reflect_model = config.default_model_for_provider(
-                        sigil_core::config::ProviderKind::OpenRouter,
-                    );
+                    fa_witness.reflect_model = config
+                        .default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
                 }
             }
 
