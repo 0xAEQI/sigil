@@ -121,6 +121,10 @@ sigil/
 
 ## Docs
 
+- [Vision](docs/vision.md)
+- [Roadmap](docs/roadmap.md)
+- [Native runtime design](docs/native-runtime.md)
+- [UI design](docs/ui-design.md)
 - [Getting started](docs/quickstart.md)
 - [Deployment model](docs/deployment.md)
 - [Architecture overview](docs/architecture.md)
