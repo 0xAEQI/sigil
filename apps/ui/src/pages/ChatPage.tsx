@@ -64,6 +64,14 @@ function parseChannelScope(channel: string | null): {
   };
 }
 
+function formatRuntimePhase(phase?: string | null): string | null {
+  if (!phase) return null;
+  return phase
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function eventTitle(event: ThreadEvent): string {
   switch (event.event_type) {
     case "task_created":
@@ -540,7 +548,17 @@ export default function ChatPage() {
     for (const event of workerEvents) {
       if (scope.project && event.project && event.project !== scope.project) continue;
       if (event.task_id && (event.event_type === "TaskStarted" || event.event_type === "Progress")) {
-        byTask.set(event.task_id, event);
+        const existing = byTask.get(event.task_id);
+        byTask.set(event.task_id, {
+          ...existing,
+          ...event,
+          runtime_session: event.runtime_session ?? existing?.runtime_session,
+          runtime: event.runtime ?? existing?.runtime,
+          agent: event.agent ?? existing?.agent,
+          project: event.project ?? existing?.project,
+          turns: event.turns ?? existing?.turns,
+          cost_usd: event.cost_usd ?? existing?.cost_usd,
+        });
       }
       if (event.task_id && (event.event_type === "TaskCompleted" || event.event_type === "TaskFailed")) {
         byTask.delete(event.task_id);
@@ -589,17 +607,26 @@ export default function ChatPage() {
 
       {activeWorkerEvents.length > 0 && (
         <div className="c-worker-bar">
-          {activeWorkerEvents.map((event) => (
-            <div key={`${event.task_id}-${event.event_type}`} className="c-worker-event">
-              <span className="c-worker-dot" />
-              <span className="c-worker-agent">{event.agent}</span>
-              <span className="c-worker-task">{event.task_id}</span>
-              {event.turns != null && <span className="c-worker-turns">{event.turns} turns</span>}
-              {event.cost_usd != null && (
-                <span className="c-worker-cost">${event.cost_usd.toFixed(3)}</span>
-              )}
-            </div>
-          ))}
+          {activeWorkerEvents.map((event) => {
+            const runtimeSession = event.runtime?.session ?? event.runtime_session;
+            const phaseLabel = formatRuntimePhase(runtimeSession?.phase);
+
+            return (
+              <div key={`${event.task_id}-${event.event_type}`} className="c-worker-event">
+                <span className="c-worker-dot" />
+                <span className="c-worker-agent">{event.agent}</span>
+                <span className="c-worker-task">{event.task_id}</span>
+                {phaseLabel && <span className="c-worker-phase">{phaseLabel}</span>}
+                {runtimeSession?.model && (
+                  <span className="c-worker-model">{runtimeSession.model}</span>
+                )}
+                {event.turns != null && <span className="c-worker-turns">{event.turns} turns</span>}
+                {event.cost_usd != null && (
+                  <span className="c-worker-cost">${event.cost_usd.toFixed(3)}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

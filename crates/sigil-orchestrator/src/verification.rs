@@ -560,7 +560,11 @@ impl VerificationPipeline {
     ///
     /// Runs RedFlagDetector on worker output, then optionally uses an LLM reviewer
     /// for a structured quality assessment. Falls back to confidence heuristic.
-    async fn check_quality(&self, outcome: &Outcome, task: &TaskContext) -> Vec<VerificationSignal> {
+    async fn check_quality(
+        &self,
+        outcome: &Outcome,
+        task: &TaskContext,
+    ) -> Vec<VerificationSignal> {
         let summary = outcome.reason.as_deref().unwrap_or("");
 
         // Always run red flag detection.
@@ -735,6 +739,7 @@ mod tests {
             turns: 1,
             duration_ms: 1000,
             reason: Some("task completed".into()),
+            runtime: None,
         }
     }
 

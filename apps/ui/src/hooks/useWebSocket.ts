@@ -1,5 +1,55 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
+export interface RuntimeStepRecord {
+  id: string;
+  phase: string;
+  summary: string;
+  status: string;
+  timestamp: string;
+}
+
+export interface RuntimeArtifact {
+  kind: string;
+  label: string;
+  reference: string;
+}
+
+export interface RuntimeVerificationReport {
+  checks_run: string[];
+  confidence?: number | null;
+  approved?: boolean | null;
+  warnings: string[];
+  evidence_summary: string[];
+}
+
+export interface RuntimeOutcome {
+  status: string;
+  summary: string;
+  reason?: string | null;
+  next_action?: string | null;
+  artifacts: RuntimeArtifact[];
+  verification?: RuntimeVerificationReport | null;
+}
+
+export interface RuntimeSession {
+  session_id: string;
+  task_id: string;
+  worker_id: string;
+  project: string;
+  model?: string | null;
+  status: string;
+  phase: string;
+  started_at: string;
+  updated_at: string;
+  checkpoint_refs: string[];
+  steps: RuntimeStepRecord[];
+}
+
+export interface RuntimeExecution {
+  session: RuntimeSession;
+  outcome: RuntimeOutcome;
+}
+
 export interface WorkerEvent {
   event_type: string;
   task_id?: string;
@@ -10,6 +60,8 @@ export interface WorkerEvent {
   outcome?: string;
   confidence?: number;
   reason?: string;
+  runtime_session?: RuntimeSession;
+  runtime?: RuntimeExecution;
   [key: string]: any;
 }
 

@@ -825,8 +825,7 @@ impl Daemon {
                     if let Some(ref audit) = self.registry.audit_log {
                         for (project, _cost) in &project_costs {
                             let recent = audit.query_by_project(project).unwrap_or_default();
-                            let recent_slice: Vec<_> =
-                                recent.into_iter().rev().take(50).collect();
+                            let recent_slice: Vec<_> = recent.into_iter().rev().take(50).collect();
                             let total = recent_slice.len() as u32;
                             let failures = recent_slice
                                 .iter()
@@ -843,8 +842,7 @@ impl Daemon {
                 let mut anomalies = Vec::new();
 
                 for (project, cost) in &project_costs {
-                    let (failures, total) =
-                        failure_rates.get(project).copied().unwrap_or((0, 0));
+                    let (failures, total) = failure_rates.get(project).copied().unwrap_or((0, 0));
                     let failure_rate = if total > 0 {
                         failures as f32 / total as f32
                     } else {
@@ -865,9 +863,9 @@ impl Daemon {
                     }
 
                     // Check for failure rate surges.
-                    if let Some(anomaly) =
-                        self.anomaly_detector
-                            .check_failure_rate(project, failures, total)
+                    if let Some(anomaly) = self
+                        .anomaly_detector
+                        .check_failure_rate(project, failures, total)
                     {
                         warn!(
                             project = %project,
@@ -3093,6 +3091,7 @@ mod tests {
             task_id: "t-1".into(),
             agent: "engineer".into(),
             project: "sigil".into(),
+            runtime_session: None,
         });
         buffer.push(ExecutionEvent::TaskCompleted {
             task_id: "t-1".into(),
@@ -3101,6 +3100,7 @@ mod tests {
             cost_usd: 0.1,
             turns: 2,
             duration_ms: 100,
+            runtime: None,
         });
 
         let client_a = buffer.read_since(Some(0));

@@ -913,7 +913,7 @@ impl Supervisor {
             let handle = tokio::spawn(async move {
                 let start = std::time::Instant::now();
                 match worker.execute().await {
-                    Ok((outcome, cost_usd, turns)) => {
+                    Ok((outcome, mut runtime, cost_usd, turns)) => {
                         let duration_secs = start.elapsed().as_secs_f64();
                         debug!(
                             project = %project_name_task,
@@ -1066,22 +1066,24 @@ impl Supervisor {
                                             }
                                         });
 
+                                    let runtime_artifacts = runtime.outcome.artifact_refs();
                                     let task_ctx = TaskContext {
                                         task_id: task_id_clone.clone(),
                                         subject: task_subject.clone(),
                                         done_condition,
                                         project: project_name_task.clone(),
                                         project_dir: verification_repo.clone(),
-                                        artifacts: vec![],
+                                        artifacts: runtime_artifacts.clone(),
                                     };
                                     let mw_outcome = Outcome {
                                         status: OutcomeStatus::Done,
                                         confidence: 0.8,
-                                        artifacts: vec![],
+                                        artifacts: runtime_artifacts,
                                         cost_usd,
                                         turns,
                                         duration_ms: (duration_secs * 1000.0) as u64,
                                         reason: Some(summary.clone()),
+                                        runtime: Some(runtime.outcome.clone()),
                                     };
 
                                     let pipeline = if !verification_model.is_empty() {
@@ -1103,6 +1105,9 @@ impl Supervisor {
                                         suggestions = ?result.suggestions,
                                         "verification complete"
                                     );
+
+                                    runtime.outcome.verification =
+                                        Some(crate::runtime::VerificationReport::from(&result));
 
                                     if !result.approved {
                                         warn!(

@@ -20,6 +20,9 @@ use crate::failure_analysis::{FailureAnalysis, FailureMode};
 use crate::hook::Hook;
 use crate::message::{Dispatch, DispatchBus, DispatchKind};
 use crate::middleware::{MiddlewareAction, MiddlewareChain, Outcome, OutcomeStatus, WorkerContext};
+use crate::runtime::{
+    Artifact, ArtifactKind, RuntimeExecution, RuntimeOutcome, RuntimePhase, RuntimeSession,
+};
 
 /// Worker states.
 #[derive(Debug, Clone, PartialEq)]
@@ -324,16 +327,41 @@ impl AgentWorker {
 
     /// Execute the hooked work through the native Sigil agent runtime.
     /// Returns (outcome, cost_usd, turns_used) for the Supervisor to record.
-    pub async fn execute(&mut self) -> Result<(TaskOutcome, f64, u32)> {
+    pub async fn execute(&mut self) -> Result<(TaskOutcome, RuntimeExecution, f64, u32)> {
         let hook = match &self.hook {
             Some(h) => h.clone(),
             None => {
                 warn!(worker = %self.name, "no hook assigned, nothing to do");
-                return Ok((TaskOutcome::Done("no work assigned".to_string()), 0.0, 0));
+                let outcome = TaskOutcome::Done("no work assigned".to_string());
+                let mut session = RuntimeSession::new(
+                    "unassigned",
+                    self.name.clone(),
+                    self.project_name.clone(),
+                    self.execution_model(),
+                );
+                session.mark_phase(RuntimePhase::Prime, "Worker had no hook assigned");
+                let runtime_outcome = RuntimeOutcome::from_task_outcome(&outcome, Vec::new());
+                session.finish(&runtime_outcome);
+                return Ok((
+                    outcome,
+                    RuntimeExecution {
+                        session,
+                        outcome: runtime_outcome,
+                    },
+                    0.0,
+                    0,
+                ));
             }
         };
 
         let execution_start = std::time::Instant::now();
+        let mut runtime_session = RuntimeSession::new(
+            hook.task_id.0.clone(),
+            self.name.clone(),
+            self.project_name.clone(),
+            self.execution_model(),
+        );
+        runtime_session.mark_phase(RuntimePhase::Prime, "Loaded task hook and worker identity");
 
         // Build WorkerContext for middleware chain.
         let task_description_for_ctx = {
@@ -361,19 +389,27 @@ impl AgentWorker {
                         reason = %reason,
                         "middleware halted execution on start"
                     );
+                    self.hook = None;
+                    runtime_session.mark_phase(
+                        RuntimePhase::Frame,
+                        "Middleware halted execution before run",
+                    );
+                    let outcome = TaskOutcome::Failed(format!("Middleware halted: {reason}"));
+                    let runtime_outcome = RuntimeOutcome::from_task_outcome(&outcome, Vec::new());
+                    runtime_session.finish(&runtime_outcome);
+                    let runtime_execution = RuntimeExecution {
+                        session: runtime_session,
+                        outcome: runtime_outcome,
+                    };
                     if let Some(ref broadcaster) = self.event_broadcaster {
                         broadcaster.publish(ExecutionEvent::TaskFailed {
                             task_id: hook.task_id.0.clone(),
                             reason: reason.clone(),
                             artifacts_preserved: false,
+                            runtime: Some(runtime_execution.clone()),
                         });
                     }
-                    self.hook = None;
-                    return Ok((
-                        TaskOutcome::Failed(format!("Middleware halted: {reason}")),
-                        0.0,
-                        0,
-                    ));
+                    return Ok((outcome, runtime_execution, 0.0, 0));
                 }
                 MiddlewareAction::Continue
                 | MiddlewareAction::Inject(_)
@@ -387,6 +423,7 @@ impl AgentWorker {
                 task_id: hook.task_id.0.clone(),
                 agent: self.agent_name.clone(),
                 project: self.project_name.clone(),
+                runtime_session: Some(runtime_session.clone()),
             });
         }
 
@@ -453,6 +490,10 @@ impl AgentWorker {
                 task_context.push_str(&resume_brief);
             }
         }
+        runtime_session.mark_phase(
+            RuntimePhase::Frame,
+            "Prepared task context, checkpoints, and resume brief",
+        );
 
         // Enrich identity with dynamic memory recall via query planner.
         let enriched_identity = if let Some(ref mem) = self.memory {
@@ -515,6 +556,15 @@ impl AgentWorker {
         } else {
             self.identity.clone()
         };
+        runtime_session.mark_phase(
+            RuntimePhase::Act,
+            format!(
+                "Executing native Sigil agent loop{}",
+                self.execution_model()
+                    .map(|model| format!(" with model {model}"))
+                    .unwrap_or_default()
+            ),
+        );
 
         // Dispatch based on execution mode. Returns (text, cost_usd, turns_used).
         let raw_result = match &self.execution {
@@ -573,17 +623,16 @@ impl AgentWorker {
                     let error_str = e.to_string();
                     chain.run_on_error(&mut worker_ctx, &error_str).await;
                 }
-                // Publish TaskFailed event.
-                if let Some(ref broadcaster) = self.event_broadcaster {
-                    broadcaster.publish(ExecutionEvent::TaskFailed {
-                        task_id: hook.task_id.0.clone(),
-                        reason: e.to_string(),
-                        artifacts_preserved: false,
-                    });
-                }
                 (TaskOutcome::Failed(e.to_string()), 0.0, 0)
             }
         };
+        let mut runtime_outcome =
+            RuntimeOutcome::from_task_outcome(&outcome, self.collect_runtime_artifacts());
+        let runtime_artifact_refs = runtime_outcome.artifact_refs();
+        runtime_session.mark_phase(
+            RuntimePhase::Verify,
+            "Captured runtime artifacts and prepared structured outcome",
+        );
 
         // Run middleware on_complete with structured outcome.
         let duration_ms = execution_start.elapsed().as_millis() as u64;
@@ -592,84 +641,46 @@ impl AgentWorker {
                 TaskOutcome::Done(_) => Outcome {
                     status: OutcomeStatus::Done,
                     confidence: 1.0,
-                    artifacts: Vec::new(),
+                    artifacts: runtime_artifact_refs.clone(),
                     cost_usd: cost,
                     turns,
                     duration_ms,
                     reason: None,
+                    runtime: Some(runtime_outcome.clone()),
                 },
                 TaskOutcome::Blocked { question, .. } => Outcome {
                     status: OutcomeStatus::Blocked,
                     confidence: 0.5,
-                    artifacts: Vec::new(),
+                    artifacts: runtime_artifact_refs.clone(),
                     cost_usd: cost,
                     turns,
                     duration_ms,
                     reason: Some(question.clone()),
+                    runtime: Some(runtime_outcome.clone()),
                 },
                 TaskOutcome::Handoff { checkpoint } => Outcome {
                     status: OutcomeStatus::NeedsContext,
                     confidence: 0.3,
-                    artifacts: Vec::new(),
+                    artifacts: runtime_artifact_refs.clone(),
                     cost_usd: cost,
                     turns,
                     duration_ms,
                     reason: Some(checkpoint.clone()),
+                    runtime: Some(runtime_outcome.clone()),
                 },
                 TaskOutcome::Failed(error) => Outcome {
                     status: OutcomeStatus::Failed,
                     confidence: 0.0,
-                    artifacts: Vec::new(),
+                    artifacts: runtime_artifact_refs.clone(),
                     cost_usd: cost,
                     turns,
                     duration_ms,
                     reason: Some(error.clone()),
+                    runtime: Some(runtime_outcome.clone()),
                 },
             };
             worker_ctx.cost_usd = cost;
             chain.run_on_complete(&mut worker_ctx, &mw_outcome).await;
-        }
-
-        // Publish outcome-specific execution events.
-        if let Some(ref broadcaster) = self.event_broadcaster {
-            match &outcome {
-                TaskOutcome::Done(summary) => {
-                    broadcaster.publish(ExecutionEvent::TaskCompleted {
-                        task_id: hook.task_id.0.clone(),
-                        outcome: summary.chars().take(500).collect(),
-                        confidence: 1.0,
-                        cost_usd: cost,
-                        turns,
-                        duration_ms,
-                    });
-                }
-                TaskOutcome::Blocked { question, .. } => {
-                    broadcaster.publish(ExecutionEvent::ClarificationNeeded {
-                        task_id: hook.task_id.0.clone(),
-                        question: question.clone(),
-                        options: Vec::new(),
-                    });
-                }
-                TaskOutcome::Handoff { checkpoint } => {
-                    broadcaster.publish(ExecutionEvent::CheckpointCreated {
-                        task_id: hook.task_id.0.clone(),
-                        message: format!(
-                            "HANDOFF: {}",
-                            checkpoint.chars().take(500).collect::<String>()
-                        ),
-                    });
-                }
-                TaskOutcome::Failed(reason) => {
-                    // TaskFailed event may already be published in the Err arm above,
-                    // but if the failure came from TaskOutcome::parse on a successful
-                    // execution (FAILED: prefix in response text), publish here.
-                    broadcaster.publish(ExecutionEvent::TaskFailed {
-                        task_id: hook.task_id.0.clone(),
-                        reason: reason.chars().take(500).collect(),
-                        artifacts_preserved: false,
-                    });
-                }
-            }
         }
 
         // Process outcome: save checkpoint, update task status, notify supervisor.
@@ -966,8 +977,116 @@ impl AgentWorker {
             }
         }
 
+        if let Some(checkpoint_path) = self.checkpoint_path_for_task(&hook.task_id.0)
+            && checkpoint_path.exists()
+        {
+            let checkpoint_ref = checkpoint_path.display().to_string();
+            runtime_session.add_checkpoint_ref(checkpoint_ref.clone());
+            runtime_outcome.artifacts.push(Artifact::new(
+                ArtifactKind::Checkpoint,
+                "checkpoint",
+                checkpoint_ref,
+            ));
+        }
+        runtime_session.finish(&runtime_outcome);
+        let runtime_execution = RuntimeExecution {
+            session: runtime_session.clone(),
+            outcome: runtime_outcome.clone(),
+        };
+
+        // Publish outcome-specific execution events with the finalized runtime state.
+        if let Some(ref broadcaster) = self.event_broadcaster {
+            match &outcome {
+                TaskOutcome::Done(summary) => {
+                    broadcaster.publish(ExecutionEvent::TaskCompleted {
+                        task_id: hook.task_id.0.clone(),
+                        outcome: summary.chars().take(500).collect(),
+                        confidence: 1.0,
+                        cost_usd: cost,
+                        turns,
+                        duration_ms,
+                        runtime: Some(runtime_execution.clone()),
+                    });
+                }
+                TaskOutcome::Blocked { question, .. } => {
+                    broadcaster.publish(ExecutionEvent::ClarificationNeeded {
+                        task_id: hook.task_id.0.clone(),
+                        question: question.clone(),
+                        options: Vec::new(),
+                        runtime: Some(runtime_execution.clone()),
+                    });
+                }
+                TaskOutcome::Handoff { checkpoint } => {
+                    broadcaster.publish(ExecutionEvent::CheckpointCreated {
+                        task_id: hook.task_id.0.clone(),
+                        message: format!(
+                            "HANDOFF: {}",
+                            checkpoint.chars().take(500).collect::<String>()
+                        ),
+                        runtime: Some(runtime_execution.clone()),
+                    });
+                }
+                TaskOutcome::Failed(reason) => {
+                    broadcaster.publish(ExecutionEvent::TaskFailed {
+                        task_id: hook.task_id.0.clone(),
+                        reason: reason.chars().take(500).collect(),
+                        artifacts_preserved: !runtime_execution.outcome.artifacts.is_empty(),
+                        runtime: Some(runtime_execution.clone()),
+                    });
+                }
+            }
+        }
+
         self.hook = None;
-        Ok((outcome, cost, turns))
+        Ok((outcome, runtime_execution, cost, turns))
+    }
+
+    fn execution_model(&self) -> Option<String> {
+        match &self.execution {
+            WorkerExecution::Agent { model, .. } => Some(model.clone()),
+        }
+    }
+
+    fn checkpoint_path_for_task(&self, task_id: &str) -> Option<PathBuf> {
+        self.project_dir
+            .as_deref()
+            .or(self.workdir())
+            .map(|project_dir| AgentCheckpoint::path_for_task(project_dir, task_id))
+    }
+
+    fn collect_runtime_artifacts(&self) -> Vec<Artifact> {
+        let Some(workdir) = self.workdir() else {
+            return Vec::new();
+        };
+
+        let checkpoint = match AgentCheckpoint::capture(workdir) {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                debug!(
+                    worker = %self.name,
+                    error = %error,
+                    "failed to collect runtime artifacts from git state"
+                );
+                return Vec::new();
+            }
+        };
+
+        let mut artifacts = Vec::new();
+
+        if let Some(ref worktree) = checkpoint.worktree_path {
+            artifacts.push(Artifact::new(ArtifactKind::Worktree, "worktree", worktree));
+        }
+        if let Some(ref branch) = checkpoint.branch {
+            artifacts.push(Artifact::new(ArtifactKind::GitBranch, "branch", branch));
+        }
+        if let Some(ref commit) = checkpoint.last_commit {
+            artifacts.push(Artifact::new(ArtifactKind::GitCommit, "head", commit));
+        }
+        for file in checkpoint.modified_files {
+            artifacts.push(Artifact::new(ArtifactKind::File, file.clone(), file));
+        }
+
+        artifacts
     }
 
     async fn execute_agent(

@@ -4409,6 +4409,18 @@ a:hover {
 
 .c-worker-agent { color: var(--accent); font-weight: 500; }
 .c-worker-task { font-family: var(--font-mono); color: var(--text-secondary); }
+.c-worker-phase {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.c-worker-model {
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
 .c-worker-turns { color: var(--text-muted); }
 .c-worker-cost { color: var(--accent); font-family: var(--font-mono); }
 

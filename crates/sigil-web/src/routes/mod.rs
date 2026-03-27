@@ -23,6 +23,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/expertise", get(expertise))
         .route("/cost", get(cost))
         .route("/dashboard", get(dashboard))
+        .route("/worker/events", get(worker_events))
         .route("/chat", post(chat))
         .route("/chat/full", post(chat_full))
         .route("/chat/poll/{task_id}", get(chat_poll))
@@ -216,6 +217,24 @@ async fn dashboard(State(state): State<AppState>) -> Response {
         "cost": cost,
     }))
     .into_response()
+}
+
+// --- Worker Events ---
+
+#[derive(Deserialize, Default)]
+struct WorkerEventsQuery {
+    cursor: Option<u64>,
+}
+
+async fn worker_events(
+    State(state): State<AppState>,
+    Query(q): Query<WorkerEventsQuery>,
+) -> Response {
+    let mut params = serde_json::json!({});
+    if let Some(cursor) = q.cursor {
+        params["cursor"] = serde_json::json!(cursor);
+    }
+    ipc_proxy(state, "worker_events", params).await
 }
 
 // --- Memories ---

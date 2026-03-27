@@ -161,6 +161,7 @@ mod tests {
             turns: 3,
             duration_ms: 5000,
             reason: Some("compilation error".into()),
+            runtime: None,
         }
     }
 
@@ -173,6 +174,7 @@ mod tests {
             turns: 1,
             duration_ms: 1000,
             reason: None,
+            runtime: None,
         }
     }
 

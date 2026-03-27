@@ -8,6 +8,8 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 use tracing::debug;
 
+use crate::runtime::{RuntimeExecution, RuntimeSession};
+
 // ---------------------------------------------------------------------------
 // ExecutionEvent
 // ---------------------------------------------------------------------------
@@ -21,6 +23,8 @@ pub enum ExecutionEvent {
         task_id: String,
         agent: String,
         project: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime_session: Option<RuntimeSession>,
     },
     /// Periodic progress update during execution.
     Progress {
@@ -39,7 +43,12 @@ pub enum ExecutionEvent {
         duration_ms: u64,
     },
     /// A checkpoint was captured during execution.
-    CheckpointCreated { task_id: String, message: String },
+    CheckpointCreated {
+        task_id: String,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime: Option<RuntimeExecution>,
+    },
     /// Task completed successfully.
     TaskCompleted {
         task_id: String,
@@ -48,12 +57,16 @@ pub enum ExecutionEvent {
         cost_usd: f64,
         turns: u32,
         duration_ms: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime: Option<RuntimeExecution>,
     },
     /// Task failed.
     TaskFailed {
         task_id: String,
         reason: String,
         artifacts_preserved: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime: Option<RuntimeExecution>,
     },
     /// An approval is required before the worker can continue.
     ApprovalRequired {
@@ -66,6 +79,8 @@ pub enum ExecutionEvent {
         task_id: String,
         question: String,
         options: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime: Option<RuntimeExecution>,
     },
 }
 
@@ -136,6 +151,7 @@ mod tests {
             task_id: "t-1".into(),
             agent: "engineer".into(),
             project: "sigil".into(),
+            runtime_session: None,
         });
 
         let event = rx.recv().await.unwrap();
@@ -144,6 +160,7 @@ mod tests {
                 task_id,
                 agent,
                 project,
+                ..
             } => {
                 assert_eq!(task_id, "t-1");
                 assert_eq!(agent, "engineer");
@@ -204,6 +221,7 @@ mod tests {
             task_id: "t-3".into(),
             reason: "build error".into(),
             artifacts_preserved: false,
+            runtime: None,
         });
 
         // Still functional after publishing to zero subscribers.
@@ -215,6 +233,7 @@ mod tests {
             cost_usd: 0.1,
             turns: 5,
             duration_ms: 30000,
+            runtime: None,
         });
 
         let event = rx.recv().await.unwrap();
@@ -263,6 +282,7 @@ mod tests {
         broadcaster.publish(ExecutionEvent::CheckpointCreated {
             task_id: "t-6".into(),
             message: "captured git state".into(),
+            runtime: None,
         });
         let event = rx.recv().await.unwrap();
         assert!(matches!(event, ExecutionEvent::CheckpointCreated { .. }));

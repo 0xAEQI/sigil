@@ -41,6 +41,7 @@ pub mod proactive;
 pub mod project;
 pub mod reflection;
 pub mod registry;
+pub mod runtime;
 pub mod schedule;
 pub mod session_tracker;
 pub mod skill_promotion;
@@ -76,6 +77,10 @@ pub use pipeline::{Pipeline, PipelineStep};
 pub use project::Project;
 pub use reflection::Reflection;
 pub use registry::{ProjectRegistry, ProjectSummary, TeamSummary};
+pub use runtime::{
+    Artifact, ArtifactKind, RuntimeExecution, RuntimeOutcome, RuntimeOutcomeStatus, RuntimePhase,
+    RuntimeSession, RuntimeSessionStatus, VerificationReport,
+};
 pub use schedule::{ScheduleStore, ScheduledJob};
 pub use session_tracker::SessionTracker;
 pub use supervisor::Supervisor;

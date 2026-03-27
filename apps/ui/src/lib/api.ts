@@ -72,6 +72,14 @@ export const api = {
   // Status
   getStatus: () => request<any>("/status"),
 
+  // Worker events
+  getWorkerEvents: (params?: { cursor?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.cursor != null) query.set("cursor", String(params.cursor));
+    const qs = query.toString();
+    return request<any>(`/worker/events${qs ? `?${qs}` : ""}`);
+  },
+
   // Projects
   getProjects: () => request<any>("/projects"),
 

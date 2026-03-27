@@ -39,6 +39,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::debug;
 
+use crate::runtime::RuntimeOutcome;
+
 // ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
@@ -105,6 +107,8 @@ pub struct Outcome {
     pub duration_ms: u64,
     /// Human-readable reason (especially for non-Done outcomes).
     pub reason: Option<String>,
+    /// Structured runtime outcome, when available.
+    pub runtime: Option<RuntimeOutcome>,
 }
 
 impl Default for Outcome {
@@ -117,6 +121,7 @@ impl Default for Outcome {
             turns: 0,
             duration_ms: 0,
             reason: None,
+            runtime: None,
         }
     }
 }
