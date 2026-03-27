@@ -1,5 +1,6 @@
 {
-  "name": "sigil-monorepo",
+  "name": "sigil",
+  "description": "Agent runtime, multi-agent harness, orchestration engine, and web control plane",
   "private": true,
   "scripts": {
     "ui:install": "npm --prefix apps/ui install",

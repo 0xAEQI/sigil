@@ -1,6 +1,6 @@
 # Sigil Web Dashboard
 
-Frontend for the Sigil AI agent orchestration framework. Vite + React 19 + Zustand + TypeScript.
+Frontend for the Sigil agent runtime and control plane. Vite + React 19 + Zustand + TypeScript.
 
 ## Stack
 

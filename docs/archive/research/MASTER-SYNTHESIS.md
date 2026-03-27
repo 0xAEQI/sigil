@@ -1,5 +1,7 @@
 # Sigil Master Synthesis
 
+This document is archived research material. The source clones referenced here are kept outside the `sigil` repository.
+
 The definitive plan for making Sigil the best agent orchestrator in existence.
 Derived from deep code-level analysis of 11 repositories + Sigil itself.
 
@@ -30,15 +32,15 @@ The goal: excellence through informed synthesis, not imitation.
 |------|------|-----------------|
 | bytedance/deer-flow | /home/claudedev/deer-flow | Middleware chain, live streaming, subagent execution |
 | NousResearch/hermes-agent | /home/claudedev/hermes-agent | Runtime maturity, approval rails, context compression, toolsets |
-| volcengine/OpenViking | /home/claudedev/openviking | Hierarchical retrieval, hotness scoring, LLM-based dedup, two-phase commit |
+| volcengine/OpenViking | /home/claudedev/synthesis-sources/openviking | Hierarchical retrieval, hotness scoring, LLM-based dedup, two-phase commit |
 | supermemory | /home/claudedev/supermemory | Memory product (Profile API, MCP, graph viz, conversation ingestion) |
-| obra/superpowers | /home/claudedev/superpowers | Phased skills, verification-before-completion, red flags, skill composition |
-| affaan-m/everything-claude-code | /home/claudedev/everything-claude-code | Instinct evolution, compliance testing, continuous learning |
-| alirezarezvani/claude-skills | /home/claudedev/claude-skills | 205 production skills, domain hierarchy, agent-as-orchestrator |
-| shareAI-lab/learn-claude-code | /home/claudedev/learn-claude-code | Agent design philosophy, progressive complexity |
-| langchain-ai/open-swe | /home/claudedev/open-swe | Sandbox isolation, mid-run injection, safety nets, AGENTS.md |
-| abhigyanpatwari/GitNexus | /home/claudedev/gitnexus | Code knowledge graph, impact analysis, blast radius, MCP tools |
-| lightpanda-io/browser | /home/claudedev/lightpanda | Headless browser for agents, semantic DOM, MCP interface |
+| obra/superpowers | /home/claudedev/synthesis-sources/superpowers | Phased skills, verification-before-completion, red flags, skill composition |
+| affaan-m/everything-claude-code | /home/claudedev/synthesis-sources/everything-claude-code | Instinct evolution, compliance testing, continuous learning |
+| alirezarezvani/claude-skills | /home/claudedev/synthesis-sources/claude-skills | 205 production skills, domain hierarchy, agent-as-orchestrator |
+| shareAI-lab/learn-claude-code | /home/claudedev/synthesis-sources/learn-claude-code | Agent design philosophy, progressive complexity |
+| langchain-ai/open-swe | /home/claudedev/synthesis-sources/open-swe | Sandbox isolation, mid-run injection, safety nets, AGENTS.md |
+| abhigyanpatwari/GitNexus | /home/claudedev/synthesis-sources/gitnexus | Code knowledge graph, impact analysis, blast radius, MCP tools |
+| lightpanda-io/browser | /home/claudedev/synthesis-sources/lightpanda | Headless browser for agents, semantic DOM, MCP interface |
 
 ---
 

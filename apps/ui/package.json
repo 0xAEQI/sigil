@@ -1,6 +1,6 @@
 {
   "name": "sigil-ui",
-  "description": "Web dashboard for the Sigil AI agent orchestrator",
+  "description": "Web control plane for the Sigil agent runtime",
   "private": true,
   "version": "0.2.0",
   "license": "MIT",

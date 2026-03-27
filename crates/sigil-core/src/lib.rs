@@ -1,4 +1,4 @@
-//! Foundation crate for the Sigil agent orchestration framework.
+//! Foundation crate for the Sigil agent runtime and control plane.
 //!
 //! Provides core traits ([`traits::Provider`], [`traits::Tool`], [`traits::Memory`],
 //! [`traits::Observer`], [`traits::Channel`]), configuration loading ([`SigilConfig`]),

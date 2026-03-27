@@ -2,7 +2,7 @@
 name = "sigil"
 version.workspace = true
 edition.workspace = true
-description = "CLI and daemon binary for the Sigil AI agent orchestrator"
+description = "CLI, daemon, and web entrypoint for the Sigil agent runtime"
 
 [[bin]]
 name = "sigil"

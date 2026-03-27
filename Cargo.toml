@@ -17,11 +17,11 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 authors = ["Sigil Contributors"]
-description = "Recursive multi-agent orchestration framework"
+description = "Agent runtime, multi-agent harness, orchestration engine, and web control plane"
 repository = "https://github.com/0xAEQI/sigil"
 homepage = "https://github.com/0xAEQI/sigil"
 categories = ["development-tools", "command-line-utilities"]
-keywords = ["agents", "orchestration", "llm", "claude", "automation"]
+keywords = ["agents", "runtime", "orchestration", "automation", "control-plane"]
 
 [workspace.dependencies]
 # Async runtime

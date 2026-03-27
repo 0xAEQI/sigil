@@ -1,13 +1,13 @@
-# Project Setup Guide
+# Project Setup
 
-A **project** is an isolated business unit in Sigil. Each project has its own:
+A **project** is an isolated operating unit in Sigil. Each project has its own:
 
 - Git repository (working directory)
 - Task store (`.tasks/` -- JSONL task DAG)
 - Memory database (`.sigil/memory.db` -- SQLite + FTS5)
 - Identity files (PERSONA.md, IDENTITY.md, AGENTS.md, KNOWLEDGE.md)
 - Skills and workflow templates (pipelines)
-- Worker pool (concurrent Sigil native workers)
+- Worker pool (concurrent Sigil workers)
 - Checkpoints (`.sigil/checkpoints/` -- worker work-in-progress)
 
 ## Creating a Project

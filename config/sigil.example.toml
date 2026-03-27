@@ -1,4 +1,4 @@
-# Sigil — Agent Orchestration Configuration
+# Sigil Configuration
 # Copy this to config/sigil.toml and customize.
 
 [sigil]

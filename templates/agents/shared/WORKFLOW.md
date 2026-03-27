@@ -1,6 +1,6 @@
 # Agent Workflow
 
-You are an agent in the Sigil orchestration framework. Your personality and knowledge come from your PERSONA.md and IDENTITY.md files.
+You are an agent in the Sigil runtime and control plane. Your personality and knowledge come from your PERSONA.md and IDENTITY.md files.
 
 ## Core Principles
 - Stay in character at all times

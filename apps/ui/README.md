@@ -1,31 +1,40 @@
-# sigil-ui
+# Sigil UI
 
-Web dashboard for the Sigil AI agent orchestrator.
-Canonical source now lives in the Sigil monorepo at `apps/ui`.
+React web control plane for Sigil.
 
-**Tech stack:** Vite 6 + React 19 + TypeScript 5 + Zustand + React Router v7
+Canonical source lives in the Sigil monorepo at `apps/ui`.
 
 ## Quick Start
 
+From the repository root:
+
 ```bash
-npm --prefix apps/ui install
-npm --prefix apps/ui run dev
+npm run ui:install
+npm run ui:dev
 ```
 
-Or from inside this directory:
+Or from inside `apps/ui`:
 
 ```bash
-cd apps/ui
 npm install
-npm run dev      # Dev server on http://localhost:5173
-npm run build    # Production build to dist/
+npm run dev
+npm run build
 ```
 
-## API
+The dev server runs on `http://127.0.0.1:5173`.
 
-The dev server proxies `/api/*` requests to the `sigil-web` backend on `localhost:8400`.
-In production, `sigil-web` can serve `dist/` directly when `[web].ui_dist_dir` is configured. A thin reverse proxy such as `nginx` or `caddy` can sit in front for TLS and host routing.
+## API and Serving
 
-## Backend
+- In development, the Vite server proxies `/api/*` to `sigil-web` on `http://127.0.0.1:8400`.
+- In production, `sigil-web` can serve the compiled `dist/` directory directly when `[web].ui_dist_dir` is configured.
+- `nginx` or `caddy` should sit in front only for TLS and host routing.
 
-Sigil monorepo: <https://github.com/0xAEQI/sigil>
+## Stack
+
+- React 19
+- Vite 6
+- TypeScript 5
+- Zustand
+- React Router 7
+
+Main project: <https://github.com/0xAEQI/sigil>

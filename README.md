@@ -1,88 +1,134 @@
 # Sigil
 
 [![CI](https://github.com/0xAEQI/sigil/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/0xAEQI/sigil/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Backend: Rust](https://img.shields.io/badge/backend-Rust%202024-black)](Cargo.toml)
+[![UI: React 19 + Vite 6](https://img.shields.io/badge/ui-React%2019%20%2B%20Vite%206-61dafb)](apps/ui)
 
-**Proactive AI.** The agent orchestrator that doesn't wait. It routes to the right agents, executes through Sigil's native agent runtime, verifies its own work, learns from results, and messages you with what got done.
+Sigil is an agent runtime, multi-agent harness, orchestration engine, and web control plane for running persistent software work.
 
-## What It Does
+It is built for the full operating loop: run agents, coordinate specialist roles, persist state, verify work, and manage the system through a CLI, API, and web UI.
 
-You tell Sigil what you want. It decomposes into tasks, routes to specialist agents, executes in isolated environments, verifies outcomes, extracts knowledge, and wakes you up to a brief. Your notes become reality.
+## What Sigil Includes
 
-```
-Intent → Understand → Orchestrate → Execute → Verify → Learn → Proact
-   ↑                                                              │
-   └──────────────────────────────────────────────────────────────┘
-```
-
-## Architecture
-
-- **9 Rust crates**, 515 tests, zero clippy warnings
-- **Composable middleware chain** — 8 implementations: loop detection, guardrails, cost tracking, context compression, context budget, memory refresh, clarification, safety net
-- **Verification pipeline** — 5-stage with confidence scoring, three-strikes escalation
-- **Memory graph** — relationships, deduplication, hotness scoring (7d half-life), hierarchical L0/L1/L2
-- **Intelligent retrieval** — intent-driven query planning, multi-signal scoring (BM25 + vector + hotness + confidence + graph)
-- **Notes system** — directives that manifest into tasks with status tracking
-- **Proactive engine** — morning briefs, anomaly detection, suggestions, notifications
-- **Skill promotion** — recurring patterns auto-promoted to formal skill definitions
-- **Web dashboard** — chat-first UI (Vite + React 19), context panel, command palette
-- **Chat** — dual-path (quick + agent execution), multi-channel (web, Telegram, API)
-- **Monorepo** — Rust workspace plus `apps/ui` frontend with shared release flow
+- A native agent runtime for direct task execution
+- A multi-agent control plane for routing, supervision, retries, and verification
+- Persistent state across tasks, memory, audit logs, dispatches, and project context
+- A web UI and API for operating the system day to day
 
 ## Quick Start
 
+Prerequisites:
+
+- Rust stable
+- Node.js 22+
+- An LLM provider key such as `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY`
+
+1. Create a local config:
+
 ```bash
-cargo build --release
-npm --prefix apps/ui install
-npm --prefix apps/ui run build
-sigil setup --runtime openrouter_agent
-sigil daemon start    # orchestration daemon
-sigil web start       # web API on :8400, optionally serves apps/ui/dist
+cp config/sigil.example.toml config/sigil.toml
 ```
 
-## Monorepo Layout
+2. In `config/sigil.toml`, configure a provider and enable the web UI:
+
+```toml
+[providers.openrouter]
+api_key = "${OPENROUTER_API_KEY}"
+default_model = "xiaomi/mimo-v2-pro"
+
+[web]
+enabled = true
+bind = "127.0.0.1:8400"
+ui_dist_dir = "../apps/ui/dist"
+auth_secret = "${SIGIL_WEB_SECRET}"
+```
+
+3. Build the backend and UI:
+
+```bash
+cargo build
+npm run ui:install
+npm run ui:build
+```
+
+4. Start the daemon and web server:
+
+```bash
+export SIGIL_WEB_SECRET=change-me
+cargo run --bin sigil -- daemon start
+cargo run --bin sigil -- web start
+```
+
+Then open `http://127.0.0.1:8400`.
+
+## Local Development
+
+Run the backend in one shell:
+
+```bash
+cargo run --bin sigil -- daemon start
+```
+
+Run the API server in another:
+
+```bash
+cargo run --bin sigil -- web start
+```
+
+Run the UI dev server in a third:
+
+```bash
+npm run ui:dev
+```
+
+The Vite app runs on `http://127.0.0.1:5173` and proxies `/api/*` to `sigil-web` on `:8400`.
+
+## Production Model
+
+The recommended deployment is:
+
+- `sigil` daemon for orchestration
+- `sigil-web` for the API and the compiled SPA
+- `nginx` or `caddy` only as a thin TLS reverse proxy in front
+
+That keeps the open-source product simple to self-host while still using a standard production edge.
+
+## Repository Layout
 
 ```text
 sigil/
-  crates/    # Rust crates
-  sigil-cli/ # CLI binary
-  apps/ui/   # Vite + React frontend
-  config/    # sample and local config
-  docs/      # architecture and notes
+  apps/ui/        # React + Vite web control plane
+  crates/         # Workspace crates
+  sigil-cli/      # sigil binary
+  config/         # example config and local config path
+  agents/         # agent definitions on disk
+  projects/       # project definitions on disk
+  docs/           # active docs and archives
 ```
 
-## Crates
+## Core Components
 
-| Crate | Purpose |
-|-------|---------|
-| `sigil-cli` | CLI binary (28 commands) |
-| `sigil-core` | Config, traits, agent loop, identity |
-| `sigil-orchestrator` | Daemon, supervisor, worker, chat engine, middleware, verification, notes, proactive engine |
-| `sigil-web` | Axum REST API + WebSocket |
-| `sigil-tasks` | Task DAG (JSONL), missions |
-| `sigil-memory` | SQLite + FTS5 + vector search, memory graph, intelligent retrieval |
-| `sigil-providers` | OpenRouter, Anthropic, Ollama |
-| `sigil-gates` | Telegram, Discord, Slack |
-| `sigil-tools` | Shell, file, git, tasks, delegate, skills |
+| Component | Purpose |
+|-----------|---------|
+| `sigil-cli` | CLI entrypoint, daemon process, and operational commands |
+| `sigil-orchestrator` | Routing, supervision, retries, middleware, verification, and chat execution |
+| `sigil-web` | HTTP API, WebSocket transport, auth, and optional SPA serving |
+| `sigil-memory` | SQLite-backed memory, retrieval, and knowledge persistence |
+| `sigil-tasks` | Task DAGs, missions, and append-only task storage |
+| `sigil-providers` | LLM provider integrations |
+| `apps/ui` | Operator-facing web control plane |
 
-## UI Runtime
+## Docs
 
-- `apps/ui` is the canonical frontend source.
-- `sigil-web` can serve the built SPA directly when `[web].ui_dist_dir` is configured.
-- For production, the usual setup is `nginx` or `caddy` as a thin TLS reverse proxy in front of `sigil-web`.
-- For local development, run Vite in `apps/ui` on `:5173` and point it at `sigil-web` on `:8400`.
+- [Getting started](docs/quickstart.md)
+- [Deployment model](docs/deployment.md)
+- [Architecture overview](docs/architecture.md)
+- [Project setup](docs/project-setup.md)
+- [Docs index](docs/README.md)
+- [Contributing](CONTRIBUTING.md)
 
-## Key Concepts
-
-- **Projects** — products you're building (repos, tasks, teams, budgets)
-- **Agents** — AI personalities with expertise (engineer, trader, designer, researcher, reviewer)
-- **Rei** — the system leader, routes all work, multi-archetype personality
-- **Skills** — reusable capability templates (developer, health-checker, latency-debugger)
-- **Adaptive Pipeline** — one disciplined Discover → Plan → Implement → Verify → Finalize execution flow, with depth adjusted to task scope rather than named pipeline classes
-- **Missions** — groups of tasks with progress tracking
-- **Memory** — per-project learned knowledge that compounds over time
-- **Blackboard** — ephemeral shared knowledge between agents
-- **Watchdogs** — event-driven alert rules
-- **Cron** — scheduled automation
+Historical research, synthesis notes, and design sketches live under [`docs/archive/`](docs/archive/README.md).
 
 ## License
 
