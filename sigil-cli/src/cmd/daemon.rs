@@ -101,6 +101,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             let lifecycle_provider = build_provider(&config)?;
             let event_broadcaster = Arc::new(sigil_orchestrator::EventBroadcaster::new());
             let mut heartbeats = Vec::new();
+            let background_automation_enabled = config.orchestrator.background_automation_enabled;
             let advisor_agents = config.advisor_agents();
             let mut skipped_projects = Vec::new();
             let mut skipped_advisors = Vec::new();
@@ -150,9 +151,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 if let Ok(mem) = open_memory(&config, Some(&project_cfg.name)) {
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     witness.memory = Some(mem);
-                    witness.reflect_provider = Some(provider.clone());
-                    witness.reflect_model = config
-                        .default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
+                    if background_automation_enabled {
+                        witness.reflect_provider = Some(provider.clone());
+                        witness.reflect_model = config.default_model_for_provider(
+                            sigil_core::config::ProviderKind::OpenRouter,
+                        );
+                    }
                 }
 
                 // Load emotional state for personality tracking.
@@ -276,9 +280,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 if let Ok(mem) = open_memory(&config, Some(&agent_cfg.name)) {
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     agent_scout.memory = Some(mem);
-                    agent_scout.reflect_provider = Some(provider.clone());
-                    agent_scout.reflect_model = config
-                        .default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
+                    if background_automation_enabled {
+                        agent_scout.reflect_provider = Some(provider.clone());
+                        agent_scout.reflect_model = config.default_model_for_provider(
+                            sigil_core::config::ProviderKind::OpenRouter,
+                        );
+                    }
                 }
 
                 // Load emotional state for advisor personality tracking.
@@ -323,6 +330,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             // Build the unified ChatEngine.
             let council_advisors: Arc<Vec<sigil_core::config::PeerAgentConfig>> =
                 Arc::new(config.advisor_agents().into_iter().cloned().collect());
+            let auto_council_enabled = config.team.max_background_cost_usd > 0.0;
             // Build intent classifier if OpenRouter key is available.
             let intent_classifier = if !classifier_api_key.is_empty() {
                 let model = config.team.router_model.clone();
@@ -340,6 +348,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     registry: registry.clone(),
                     agent_router: agent_router.clone(),
                     council_advisors: council_advisors.clone(),
+                    auto_council_enabled,
                     leader_name: leader_name.clone(),
                     pending_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     task_notify: fa_task_notify.clone(),
@@ -530,9 +539,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             if let Ok(mem) = open_memory(&config, Some(&leader_name)) {
                 let mem: Arc<dyn Memory> = Arc::new(mem);
                 fa_witness.memory = Some(mem);
-                fa_witness.reflect_provider = Some(leader_provider.clone());
-                fa_witness.reflect_model =
-                    config.default_model_for_provider(sigil_core::config::ProviderKind::OpenRouter);
+                if background_automation_enabled {
+                    fa_witness.reflect_provider = Some(leader_provider.clone());
+                    fa_witness.reflect_model = config.default_model_for_provider(
+                        sigil_core::config::ProviderKind::OpenRouter,
+                    );
+                }
             }
 
             // Load emotional state for leader agent personality tracking.
@@ -557,15 +569,22 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
             // Load cron store.
             let cron_path = config.data_dir().join("fate.json");
-            let cron_store = ScheduleStore::open(&cron_path)?;
+            let cron_store = if background_automation_enabled {
+                Some(ScheduleStore::open(&cron_path)?)
+            } else {
+                None
+            };
             let socket_path = config.data_dir().join("rm.sock");
 
-            println!("Cron: {} jobs loaded", cron_store.jobs.len());
+            match &cron_store {
+                Some(store) => println!("Cron: {} jobs loaded", store.jobs.len()),
+                None => println!("Cron: disabled (background automation off)"),
+            }
             println!("PID file: {}", pid_path.display());
             println!("IPC socket: {}", socket_path.display());
 
             // Build lifecycle engine if enabled.
-            let lifecycle_engine = if config.lifecycle.enabled {
+            let lifecycle_engine = if background_automation_enabled && config.lifecycle.enabled {
                 Some(build_lifecycle_engine(
                     &config,
                     &lifecycle_provider,
@@ -595,9 +614,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 skipped_projects,
                 skipped_advisors,
             );
+            daemon.set_background_automation_enabled(background_automation_enabled);
             daemon.set_pid_file(pid_path);
             daemon.set_socket_path(socket_path.clone());
-            daemon.set_cron_store(cron_store);
+            if let Some(cron_store) = cron_store {
+                daemon.set_cron_store(cron_store);
+            }
             if let Some(engine) = lifecycle_engine {
                 daemon.set_lifecycle(engine);
             }
@@ -606,7 +628,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             }
 
             // Initialize watchdog engine from config.
-            if !config.watchdogs.is_empty() {
+            if background_automation_enabled && !config.watchdogs.is_empty() {
                 let mut rules = Vec::new();
                 for val in &config.watchdogs {
                     match val

@@ -246,6 +246,7 @@ participants = [\"researcher\", \"reviewer\"]\n\
 purpose = \"Review readiness, open work, and blocked tasks.\"\n\
 \n\
 [orchestrator]\n\
+background_automation_enabled = true\n\
 expertise_routing = true\n\
 adaptive_retry = true\n\
 failure_analysis_model = \"{default_model}\"\n\

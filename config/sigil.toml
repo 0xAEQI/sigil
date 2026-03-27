@@ -34,7 +34,7 @@ default_interval_minutes = 30
 
 # Agent lifecycle engine — autonomous reflection, evolution, proactive scanning
 [lifecycle]
-enabled = true
+enabled = false
 model = "xiaomi/mimo-v2-pro"
 
 # Global repo pool — all agents can access all repos
@@ -57,7 +57,7 @@ leader = "rei"
 agents = ["rei"]
 router_model = "xiaomi/mimo-v2-pro"
 router_cooldown_secs = 60
-max_background_cost_usd = 0.50
+max_background_cost_usd = 0.0
 
 # Agents discovered from agents/{name}/agent.toml files on disk.
 # Active: rei, engineer, trader, designer, researcher, reviewer
@@ -69,14 +69,15 @@ debounce_window_ms = 3000
 
 # Orchestration tuning — v3 feature activation
 [orchestrator]
+background_automation_enabled = false
 expertise_routing = true
-adaptive_retry = true
+adaptive_retry = false
 failure_analysis_model = "xiaomi/mimo-v2-pro"
-preflight_enabled = true
+preflight_enabled = false
 preflight_model = "xiaomi/mimo-v2-pro"
 preflight_max_cost_usd = 0.02
 decomposition_model = "xiaomi/mimo-v2-pro"
-auto_redecompose = true
+auto_redecompose = false
 infer_deps_threshold = 0.6
 blackboard_transient_ttl_hours = 48
 blackboard_durable_ttl_days = 14
@@ -85,7 +86,7 @@ blackboard_durable_ttl_days = 14
 [[watchdogs]]
 name = "sigil-self-failure"
 cooldown_secs = 7200
-enabled = true
+enabled = false
 [watchdogs.condition]
 event = "task_failed"
 project_filter = "sigil"
@@ -103,7 +104,7 @@ message = "2+ task failures in sigil project — the orchestrator needs attentio
 [[watchdogs]]
 name = "algostaking-task-failure"
 cooldown_secs = 1800
-enabled = true
+enabled = false
 [watchdogs.condition]
 event = "task_failed"
 project_filter = "algostaking"
@@ -115,7 +116,7 @@ message = "2+ algostaking task failures in 1 hour — check services and ML pipe
 [[watchdogs]]
 name = "algostaking-worker-timeout"
 cooldown_secs = 3600
-enabled = true
+enabled = false
 [watchdogs.condition]
 event = "worker_timeout"
 project_filter = "algostaking"
@@ -127,7 +128,7 @@ message = "Algostaking worker timed out — possible stuck inference or training
 [[watchdogs]]
 name = "budget-warning"
 cooldown_secs = 14400
-enabled = true
+enabled = false
 [watchdogs.condition]
 event = "budget_threshold_reached"
 count_threshold = 1
@@ -139,7 +140,7 @@ message = "Budget usage exceeded 80%"
 [[watchdogs]]
 name = "general-timeout-alert"
 cooldown_secs = 3600
-enabled = true
+enabled = false
 [watchdogs.condition]
 event = "worker_timeout"
 count_threshold = 3

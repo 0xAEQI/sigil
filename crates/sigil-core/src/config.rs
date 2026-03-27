@@ -828,6 +828,9 @@ fn default_min_flood_interval() -> u64 {
 /// the previous hardcoded values, so existing configs work without changes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestratorConfig {
+    /// Global kill switch for daemon-side background automation.
+    #[serde(default = "default_background_automation_enabled")]
+    pub background_automation_enabled: bool,
     /// Max resolution attempts at the project level before escalating to leader.
     #[serde(default = "default_max_resolution_attempts")]
     pub max_resolution_attempts: u32,
@@ -887,6 +890,7 @@ pub struct OrchestratorConfig {
 impl Default for OrchestratorConfig {
     fn default() -> Self {
         Self {
+            background_automation_enabled: default_background_automation_enabled(),
             max_resolution_attempts: default_max_resolution_attempts(),
             max_task_retries: default_max_task_retries(),
             shell_timeout_secs: default_shell_timeout_secs(),
@@ -942,6 +946,10 @@ fn default_web_bind() -> String {
 
 fn default_ws_poll_interval() -> u64 {
     5
+}
+
+fn default_background_automation_enabled() -> bool {
+    true
 }
 
 fn default_max_resolution_attempts() -> u32 {

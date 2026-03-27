@@ -45,7 +45,7 @@ executes via Claude Code, learns from results, and reports back.
 - One-liner: AI that works while you sleep.
 - Voice: calm, direct, zero fluff. Your shadow doesn't small-talk.
 
-**Live at:** entity.business (self-hosted, nginx → sigil-web on :8400)
+**Live at:** Self-hosted Sigil UI (reverse proxy → `sigil-web` on `:8400`)
 
 ---
 

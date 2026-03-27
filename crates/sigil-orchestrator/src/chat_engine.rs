@@ -192,6 +192,8 @@ pub struct ChatEngine {
     pub registry: Arc<ProjectRegistry>,
     pub agent_router: Arc<Mutex<AgentRouter>>,
     pub council_advisors: Arc<Vec<sigil_core::config::PeerAgentConfig>>,
+    /// If false, only explicit `/council` requests fan out to advisors.
+    pub auto_council_enabled: bool,
     pub leader_name: String,
     pub pending_tasks: Arc<Mutex<HashMap<String, PendingChatTask>>>,
     pub task_notify: Arc<tokio::sync::Notify>,
@@ -655,7 +657,8 @@ impl ChatEngine {
         } else {
             msg.message.clone()
         };
-        let hold_for_council = !self.council_advisors.is_empty();
+        let hold_for_council =
+            !self.council_advisors.is_empty() && (is_council || self.auto_council_enabled);
 
         // Create the task.
         let subject = format!("[{}] {} ({})", source_tag, msg.sender, msg.chat_id);
@@ -1647,6 +1650,7 @@ mod tests {
             registry: registry.clone(),
             agent_router: Arc::new(Mutex::new(AgentRouter::new(String::new(), 0))),
             council_advisors: Arc::new(Vec::new()),
+            auto_council_enabled: true,
             leader_name: "leader".to_string(),
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             task_notify: Arc::new(tokio::sync::Notify::new()),
@@ -1860,6 +1864,7 @@ mod tests {
             registry: registry.clone(),
             agent_router: Arc::new(Mutex::new(AgentRouter::new(String::new(), 0))),
             council_advisors: Arc::new(Vec::new()),
+            auto_council_enabled: true,
             leader_name: "leader".to_string(),
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             task_notify: Arc::new(tokio::sync::Notify::new()),
@@ -2046,6 +2051,7 @@ mod tests {
                     telegram_token_secret: None,
                 },
             ]),
+            auto_council_enabled: true,
             leader_name: "leader".to_string(),
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             task_notify: Arc::new(tokio::sync::Notify::new()),
@@ -2068,5 +2074,65 @@ mod tests {
         assert!(department_scoped.contains("reviewer"));
         assert!(!department_scoped.contains("researcher"));
         assert!(!department_scoped.contains("outsider"));
+    }
+
+    #[tokio::test]
+    async fn auto_council_can_be_disabled_without_breaking_explicit_council() {
+        let (mut engine, project, _registry, _project_dir, _conv_dir, _conv_path) =
+            test_engine().await;
+        engine.council_advisors = Arc::new(vec![PeerAgentConfig {
+            name: "reviewer".to_string(),
+            prefix: "rv".to_string(),
+            model: None,
+            runtime: None,
+            role: AgentRole::Advisor,
+            voice: Default::default(),
+            execution_mode: ExecutionMode::Agent,
+            max_workers: 1,
+            max_turns: None,
+            max_budget_usd: None,
+            default_repo: None,
+            expertise: vec!["review".to_string()],
+            capabilities: Vec::new(),
+            telegram_token_secret: None,
+        }]);
+        engine.auto_council_enabled = false;
+
+        let normal = ChatMessage {
+            message: "check the chat tests".to_string(),
+            chat_id: 88,
+            sender: "alice".to_string(),
+            source: ChatSource::Web,
+            project_hint: None,
+            department_hint: None,
+            channel_name: None,
+        };
+        let handle = engine.handle_message_full(&normal, None).await.unwrap();
+        let released = engine.get_timeline(88, 10, 0).await.unwrap();
+        assert!(released.iter().any(|e| e.event_type == "task_released"));
+        assert!(!released.iter().any(|e| e.event_type == "council_pending"));
+        {
+            let store = project.tasks.lock().await;
+            let stored = store.get(&handle.task_id).unwrap();
+            assert!(!stored.is_scheduler_held());
+        }
+
+        let explicit = ChatMessage {
+            message: "/council check the chat tests".to_string(),
+            chat_id: 89,
+            sender: "alice".to_string(),
+            source: ChatSource::Web,
+            project_hint: None,
+            department_hint: None,
+            channel_name: None,
+        };
+        let explicit_handle = engine.handle_message_full(&explicit, None).await.unwrap();
+        let held = engine.get_timeline(89, 10, 0).await.unwrap();
+        assert!(held.iter().any(|e| e.event_type == "council_pending"));
+        {
+            let store = project.tasks.lock().await;
+            let stored = store.get(&explicit_handle.task_id).unwrap();
+            assert!(stored.is_scheduler_held());
+        }
     }
 }

@@ -145,6 +145,7 @@ pub struct Daemon {
     pub registry: Arc<ProjectRegistry>,
     pub dispatch_bus: Arc<DispatchBus>,
     pub patrol_interval_secs: u64,
+    pub background_automation_enabled: bool,
     pub pulses: Vec<Heartbeat>,
     pub reflections: Vec<Reflection>,
     pub lifecycle: Option<LifecycleEngine>,
@@ -177,6 +178,7 @@ impl Daemon {
             registry,
             dispatch_bus,
             patrol_interval_secs: 30,
+            background_automation_enabled: true,
             pulses: Vec::new(),
             reflections: Vec::new(),
             lifecycle: None,
@@ -211,6 +213,10 @@ impl Daemon {
     /// Add a reflection cycle to the daemon.
     pub fn add_reflection(&mut self, reflection: Reflection) {
         self.reflections.push(reflection);
+    }
+
+    pub fn set_background_automation_enabled(&mut self, enabled: bool) {
+        self.background_automation_enabled = enabled;
     }
 
     /// Start the session tracker in a dedicated tokio::spawn.
@@ -525,7 +531,7 @@ impl Daemon {
             }
 
             // 5b. Morning brief delivery via Telegram.
-            if !self.telegram_allowed_chats.is_empty() {
+            if self.background_automation_enabled && !self.telegram_allowed_chats.is_empty() {
                 let now = chrono::Local::now();
                 let today = now.date_naive();
                 let hour = now.hour();
