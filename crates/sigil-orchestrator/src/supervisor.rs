@@ -126,6 +126,8 @@ pub struct Supervisor {
     pub verification_enabled: bool,
     /// Escalation tracker for task failure recovery (three-strikes policy).
     pub escalation_tracker: Arc<Mutex<EscalationTracker>>,
+    /// Execution mode for workers (native agent loop vs Claude Code).
+    pub execution_mode: sigil_core::ExecutionMode,
 }
 
 impl Supervisor {
@@ -256,6 +258,7 @@ impl Supervisor {
                 cooldown_secs: 300,
                 escalate_model: None,
             }))),
+            execution_mode: sigil_core::ExecutionMode::default(),
         }
     }
 
@@ -362,18 +365,35 @@ impl Supervisor {
             self.identity.clone()
         };
 
-        let mut worker = AgentWorker::new(
-            agent_name.clone(),
-            worker_name,
-            self.project_name.clone(),
-            self.provider.clone(),
-            self.tools.clone(),
-            identity.clone(),
-            self.model.clone(),
-            self.dispatch_bus.clone(),
-            self.tasks.clone(),
-            self.task_notify.clone(),
-        );
+        let mut worker = match self.execution_mode {
+            sigil_core::ExecutionMode::ClaudeCode => {
+                let cwd = self.repo.clone().unwrap_or_else(|| std::path::PathBuf::from("."));
+                let budget = self.worker_max_budget_usd.unwrap_or(5.0);
+                AgentWorker::new_claude_code(
+                    agent_name.clone(),
+                    worker_name,
+                    self.project_name.clone(),
+                    cwd,
+                    budget,
+                    identity.clone(),
+                    self.dispatch_bus.clone(),
+                    self.tasks.clone(),
+                    self.task_notify.clone(),
+                )
+            }
+            sigil_core::ExecutionMode::Agent => AgentWorker::new(
+                agent_name.clone(),
+                worker_name,
+                self.project_name.clone(),
+                self.provider.clone(),
+                self.tools.clone(),
+                identity.clone(),
+                self.model.clone(),
+                self.dispatch_bus.clone(),
+                self.tasks.clone(),
+                self.task_notify.clone(),
+            ),
+        };
         if let Some(ref mem) = self.memory {
             worker = worker.with_memory(mem.clone());
         }
@@ -430,17 +450,19 @@ impl Supervisor {
             if let Some(skill) = self.load_skill(skill_name)
                 && (!skill.tools.allow.is_empty() || !skill.tools.deny.is_empty())
             {
-                let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
-                    worker.execution;
-                let before = tools.len();
-                tools.retain(|t| skill.is_tool_allowed(t.name()));
-                info!(
-                    project = %self.project_name,
-                    skill = %skill_name,
-                    before = before,
-                    after = tools.len(),
-                    "filtered tools by skill policy"
-                );
+                if let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
+                    worker.execution
+                {
+                    let before = tools.len();
+                    tools.retain(|t| skill.is_tool_allowed(t.name()));
+                    info!(
+                        project = %self.project_name,
+                        skill = %skill_name,
+                        before = before,
+                        after = tools.len(),
+                        "filtered tools by skill policy"
+                    );
+                }
             }
         }
 

@@ -42,6 +42,11 @@ pub enum WorkerExecution {
         tools: Vec<Arc<dyn Tool>>,
         model: String,
     },
+    /// Delegate to Claude Code CLI.
+    ClaudeCode {
+        cwd: PathBuf,
+        max_budget_usd: f64,
+    },
 }
 
 /// An AgentWorker is an ephemeral task executor. Each worker runs as a tokio task
@@ -116,6 +121,46 @@ impl AgentWorker {
             memory: None,
             reflect_provider: None,
             reflect_model,
+            project_dir: None,
+            max_task_retries: 3,
+            blackboard: None,
+            audit_log: None,
+            adaptive_retry: false,
+            failure_analysis_model: String::new(),
+            middleware_chain: None,
+            event_broadcaster: None,
+            write_queue: None,
+        }
+    }
+
+    pub fn new_claude_code(
+        agent_name: String,
+        name: String,
+        project_name: String,
+        cwd: PathBuf,
+        max_budget_usd: f64,
+        identity: Identity,
+        dispatch_bus: Arc<DispatchBus>,
+        tasks: Arc<Mutex<sigil_tasks::TaskBoard>>,
+        task_notify: Arc<Notify>,
+    ) -> Self {
+        Self {
+            agent_name,
+            name,
+            project_name,
+            state: WorkerState::Idle,
+            hook: None,
+            execution: WorkerExecution::ClaudeCode {
+                cwd,
+                max_budget_usd,
+            },
+            identity,
+            dispatch_bus,
+            tasks,
+            task_notify,
+            memory: None,
+            reflect_provider: None,
+            reflect_model: String::new(),
             project_dir: None,
             max_task_retries: 3,
             blackboard: None,
@@ -603,6 +648,33 @@ impl AgentWorker {
                     );
                     (agent_result.text, cost, agent_result.iterations)
                 }),
+            WorkerExecution::ClaudeCode {
+                cwd,
+                max_budget_usd,
+            } => {
+                info!(
+                    worker = %self.name,
+                    cwd = %cwd.display(),
+                    budget = max_budget_usd,
+                    "dispatching to claude code"
+                );
+                let executor = crate::claude_code::ClaudeCodeExecutor::new(cwd.clone())
+                    .with_budget(*max_budget_usd);
+                executor
+                    .execute(&task_context)
+                    .await
+                    .map(|cc_result| {
+                        info!(
+                            worker = %self.name,
+                            model = %cc_result.model,
+                            cost_usd = cc_result.cost_usd,
+                            turns = cc_result.num_turns,
+                            session = %cc_result.session_id,
+                            "claude code execution complete"
+                        );
+                        (cc_result.text, cc_result.cost_usd, cc_result.num_turns)
+                    })
+            }
         };
 
         // Fire-and-forget reflection so the worker slot does not wait on memory extraction.
@@ -1057,6 +1129,7 @@ impl AgentWorker {
     fn execution_model(&self) -> Option<String> {
         match &self.execution {
             WorkerExecution::Agent { model, .. } => Some(model.clone()),
+            WorkerExecution::ClaudeCode { .. } => Some("claude-code".to_string()),
         }
     }
 

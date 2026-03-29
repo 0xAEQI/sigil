@@ -13,6 +13,7 @@ pub mod agent_worker;
 pub mod audit;
 pub mod blackboard;
 pub mod chat_engine;
+pub mod claude_code;
 pub mod checkpoint;
 pub mod context_budget;
 pub mod conversation_store;
