@@ -991,9 +991,10 @@ fn default_preflight_max_cost_usd() -> f64 {
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
     /// Native Sigil agent loop.
-    #[default]
-    #[serde(alias = "claude_code")]
     Agent,
+    /// Delegate execution to Claude Code CLI.
+    #[default]
+    ClaudeCode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

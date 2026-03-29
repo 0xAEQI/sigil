@@ -1989,6 +1989,7 @@ mod tests {
         let project = Arc::new(Project::from_config(&config, dir.path(), "test-model").unwrap());
         let provider: Arc<dyn Provider> = Arc::new(DoneProvider);
         let mut supervisor = Supervisor::new(&project, provider, Vec::new(), dispatch_bus.clone());
+        supervisor.execution_mode = sigil_core::ExecutionMode::Agent;
         supervisor.set_team(
             ProjectTeamConfig {
                 org: None,
