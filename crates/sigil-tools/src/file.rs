@@ -48,20 +48,49 @@ impl sigil_core::traits::Tool for FileReadTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
 
+        let offset = args
+            .get("offset")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+
+        let limit = args
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+
         let resolved = match self.validate_path(path) {
             Ok(p) => p,
             Err(e) => return Ok(ToolResult::error(e.to_string())),
         };
 
-        debug!(path = %resolved.display(), "reading file");
+        debug!(path = %resolved.display(), ?offset, ?limit, "reading file");
 
         match tokio::fs::read_to_string(&resolved).await {
             Ok(content) => {
-                let mut output = content;
+                let lines: Vec<&str> = content.lines().collect();
+                let total = lines.len();
+                let start = offset.unwrap_or(0).min(total);
+                let end = limit.map_or(total, |l| (start + l).min(total));
+                let selected = &lines[start..end];
+
+                let mut output = String::new();
+                for (i, line) in selected.iter().enumerate() {
+                    output.push_str(&format!("{}\t{}\n", start + i + 1, line));
+                }
+
                 if output.len() > 100_000 {
                     output.truncate(100_000);
-                    output.push_str("\n... (file truncated)");
+                    output.push_str("\n... (output truncated)");
                 }
+
+                if end < total {
+                    output.push_str(&format!(
+                        "\n... ({} more lines, {} total)",
+                        total - end,
+                        total
+                    ));
+                }
+
                 Ok(ToolResult::success(output))
             }
             Err(e) => Ok(ToolResult::error(format!(
@@ -74,13 +103,21 @@ impl sigil_core::traits::Tool for FileReadTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read_file".to_string(),
-            description: "Read the contents of a file.".to_string(),
+            description: "Read file contents with line numbers. Supports reading specific line ranges via offset and limit.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
                         "description": "Path to the file (relative to workspace or absolute)"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Start from this line (0-based, default: 0)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max lines to read (default: all)"
                     }
                 },
                 "required": ["path"]

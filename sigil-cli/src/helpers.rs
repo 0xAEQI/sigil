@@ -6,8 +6,9 @@ use sigil_orchestrator::ProjectRegistry;
 use sigil_providers::{AnthropicProvider, OllamaProvider, OpenRouterEmbedder, OpenRouterProvider};
 use sigil_tasks::TaskBoard;
 use sigil_tools::{
-    FileReadTool, FileWriteTool, GitWorktreeTool, ListDirTool, PorkbunTool, ShellTool,
-    TaskCloseTool, TaskCreateTool, TaskDepTool, TaskReadyTool, TaskShowTool, TaskUpdateTool,
+    FileEditTool, FileReadTool, FileWriteTool, GitWorktreeTool, GlobTool, GrepTool, ListDirTool,
+    PorkbunTool, ShellTool, TaskCloseTool, TaskCreateTool, TaskDepTool, TaskReadyTool,
+    TaskShowTool, TaskUpdateTool,
 };
 
 use std::path::{Path, PathBuf};
@@ -235,7 +236,10 @@ pub(crate) fn build_tools(workdir: &Path) -> Vec<Arc<dyn Tool>> {
         Arc::new(ShellTool::new(workdir.to_path_buf())),
         Arc::new(FileReadTool::new(workdir.to_path_buf())),
         Arc::new(FileWriteTool::new(workdir.to_path_buf())),
+        Arc::new(FileEditTool::new(workdir.to_path_buf())),
         Arc::new(ListDirTool::new(workdir.to_path_buf())),
+        Arc::new(GrepTool::new(workdir.to_path_buf())),
+        Arc::new(GlobTool::new(workdir.to_path_buf())),
     ]
 }
 
@@ -250,7 +254,10 @@ pub(crate) fn build_project_tools(
         Arc::new(ShellTool::new(workdir.to_path_buf())),
         Arc::new(FileReadTool::new(workdir.to_path_buf())),
         Arc::new(FileWriteTool::new(workdir.to_path_buf())),
+        Arc::new(FileEditTool::new(workdir.to_path_buf())),
         Arc::new(ListDirTool::new(workdir.to_path_buf())),
+        Arc::new(GrepTool::new(workdir.to_path_buf())),
+        Arc::new(GlobTool::new(workdir.to_path_buf())),
     ];
 
     // Add task tools (each gets its own store instance).

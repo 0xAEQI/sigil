@@ -1966,6 +1966,7 @@ dependencies = [
  "serde_json",
  "sigil-core",
  "sigil-tasks",
+ "tempfile",
  "thiserror",
  "tokio",
  "toml",
