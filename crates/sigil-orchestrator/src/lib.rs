@@ -50,6 +50,7 @@ pub mod skill_promotion;
 pub mod supervisor;
 pub mod template;
 pub mod tools;
+pub mod trigger;
 pub mod verification;
 pub mod watchdog;
 
@@ -85,6 +86,7 @@ pub use runtime::{
 };
 pub use schedule::{ScheduleStore, ScheduledJob};
 pub use session_tracker::SessionTracker;
+pub use trigger::{EventPattern, Trigger, TriggerStore, TriggerType};
 pub use supervisor::Supervisor;
 pub use template::Template;
 pub use watchdog::WatchdogEngine;

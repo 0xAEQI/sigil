@@ -620,6 +620,27 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             if let Some(cron_store) = cron_store {
                 daemon.set_cron_store(cron_store);
             }
+
+            // Initialize trigger store + agent registry for persistent agent triggers.
+            match sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir()) {
+                Ok(agent_reg) => {
+                    let trigger_store = Arc::new(agent_reg.trigger_store());
+                    let trigger_count = trigger_store.count_enabled().await.unwrap_or(0);
+                    println!("Triggers: {trigger_count} enabled");
+                    let agent_reg = Arc::new(agent_reg);
+                    daemon.set_trigger_store(trigger_store.clone());
+                    daemon.set_agent_registry(agent_reg.clone());
+
+                    // Wire agent_registry + trigger_store into all supervisors.
+                    daemon
+                        .registry
+                        .wire_agent_system(agent_reg, trigger_store)
+                        .await;
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to open agent registry for triggers");
+                }
+            }
             if let Some(engine) = lifecycle_engine {
                 daemon.set_lifecycle(engine);
             }

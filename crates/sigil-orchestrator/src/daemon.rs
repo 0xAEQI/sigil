@@ -19,7 +19,9 @@ use crate::notes::{DirectiveDetector, DirectiveStatus, NoteStore};
 use crate::proactive;
 use crate::reflection::Reflection;
 use crate::registry::ProjectRegistry;
+use crate::agent_registry::AgentRegistry;
 use crate::schedule::ScheduleStore;
+use crate::trigger::TriggerStore;
 use crate::session_tracker::SessionTracker;
 use crate::watchdog::WatchdogEngine;
 
@@ -209,6 +211,8 @@ pub struct Daemon {
     pub reflections: Vec<Reflection>,
     pub lifecycle: Option<LifecycleEngine>,
     pub cron_store: Option<Arc<Mutex<ScheduleStore>>>,
+    pub trigger_store: Option<Arc<TriggerStore>>,
+    pub agent_registry: Option<Arc<AgentRegistry>>,
     pub watchdog: Option<WatchdogEngine>,
     pub chat_engine: Option<Arc<ChatEngine>>,
     pub note_store: Option<Arc<NoteStore>>,
@@ -242,6 +246,8 @@ impl Daemon {
             reflections: Vec::new(),
             lifecycle: None,
             cron_store: None,
+            trigger_store: None,
+            agent_registry: None,
             watchdog: None,
             chat_engine: None,
             note_store: None,
@@ -278,6 +284,76 @@ impl Daemon {
         self.background_automation_enabled = enabled;
     }
 
+    /// Fire a trigger: look up the owning agent, create a task with the trigger's skill.
+    async fn fire_trigger(&self, trigger: &crate::trigger::Trigger) {
+        // Look up agent to determine project.
+        let project = if let Some(ref registry) = self.agent_registry {
+            match registry.get(&trigger.agent_id).await {
+                Ok(Some(agent)) => match agent.project {
+                    Some(p) => p,
+                    None => {
+                        warn!(
+                            agent = %trigger.agent_id,
+                            "trigger agent has no project scope, skipping"
+                        );
+                        return;
+                    }
+                },
+                Ok(None) => {
+                    warn!(agent_id = %trigger.agent_id, "trigger agent not found");
+                    return;
+                }
+                Err(e) => {
+                    warn!(agent_id = %trigger.agent_id, error = %e, "failed to look up trigger agent");
+                    return;
+                }
+            }
+        } else {
+            warn!("no agent registry available for trigger firing");
+            return;
+        };
+
+        let subject = format!("[trigger:{}] {}", trigger.name, trigger.skill);
+        let description = format!(
+            "Trigger '{}' fired. Run skill '{}' for agent {}.",
+            trigger.name, trigger.skill, trigger.agent_id
+        );
+
+        match self
+            .registry
+            .assign_with_skill(&project, &subject, &description, &trigger.skill)
+            .await
+        {
+            Ok(task) => {
+                info!(
+                    task = %task.id,
+                    trigger = %trigger.name,
+                    project = %project,
+                    "trigger created task"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    trigger = %trigger.name,
+                    project = %project,
+                    error = %e,
+                    "trigger failed to create task"
+                );
+            }
+        }
+
+        // Record the fire.
+        if let Some(ref trigger_store) = self.trigger_store {
+            let _ = trigger_store.record_fire(&trigger.id, 0.0).await;
+
+            // Auto-disable one-shot triggers.
+            if matches!(trigger.trigger_type, crate::trigger::TriggerType::Once { .. }) {
+                let _ = trigger_store.update_enabled(&trigger.id, false).await;
+                info!(trigger = %trigger.name, "one-shot trigger auto-disabled");
+            }
+        }
+    }
+
     /// Start the session tracker in a dedicated tokio::spawn.
     /// Returns the shutdown Notify so it can be stopped later.
     pub fn start_session_tracker(&mut self, tracker: SessionTracker) {
@@ -303,9 +379,19 @@ impl Daemon {
         self.lifecycle = Some(engine);
     }
 
-    /// Set the cron store for scheduled jobs.
+    /// Set the cron store for scheduled jobs (legacy, prefer set_trigger_store).
     pub fn set_cron_store(&mut self, store: ScheduleStore) {
         self.cron_store = Some(Arc::new(Mutex::new(store)));
+    }
+
+    /// Set the trigger store for agent-owned triggers.
+    pub fn set_trigger_store(&mut self, store: Arc<TriggerStore>) {
+        self.trigger_store = Some(store);
+    }
+
+    /// Set the agent registry for trigger agent lookups.
+    pub fn set_agent_registry(&mut self, registry: Arc<AgentRegistry>) {
+        self.agent_registry = Some(registry);
     }
 
     /// Set the watchdog engine for event-driven automation.
@@ -427,6 +513,78 @@ impl Daemon {
             });
         }
 
+        // Spawn event trigger listener.
+        if let Some(ref trigger_store) = self.trigger_store {
+            let ts = trigger_store.clone();
+            let registry = self.registry.clone();
+            let agent_reg = self.agent_registry.clone();
+            let mut rx = self.event_broadcaster.subscribe();
+            tokio::spawn(async move {
+                let mut cooldowns: std::collections::HashMap<String, chrono::DateTime<Utc>> =
+                    std::collections::HashMap::new();
+                while let Ok(event) = rx.recv().await {
+                    let event_triggers = match ts.list_event_triggers().await {
+                        Ok(t) => t,
+                        Err(_) => continue,
+                    };
+                    for trigger in event_triggers {
+                        let (pattern, cooldown_secs) = match &trigger.trigger_type {
+                            crate::trigger::TriggerType::Event {
+                                pattern,
+                                cooldown_secs,
+                            } => (pattern, *cooldown_secs),
+                            _ => continue,
+                        };
+                        if !pattern.matches_event(&event) {
+                            continue;
+                        }
+                        // Check cooldown.
+                        if let Some(last) = cooldowns.get(&trigger.id) {
+                            if (Utc::now() - *last).num_seconds() < cooldown_secs as i64 {
+                                continue;
+                            }
+                        }
+                        cooldowns.insert(trigger.id.clone(), Utc::now());
+
+                        // Look up agent project.
+                        let project = if let Some(ref ar) = agent_reg {
+                            match ar.get(&trigger.agent_id).await {
+                                Ok(Some(a)) => a.project,
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(project) = project {
+                            let subject =
+                                format!("[trigger:{}] {}", trigger.name, trigger.skill);
+                            let desc = format!(
+                                "Event trigger '{}' fired. Run skill '{}'.",
+                                trigger.name, trigger.skill
+                            );
+                            if let Err(e) = registry
+                                .assign_with_skill(&project, &subject, &desc, &trigger.skill)
+                                .await
+                            {
+                                warn!(
+                                    trigger = %trigger.name,
+                                    error = %e,
+                                    "event trigger failed to create task"
+                                );
+                            } else {
+                                info!(
+                                    trigger = %trigger.name,
+                                    project = %project,
+                                    "event trigger fired"
+                                );
+                            }
+                            let _ = ts.record_fire(&trigger.id, 0.0).await;
+                        }
+                    }
+                }
+            });
+        }
+
         // Spawn background task to collect execution events from the broadcaster.
         {
             let event_buffer = self.event_buffer.clone();
@@ -453,6 +611,7 @@ impl Daemon {
                     let dispatch_bus = self.dispatch_bus.clone();
                     let pulse_count = self.pulses.len();
                     let cron_store = self.cron_store.clone();
+                    let trigger_store = self.trigger_store.clone();
                     let chat_engine = self.chat_engine.clone();
                     let note_store = self.note_store.clone();
                     let event_buffer = self.event_buffer.clone();
@@ -466,6 +625,7 @@ impl Daemon {
                             dispatch_bus,
                             pulse_count,
                             cron_store,
+                            trigger_store,
                             chat_engine,
                             note_store,
                             event_buffer,
@@ -587,6 +747,27 @@ impl Daemon {
                 // Cleanup completed one-shots.
                 let mut store = cron_store.lock().await;
                 let _ = store.cleanup_oneshots();
+            }
+
+            // 5a. Run due triggers (schedule + once types).
+            if let Some(ref trigger_store) = self.trigger_store {
+                match trigger_store.due_schedule_triggers().await {
+                    Ok(due) => {
+                        for trigger in due {
+                            info!(
+                                trigger_id = %trigger.id,
+                                agent_id = %trigger.agent_id,
+                                name = %trigger.name,
+                                skill = %trigger.skill,
+                                "trigger fired"
+                            );
+                            self.fire_trigger(&trigger).await;
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to check due triggers");
+                    }
+                }
             }
 
             // 5b. Morning brief delivery via Telegram.
@@ -1030,6 +1211,7 @@ impl Daemon {
         dispatch_bus: Arc<DispatchBus>,
         pulse_count: usize,
         cron_store: Option<Arc<Mutex<ScheduleStore>>>,
+        trigger_store: Option<Arc<TriggerStore>>,
         chat_engine: Option<Arc<ChatEngine>>,
         note_store: Option<Arc<NoteStore>>,
         event_buffer: Arc<Mutex<EventBuffer>>,
@@ -1045,6 +1227,7 @@ impl Daemon {
                     let registry = registry.clone();
                     let dispatch_bus = dispatch_bus.clone();
                     let cron_store = cron_store.clone();
+                    let trigger_store = trigger_store.clone();
                     let chat_engine = chat_engine.clone();
                     let note_store = note_store.clone();
                     let event_buffer = event_buffer.clone();
@@ -1056,6 +1239,7 @@ impl Daemon {
                             dispatch_bus,
                             pulse_count,
                             cron_store,
+                            trigger_store,
                             chat_engine,
                             note_store,
                             event_buffer,
@@ -1084,6 +1268,7 @@ impl Daemon {
         dispatch_bus: Arc<DispatchBus>,
         pulse_count: usize,
         cron_store: Option<Arc<Mutex<ScheduleStore>>>,
+        trigger_store: Option<Arc<TriggerStore>>,
         chat_engine: Option<Arc<ChatEngine>>,
         note_store: Option<Arc<NoteStore>>,
         event_buffer: Arc<Mutex<EventBuffer>>,
@@ -1114,6 +1299,11 @@ impl Daemon {
                     } else {
                         0
                     };
+                    let trigger_count = if let Some(ref ts) = trigger_store {
+                        ts.count_enabled().await.unwrap_or(0)
+                    } else {
+                        0
+                    };
 
                     let (spent, budget, remaining) = registry.cost_ledger.budget_status();
                     let project_budgets = registry.cost_ledger.all_project_budget_statuses();
@@ -1139,6 +1329,7 @@ impl Daemon {
                         "max_workers": worker_count,
                         "pulses": pulse_count,
                         "cron_jobs": cron_count,
+                        "triggers": trigger_count,
                         "pending_mail": mail_count,
                         "dispatch_health": {
                             "unread": dispatch_health.unread,
@@ -2039,6 +2230,32 @@ impl Daemon {
                     None => {
                         serde_json::json!({"ok": false, "error": "chat engine not initialized"})
                     }
+                },
+
+                "triggers" => match &trigger_store {
+                    Some(store) => {
+                        let triggers = store.list_all().await.unwrap_or_default();
+                        let items: Vec<serde_json::Value> = triggers
+                            .iter()
+                            .map(|t| {
+                                serde_json::json!({
+                                    "id": t.id,
+                                    "agent_id": t.agent_id,
+                                    "name": t.name,
+                                    "type": t.trigger_type.type_str(),
+                                    "skill": t.skill,
+                                    "enabled": t.enabled,
+                                    "max_budget_usd": t.max_budget_usd,
+                                    "last_fired": t.last_fired.map(|dt| dt.to_rfc3339()),
+                                    "fire_count": t.fire_count,
+                                    "total_cost_usd": t.total_cost_usd,
+                                    "created_at": t.created_at.to_rfc3339(),
+                                })
+                            })
+                            .collect();
+                        serde_json::json!({"ok": true, "triggers": items})
+                    }
+                    None => serde_json::json!({"ok": true, "triggers": []}),
                 },
 
                 "crons" => match &cron_store {

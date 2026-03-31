@@ -24,4 +24,5 @@ pub(crate) mod skill;
 pub(crate) mod status;
 pub(crate) mod tasks;
 pub(crate) mod team;
+pub(crate) mod trigger;
 pub(crate) mod web;

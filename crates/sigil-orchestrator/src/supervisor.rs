@@ -132,6 +132,8 @@ pub struct Supervisor {
     /// Persistent agent registry — when set, workers look up agent identity
     /// from registry by name, loading system_prompt + entity memory scope.
     pub agent_registry: Option<Arc<crate::agent_registry::AgentRegistry>>,
+    /// Trigger store — when set, agents with manage_triggers capability get the tool.
+    pub trigger_store: Option<Arc<crate::trigger::TriggerStore>>,
 }
 
 impl Supervisor {
@@ -264,6 +266,7 @@ impl Supervisor {
             }))),
             execution_mode: sigil_core::ExecutionMode::default(),
             agent_registry: None,
+            trigger_store: None,
         }
     }
 
@@ -371,17 +374,19 @@ impl Supervisor {
         };
 
         // Look up persistent agent from registry — override identity if found.
+        let mut persistent_capabilities: Vec<String> = Vec::new();
         let persistent_agent_id = if let Some(ref registry) = self.agent_registry {
             if let Ok(Some(pa)) = registry.get_active_by_name(&agent_name).await {
                 // Override system prompt with persistent agent's prompt.
                 identity.persona = Some(pa.system_prompt.clone());
+                persistent_capabilities = pa.capabilities.clone();
                 info!(
                     project = %self.project_name,
                     agent = %agent_name,
                     agent_id = %pa.id,
                     "loaded persistent agent identity from registry"
                 );
-                Some(pa.id)
+                Some(pa.id.clone())
             } else {
                 None
             }
@@ -418,9 +423,11 @@ impl Supervisor {
                 self.task_notify.clone(),
             ),
         };
+        let persistent_agent_id_ref = persistent_agent_id.clone();
         if let Some(agent_id) = persistent_agent_id {
             worker = worker.with_persistent_agent(agent_id);
         }
+        let persistent_agent_id = persistent_agent_id_ref;
         if let Some(ref mem) = self.memory {
             worker = worker.with_memory(mem.clone());
         }
@@ -454,6 +461,28 @@ impl Supervisor {
                 worker.identity.memory = Some(format!(
                     "{existing}\n\n## Blackboard (shared knowledge)\n{bb_context}"
                 ));
+            }
+        }
+
+        // Inject TriggerManageTool if agent has manage_triggers capability.
+        if persistent_capabilities.iter().any(|c| c == "manage_triggers") {
+            if let (Some(ts), Some(agent_id)) =
+                (&self.trigger_store, &persistent_agent_id)
+            {
+                if let crate::agent_worker::WorkerExecution::Agent {
+                    ref mut tools, ..
+                } = worker.execution
+                {
+                    tools.push(Arc::new(crate::tools::TriggerManageTool::new(
+                        ts.clone(),
+                        agent_id.clone(),
+                    )));
+                    info!(
+                        project = %self.project_name,
+                        agent_id = %agent_id,
+                        "injected manage_triggers tool"
+                    );
+                }
             }
         }
 

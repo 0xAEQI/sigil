@@ -103,6 +103,20 @@ impl ProjectRegistry {
             .insert(name, Arc::new(Mutex::new(supervisor)));
     }
 
+    /// Wire agent registry and trigger store into all registered supervisors.
+    pub async fn wire_agent_system(
+        &self,
+        agent_registry: Arc<crate::agent_registry::AgentRegistry>,
+        trigger_store: Arc<crate::trigger::TriggerStore>,
+    ) {
+        let sups = self.supervisors.write().await;
+        for (_name, sup) in sups.iter() {
+            let mut s = sup.lock().await;
+            s.agent_registry = Some(agent_registry.clone());
+            s.trigger_store = Some(trigger_store.clone());
+        }
+    }
+
     pub async fn assign(
         &self,
         project_name: &str,
@@ -128,6 +142,44 @@ impl ProjectRegistry {
             task = %task.id,
             subject = %subject,
             "task assigned"
+        );
+
+        self.wake.notify_one();
+        Ok(task)
+    }
+
+    /// Assign a task with a specific skill to load on the worker.
+    /// Used by the trigger system to ensure the agent runs the trigger's skill.
+    pub async fn assign_with_skill(
+        &self,
+        project_name: &str,
+        subject: &str,
+        description: &str,
+        skill: &str,
+    ) -> Result<sigil_tasks::Task> {
+        let projects = self.projects.read().await;
+        let project = projects
+            .get(project_name)
+            .ok_or_else(|| anyhow::anyhow!("project not found: {project_name}"))?;
+
+        let mut task = project.create_task(subject).await?;
+
+        {
+            let mut store = project.tasks.lock().await;
+            task = store.update(&task.id.0, |q| {
+                if !description.is_empty() {
+                    q.description = description.to_string();
+                }
+                q.skill = Some(skill.to_string());
+            })?;
+        }
+
+        info!(
+            project = %project_name,
+            task = %task.id,
+            subject = %subject,
+            skill = %skill,
+            "task assigned with skill"
         );
 
         self.wake.notify_one();
