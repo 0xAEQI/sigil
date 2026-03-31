@@ -129,6 +129,9 @@ pub struct Supervisor {
     pub escalation_tracker: Arc<Mutex<EscalationTracker>>,
     /// Execution mode for workers (native agent loop vs Claude Code).
     pub execution_mode: sigil_core::ExecutionMode,
+    /// Persistent agent registry — when set, workers look up agent identity
+    /// from registry by name, loading system_prompt + entity memory scope.
+    pub agent_registry: Option<Arc<crate::agent_registry::AgentRegistry>>,
 }
 
 impl Supervisor {
@@ -260,6 +263,7 @@ impl Supervisor {
                 escalate_model: None,
             }))),
             execution_mode: sigil_core::ExecutionMode::default(),
+            agent_registry: None,
         }
     }
 
@@ -350,7 +354,7 @@ impl Supervisor {
         task: &sigil_tasks::Task,
     ) -> AgentWorker {
         // Enrich identity with emotional state context if available.
-        let identity = if let Some(ref emo) = self.emotional_state {
+        let mut identity = if let Some(ref emo) = self.emotional_state {
             let emo_guard = emo.lock().await;
             let mut id = self.identity.clone();
             let emo_ctx = emo_guard.as_context();
@@ -364,6 +368,25 @@ impl Supervisor {
             id
         } else {
             self.identity.clone()
+        };
+
+        // Look up persistent agent from registry — override identity if found.
+        let persistent_agent_id = if let Some(ref registry) = self.agent_registry {
+            if let Ok(Some(pa)) = registry.get_active_by_name(&agent_name).await {
+                // Override system prompt with persistent agent's prompt.
+                identity.persona = Some(pa.system_prompt.clone());
+                info!(
+                    project = %self.project_name,
+                    agent = %agent_name,
+                    agent_id = %pa.id,
+                    "loaded persistent agent identity from registry"
+                );
+                Some(pa.id)
+            } else {
+                None
+            }
+        } else {
+            None
         };
 
         let mut worker = match self.execution_mode {
@@ -395,6 +418,9 @@ impl Supervisor {
                 self.task_notify.clone(),
             ),
         };
+        if let Some(agent_id) = persistent_agent_id {
+            worker = worker.with_persistent_agent(agent_id);
+        }
         if let Some(ref mem) = self.memory {
             worker = worker.with_memory(mem.clone());
         }
