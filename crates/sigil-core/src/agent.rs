@@ -215,6 +215,26 @@ struct ProcessedToolResult {
     is_error: bool,
 }
 
+/// Post-compact restoration constants.
+const POST_COMPACT_MAX_FILES: usize = 5;
+const POST_COMPACT_MAX_TOKENS_PER_FILE: usize = 5_000;
+const POST_COMPACT_FILE_BUDGET: usize = 50_000;
+
+/// Minimum tokens per continuation to consider productive. 3+ continuations
+/// below this threshold trigger diminishing returns detection.
+const DIMINISHING_RETURNS_THRESHOLD: u32 = 500;
+const DIMINISHING_RETURNS_COUNT: u32 = 3;
+
+/// A recently-read file tracked for post-compact restoration.
+#[derive(Debug, Clone)]
+struct RecentFile {
+    path: String,
+    content: String,
+}
+
+/// Tool_use/tool_result pairing repair marker.
+const SYNTHETIC_TOOL_RESULT: &str = "[Tool result unavailable — context was compacted]";
+
 // ---------------------------------------------------------------------------
 // Agent
 // ---------------------------------------------------------------------------
@@ -323,6 +343,8 @@ impl Agent {
         let mut tracker = ContextTracker::default();
         let mut iterations = 0u32;
         let mut final_text = String::new();
+        let mut recent_files: Vec<RecentFile> = Vec::new();
+        let mut consecutive_low_output: u32 = 0;
 
         // --- Session resume: restore from checkpoint if available ---
         if let Some(ref session_file) = self.config.session_file {
@@ -412,7 +434,7 @@ impl Agent {
                             compaction = tracker.compactions + 1,
                             "context approaching limit, compacting"
                         );
-                        self.compact_messages(&mut messages).await;
+                        self.compact_messages(&mut messages, &recent_files).await;
                     }
                     tracker.compactions += 1;
                     transition = LoopTransition::ContextCompacted;
@@ -430,6 +452,9 @@ impl Agent {
                     }
                 }
             }
+
+            // --- Conversation repair: ensure tool_use/tool_result pairing ---
+            Self::repair_tool_pairing(&mut messages);
 
             // Build request.
             let request = ChatRequest {
@@ -472,7 +497,7 @@ impl Agent {
                                 &mut messages,
                                 self.config.compact_preserve_tail,
                             );
-                            self.compact_messages(&mut messages).await;
+                            self.compact_messages(&mut messages, &recent_files).await;
                             tracker.compactions += 1;
                             iterations -= 1;
                             transition = LoopTransition::ContextLengthRecovery;
@@ -649,6 +674,25 @@ impl Agent {
 
             // Reset output recovery counter on tool-use turns.
             output_recovery_count = 0;
+
+            // --- Diminishing returns detection ---
+            if response.usage.completion_tokens < DIMINISHING_RETURNS_THRESHOLD {
+                consecutive_low_output += 1;
+                if consecutive_low_output >= DIMINISHING_RETURNS_COUNT {
+                    warn!(
+                        agent = %self.config.name,
+                        consecutive = consecutive_low_output,
+                        threshold = DIMINISHING_RETURNS_THRESHOLD,
+                        "diminishing returns detected — stopping"
+                    );
+                    stop_reason = AgentStopReason::Halted(
+                        "Diminishing returns: agent producing minimal output".to_string(),
+                    );
+                    break;
+                }
+            } else {
+                consecutive_low_output = 0;
+            }
 
             // --- Build assistant message ---
             let mut assistant_parts: Vec<ContentPart> = Vec::new();
@@ -847,6 +891,24 @@ impl Agent {
 
             // --- Enforce aggregate per-turn budget ---
             Self::enforce_result_budget(&mut processed, self.config.max_tool_results_per_turn);
+
+            // --- Track recently-read files for post-compact restoration ---
+            for r in &processed {
+                if !r.is_error && Self::is_file_read_tool(&r.name) {
+                    if let Some(path) = Self::extract_file_path_from_result(&r.output) {
+                        // Dedup by path (keep most recent).
+                        recent_files.retain(|f| f.path != path);
+                        recent_files.push(RecentFile {
+                            path,
+                            content: r.output.clone(),
+                        });
+                        // Keep only the most recent N files.
+                        if recent_files.len() > POST_COMPACT_MAX_FILES * 2 {
+                            recent_files.drain(..recent_files.len() - POST_COMPACT_MAX_FILES);
+                        }
+                    }
+                }
+            }
 
             // Build tool result message.
             for r in &processed {
@@ -1228,6 +1290,179 @@ impl Agent {
     }
 
     // -----------------------------------------------------------------------
+    // File tracking for post-compact restoration
+    // -----------------------------------------------------------------------
+
+    fn is_file_read_tool(name: &str) -> bool {
+        matches!(
+            name.to_lowercase().as_str(),
+            "read" | "file_read" | "cat" | "readfile"
+        )
+    }
+
+    fn extract_file_path_from_result(output: &str) -> Option<String> {
+        // Common pattern: first line is the file path or "Contents of /path/to/file:"
+        let first_line = output.lines().next()?;
+        if first_line.contains('/') {
+            // Strip common prefixes like "Contents of " or line number prefixes
+            let cleaned = first_line
+                .trim_start_matches("Contents of ")
+                .trim_end_matches(':')
+                .trim();
+            if cleaned.starts_with('/') || cleaned.starts_with("./") {
+                return Some(cleaned.to_string());
+            }
+        }
+        None
+    }
+
+    /// Build post-compact file restoration messages from recently-read files.
+    fn build_file_restoration(recent_files: &[RecentFile]) -> Vec<Message> {
+        let mut messages = Vec::new();
+        let mut total_tokens = 0usize;
+
+        // Take the most recent files first (end of vec = most recent).
+        for file in recent_files.iter().rev().take(POST_COMPACT_MAX_FILES) {
+            let file_tokens = file.content.len() / CHARS_PER_TOKEN;
+            let capped = file_tokens.min(POST_COMPACT_MAX_TOKENS_PER_FILE);
+
+            if total_tokens + capped > POST_COMPACT_FILE_BUDGET {
+                break;
+            }
+
+            let content = if file_tokens > POST_COMPACT_MAX_TOKENS_PER_FILE {
+                let max_chars = POST_COMPACT_MAX_TOKENS_PER_FILE * CHARS_PER_TOKEN;
+                format!(
+                    "# File (restored after compaction): {}\n{}... [truncated]",
+                    file.path,
+                    &file.content[..file.content.len().min(max_chars)]
+                )
+            } else {
+                format!(
+                    "# File (restored after compaction): {}\n{}",
+                    file.path, file.content
+                )
+            };
+
+            messages.push(Message {
+                role: Role::System,
+                content: MessageContent::text(content),
+            });
+            total_tokens += capped;
+        }
+
+        messages
+    }
+
+    // -----------------------------------------------------------------------
+    // Conversation repair
+    // -----------------------------------------------------------------------
+
+    /// Ensure every tool_use has a matching tool_result and vice versa.
+    /// Prevents API 400 errors after compaction drops messages.
+    fn repair_tool_pairing(messages: &mut Vec<Message>) {
+        // Collect all tool_use IDs from assistant messages.
+        let mut tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Collect all tool_result IDs from tool messages.
+        let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for msg in messages.iter() {
+            if let MessageContent::Parts(parts) = &msg.content {
+                for part in parts {
+                    match part {
+                        ContentPart::ToolUse { id, .. } => {
+                            tool_use_ids.insert(id.clone());
+                        }
+                        ContentPart::ToolResult { tool_use_id, .. } => {
+                            tool_result_ids.insert(tool_use_id.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Find dangling tool_uses (no matching result).
+        let dangling: Vec<String> = tool_use_ids
+            .difference(&tool_result_ids)
+            .cloned()
+            .collect();
+
+        // Find orphan tool_results (no matching use).
+        let orphans: Vec<String> = tool_result_ids
+            .difference(&tool_use_ids)
+            .cloned()
+            .collect();
+
+        if dangling.is_empty() && orphans.is_empty() {
+            return;
+        }
+
+        // Add synthetic results for dangling tool_uses.
+        if !dangling.is_empty() {
+            debug!(
+                count = dangling.len(),
+                "injecting synthetic tool_results for dangling tool_uses"
+            );
+            let synthetic_parts: Vec<ContentPart> = dangling
+                .iter()
+                .map(|id| ContentPart::ToolResult {
+                    tool_use_id: id.clone(),
+                    content: SYNTHETIC_TOOL_RESULT.to_string(),
+                    is_error: true,
+                })
+                .collect();
+
+            // Find the last assistant message and insert results after it.
+            if let Some(pos) = messages.iter().rposition(|m| m.role == Role::Assistant) {
+                let insert_at = pos + 1;
+                messages.insert(
+                    insert_at.min(messages.len()),
+                    Message {
+                        role: Role::Tool,
+                        content: MessageContent::Parts(synthetic_parts),
+                    },
+                );
+            }
+        }
+
+        // Strip orphan tool_results.
+        if !orphans.is_empty() {
+            debug!(
+                count = orphans.len(),
+                "stripping orphan tool_results"
+            );
+            let orphan_set: std::collections::HashSet<&str> =
+                orphans.iter().map(|s| s.as_str()).collect();
+
+            for msg in messages.iter_mut() {
+                if msg.role != Role::Tool {
+                    continue;
+                }
+                if let MessageContent::Parts(ref mut parts) = msg.content {
+                    parts.retain(|p| {
+                        if let ContentPart::ToolResult { tool_use_id, .. } = p {
+                            !orphan_set.contains(tool_use_id.as_str())
+                        } else {
+                            true
+                        }
+                    });
+                }
+            }
+
+            // Remove empty tool messages.
+            messages.retain(|m| {
+                if m.role == Role::Tool {
+                    if let MessageContent::Parts(parts) = &m.content {
+                        return !parts.is_empty();
+                    }
+                }
+                true
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Multi-stage context compaction
     // -----------------------------------------------------------------------
 
@@ -1290,9 +1525,9 @@ impl Agent {
     }
 
     /// Stages 2+3: Compact conversation by summarizing middle messages.
-    /// After compaction, injects an active context restoration message listing
-    /// files and tools that were in use — prevents "amnesia" after compaction.
-    async fn compact_messages(&self, messages: &mut Vec<Message>) {
+    /// After compaction, restores: (1) active context (files/tools in use),
+    /// (2) preserved skills, (3) recently-read file contents, (4) enrichments.
+    async fn compact_messages(&self, messages: &mut Vec<Message>, recent_files: &[RecentFile]) {
         let head = self.config.compact_preserve_head.min(messages.len());
         let tail = self
             .config
@@ -1357,6 +1592,18 @@ impl Agent {
                     "# Active Context (restored after compaction)\n{active_context}"
                 )),
             });
+        }
+
+        // Post-compact file restoration: re-inject recently-read file contents
+        // so the model can continue working without re-reading them.
+        let file_msgs = Self::build_file_restoration(recent_files);
+        if !file_msgs.is_empty() {
+            debug!(
+                agent = %self.config.name,
+                files = file_msgs.len(),
+                "restoring file contents after compaction"
+            );
+            compacted.extend(file_msgs);
         }
 
         compacted.extend_from_slice(&messages[messages.len() - tail..]);
@@ -1584,23 +1831,37 @@ impl Agent {
             messages: vec![Message {
                 role: Role::User,
                 content: MessageContent::text(format!(
-                    "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\n\
+                    "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\n\
+                     Tool calls will be REJECTED and will waste your only turn — you will fail the task.\n\
+                     Your entire response must be plain text: an <analysis> block followed by a <summary> block.\n\n\
                      You are summarizing an autonomous agent's execution context. This summary \
                      replaces the compacted messages — the agent will use it to continue working. \
-                     Anything you omit is lost.\n\n\
-                     First write an <analysis> block as a scratchpad (it will be stripped), \
-                     then a <summary> block with these sections:\n\n\
-                     1. **Task** — What was requested and the acceptance criteria.\n\
-                     2. **Files Modified** — Every file read, edited, or created. Include \
-                     filenames, what was changed, and the current state of each.\n\
-                     3. **Decisions** — Choices made between alternatives and why. Include \
-                     rejected approaches so they are not re-attempted.\n\
-                     4. **Errors Encountered** — Problems hit and how they were resolved. \
-                     Include error messages verbatim if they might recur.\n\
-                     5. **Current State** — What is DONE (committed, tested, verified) vs \
-                     IN PROGRESS (partially complete) vs REMAINING (not started). Be specific \
-                     about filenames, function names, line ranges.\n\
-                     6. **Next Steps** — Exactly what the agent should do next, in order.\n\n\
+                     Anything you omit is lost forever.\n\n\
+                     First write an <analysis> block as a drafting scratchpad (it will be stripped), \
+                     then a <summary> block with ALL of these sections:\n\n\
+                     1. **Primary Request and Intent** — What was the user's original request? \
+                     What are the acceptance criteria? What is the end goal?\n\
+                     2. **Key Technical Concepts** — Domain-specific terms, patterns, and \
+                     constraints that affect the work. Include library versions, API contracts, \
+                     architectural decisions.\n\
+                     3. **Files and Code Sections** — Every file read, edited, or created. \
+                     Include filenames with paths, what changed, and **full code snippets** for \
+                     any code that is currently being worked on or was recently modified.\n\
+                     4. **Errors and Fixes** — Every error encountered and exactly how it was \
+                     resolved. Include error messages verbatim. This prevents re-encountering \
+                     the same issues.\n\
+                     5. **Problem Solving** — The reasoning chain: what was tried, what worked, \
+                     what was rejected and why. Include rejected approaches to prevent retry.\n\
+                     6. **All User Messages** — Reproduce every user instruction, clarification, \
+                     or correction. Do not paraphrase — use the user's exact words for requests \
+                     and corrections.\n\
+                     7. **Pending Tasks** — What remains to be done, in dependency order. \
+                     Include any task IDs, branch names, or tracking references.\n\
+                     8. **Current Work** — What the agent was doing at the moment of compaction. \
+                     Be precise: filename, function name, line range, what operation was in \
+                     progress. Include enough detail to resume without re-reading.\n\
+                     9. **Next Step** — The single immediate next action the agent should take. \
+                     Include direct quotes from tool output or code that show where work left off.\n\n\
                      Be precise. Include filenames, function signatures, error messages, and \
                      code snippets where they affect the next action. Vague summaries cause \
                      the agent to redo work or make wrong assumptions.\n\n\
@@ -1608,7 +1869,7 @@ impl Agent {
                 )),
             }],
             tools: vec![],
-            max_tokens: 4096,
+            max_tokens: 8192,
             temperature: 0.0,
         };
 
