@@ -84,6 +84,13 @@ impl sigil_core::traits::Tool for FileEditTool {
 
         if replace_all {
             if !content.contains(old_string) {
+                if let Some(similar) = find_similar_substring(&content, old_string, 3) {
+                    return Ok(ToolResult::error(format!(
+                        "old_string not found in {}. Did you mean: '{}'?",
+                        resolved.display(),
+                        similar.lines().take(3).collect::<Vec<_>>().join("\\n")
+                    )));
+                }
                 return Ok(ToolResult::error(format!(
                     "old_string not found in {}",
                     resolved.display()
@@ -102,6 +109,15 @@ impl sigil_core::traits::Tool for FileEditTool {
         let match_count = content.matches(old_string).count();
 
         if match_count == 0 {
+            // Check for near-matches via sliding window (Levenshtein-like)
+            if let Some(similar) = find_similar_substring(&content, old_string, 3) {
+                return Ok(ToolResult::error(format!(
+                    "old_string not found in {}. Did you mean: '{}'?",
+                    resolved.display(),
+                    similar.lines().take(3).collect::<Vec<_>>().join("\\n")
+                )));
+            }
+            // Fall back to line-based fuzzy matching
             let suggestion = find_fuzzy_match(&content, old_string);
             let msg = if let Some((line_num, line)) = suggestion {
                 format!(
@@ -169,6 +185,47 @@ fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Count character differences between two byte slices of equal length.
+fn char_diff_count(a: &[u8], b: &[u8]) -> usize {
+    a.iter().zip(b.iter()).filter(|(x, y)| x != y).count()
+}
+
+/// Sliding window search: find substrings in `content` that differ from `needle`
+/// by at most `max_diff` characters. Returns the best (lowest diff) match as a
+/// snippet with surrounding context.
+fn find_similar_substring(content: &str, needle: &str, max_diff: usize) -> Option<String> {
+    let content_bytes = content.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    let needle_len = needle_bytes.len();
+
+    if needle_len == 0 || needle_len > content_bytes.len() {
+        return None;
+    }
+
+    let mut best_diff = max_diff + 1;
+    let mut best_pos = 0usize;
+
+    for i in 0..=(content_bytes.len() - needle_len) {
+        let window = &content_bytes[i..i + needle_len];
+        let diff = char_diff_count(window, needle_bytes);
+        if diff <= max_diff && diff < best_diff {
+            best_diff = diff;
+            best_pos = i;
+            if diff == 0 {
+                break; // exact match, shouldn't happen but short-circuit
+            }
+        }
+    }
+
+    if best_diff > max_diff {
+        return None;
+    }
+
+    // Extract the similar substring
+    let similar = &content[best_pos..best_pos + needle_len];
+    Some(similar.to_string())
+}
+
 fn find_fuzzy_match(content: &str, needle: &str) -> Option<(usize, String)> {
     let needle_trimmed = needle.trim();
     let first_line = needle_trimmed.lines().next().unwrap_or(needle_trimmed);
@@ -190,6 +247,15 @@ fn find_fuzzy_match(content: &str, needle: &str) -> Option<(usize, String)> {
         if line_normalized.contains(&needle_normalized) {
             return Some((i + 1, line.to_string()));
         }
+    }
+
+    // Sliding window: find substrings that differ by ≤3 characters
+    if let Some(similar) = find_similar_substring(content, needle, 3) {
+        // Find the line number of the similar match
+        let pos = content.find(&similar).unwrap_or(0);
+        let line_num = content[..pos].lines().count().max(1);
+        let first_match_line = similar.lines().next().unwrap_or(&similar);
+        return Some((line_num, first_match_line.to_string()));
     }
 
     None

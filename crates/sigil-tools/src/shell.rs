@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sigil_core::traits::{ToolResult, ToolSpec};
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::process::Command;
 use tracing::debug;
 
@@ -41,10 +42,44 @@ impl sigil_core::traits::Tool for ShellTool {
             .map(PathBuf::from)
             .unwrap_or_else(|| self.workdir.clone());
 
-        debug!(command = %command, workdir = %workdir.display(), "executing shell command");
+        // Parse timeout: arg in ms, default to self.timeout_secs * 1000, cap at 600_000ms
+        let timeout_ms = args
+            .get("timeout")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(self.timeout_secs * 1000)
+            .min(600_000);
+        let timeout_dur = Duration::from_millis(timeout_ms);
+
+        // Parse run_in_background
+        let run_in_background = args
+            .get("run_in_background")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        debug!(command = %command, workdir = %workdir.display(), timeout_ms, run_in_background, "executing shell command");
+
+        if run_in_background {
+            let mut child = Command::new("bash")
+                .arg("-c")
+                .arg(command)
+                .current_dir(&workdir)
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("failed to spawn background command: {e}"))?;
+
+            let pid = child.id().unwrap_or(0);
+
+            // Spawn a task to wait on the child so it doesn't become a zombie
+            tokio::spawn(async move {
+                let _ = child.wait().await;
+            });
+
+            return Ok(ToolResult::success(format!(
+                "Command started in background. PID: {pid}"
+            )));
+        }
 
         let result = tokio::time::timeout(
-            std::time::Duration::from_secs(self.timeout_secs),
+            timeout_dur,
             Command::new("bash")
                 .arg("-c")
                 .arg(command)
@@ -93,8 +128,8 @@ impl sigil_core::traits::Tool for ShellTool {
             }
             Ok(Err(e)) => Ok(ToolResult::error(format!("failed to execute command: {e}"))),
             Err(_) => Ok(ToolResult::error(format!(
-                "command timed out after {}s",
-                self.timeout_secs
+                "command timed out after {}ms",
+                timeout_ms
             ))),
         }
     }
@@ -113,6 +148,18 @@ impl sigil_core::traits::Tool for ShellTool {
                     "workdir": {
                         "type": "string",
                         "description": "Working directory (optional, defaults to agent workdir)"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Clear description of what this command does"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in milliseconds (default: 120000, max: 600000)"
+                    },
+                    "run_in_background": {
+                        "type": "boolean",
+                        "description": "Run command in background and return immediately with a task ID"
                     }
                 },
                 "required": ["command"]

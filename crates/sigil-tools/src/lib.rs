@@ -8,6 +8,8 @@ pub mod porkbun;
 pub mod shell;
 pub mod skill;
 pub mod tasks;
+pub mod web_fetch;
+pub mod web_search;
 
 pub use delegate::DelegateTool;
 pub use edit::FileEditTool;
@@ -21,3 +23,5 @@ pub use skill::{MagicTools, Skill, SkillVerification};
 pub use tasks::{
     TaskCloseTool, TaskCreateTool, TaskDepTool, TaskReadyTool, TaskShowTool, TaskUpdateTool,
 };
+pub use web_fetch::WebFetchTool;
+pub use web_search::WebSearchTool;

@@ -29,20 +29,47 @@ impl sigil_core::traits::Tool for GrepTool {
 
         let glob_filter = args.get("glob").and_then(|v| v.as_str());
 
+        // Legacy param, still supported but output_mode takes priority
         let include_lines = args
             .get("include_lines")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
+        let output_mode = args
+            .get("output_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or(if include_lines { "content" } else { "files_with_matches" });
+
         let context = args
             .get("context")
+            .or_else(|| args.get("-C"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
+
+        let after_context = args
+            .get("-A")
+            .and_then(|v| v.as_u64());
+
+        let before_context = args
+            .get("-B")
+            .and_then(|v| v.as_u64());
+
+        let multiline = args
+            .get("multiline")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let type_filter = args.get("type").and_then(|v| v.as_str());
+
+        let head_limit = args
+            .get("head_limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(250);
 
         let max_results = args
             .get("max_results")
             .and_then(|v| v.as_u64())
-            .unwrap_or(50);
+            .unwrap_or(head_limit);
 
         let search_path = if std::path::Path::new(path).is_absolute() {
             PathBuf::from(path)
@@ -55,16 +82,42 @@ impl sigil_core::traits::Tool for GrepTool {
         let mut cmd = tokio::process::Command::new("rg");
         cmd.arg("--no-heading")
             .arg("--color=never")
-            .arg("--max-count=1000");
+            .arg("--max-count=1000")
+            .arg("--max-columns=500");
 
-        if include_lines {
-            cmd.arg("--line-number");
-        } else {
-            cmd.arg("--files-with-matches");
+        match output_mode {
+            "files_with_matches" => {
+                cmd.arg("--files-with-matches");
+            }
+            "count" => {
+                cmd.arg("--count");
+            }
+            _ => {
+                // "content" mode — show matching lines with line numbers
+                cmd.arg("--line-number");
+            }
         }
 
-        if context > 0 && include_lines {
-            cmd.arg(format!("--context={context}"));
+        if context > 0 && output_mode == "content" {
+            cmd.arg(format!("-C{context}"));
+        }
+        if let Some(a) = after_context {
+            if output_mode == "content" {
+                cmd.arg(format!("-A{a}"));
+            }
+        }
+        if let Some(b) = before_context {
+            if output_mode == "content" {
+                cmd.arg(format!("-B{b}"));
+            }
+        }
+
+        if multiline {
+            cmd.arg("-U").arg("--multiline-dotall");
+        }
+
+        if let Some(t) = type_filter {
+            cmd.arg("--type").arg(t);
         }
 
         if let Some(g) = glob_filter {
@@ -134,15 +187,43 @@ impl sigil_core::traits::Tool for GrepTool {
                     },
                     "include_lines": {
                         "type": "boolean",
-                        "description": "Show matching lines (true) or just file paths (false). Default: true"
+                        "description": "Show matching lines (true) or just file paths (false). Default: true. Deprecated: use output_mode instead."
+                    },
+                    "output_mode": {
+                        "type": "string",
+                        "description": "Output mode: 'content' (matching lines), 'files_with_matches' (file paths only, default), 'count' (match counts)"
                     },
                     "context": {
                         "type": "integer",
-                        "description": "Lines of context around each match (default: 0)"
+                        "description": "Lines of context before and after each match"
+                    },
+                    "-C": {
+                        "type": "integer",
+                        "description": "Alias for context"
+                    },
+                    "-A": {
+                        "type": "integer",
+                        "description": "Lines after each match"
+                    },
+                    "-B": {
+                        "type": "integer",
+                        "description": "Lines before each match"
+                    },
+                    "multiline": {
+                        "type": "boolean",
+                        "description": "Enable multiline matching where . matches newlines"
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "File type filter (e.g., 'rs', 'ts', 'py')"
+                    },
+                    "head_limit": {
+                        "type": "integer",
+                        "description": "Limit output to first N lines (default: 250)"
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Maximum result lines to return (default: 50)"
+                        "description": "Maximum result lines to return (default: 250, alias for head_limit)"
                     }
                 },
                 "required": ["pattern"]
