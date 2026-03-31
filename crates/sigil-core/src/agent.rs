@@ -29,6 +29,24 @@ const MAX_COMPACTIONS_PER_RUN: u32 = 3;
 /// Maximum mid-loop memory recalls.
 const MAX_MID_LOOP_RECALLS: u32 = 2;
 
+/// Microcompact: keep the N most recent compactable tool results.
+const MICROCOMPACT_KEEP_RECENT: usize = 5;
+
+/// Tool names whose results can be cleared by microcompact.
+const COMPACTABLE_TOOLS: &[&str] = &[
+    "read", "read_file", "readfile", "cat",
+    "shell", "bash",
+    "grep",
+    "glob",
+    "web_search", "websearch",
+    "web_fetch", "webfetch",
+    "edit", "edit_file", "fileedit",
+    "write", "write_file", "filewrite",
+];
+
+/// Cleared content marker for microcompacted tool results.
+const MICROCOMPACT_CLEARED: &str = "[Old tool result content cleared]";
+
 /// Consecutive failures before switching to fallback model.
 const FALLBACK_TRIGGER_COUNT: u32 = 3;
 
@@ -40,7 +58,7 @@ const PERSIST_PREVIEW_SIZE: usize = 2000;
 // ---------------------------------------------------------------------------
 
 /// Session type — determines what the agent loop is allowed to do.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SessionType {
     /// Perpetual session (Telegram/Discord channel). Never ends.
     /// Can self-delegate async sessions. The only session type that
@@ -50,13 +68,8 @@ pub enum SessionType {
     /// Cannot spawn async sessions on itself. Can delegate to
     /// ephemeral subagents (different identity) but they also
     /// cannot delegate (no recursion).
+    #[default]
     Async,
-}
-
-impl Default for SessionType {
-    fn default() -> Self {
-        Self::Async
-    }
 }
 
 /// Configuration for an agent loop.
@@ -226,8 +239,20 @@ pub enum LoopTransition {
     OutputTruncated { attempt: u32 },
     ContextCompacted,
     ContextLengthRecovery,
+    /// Reactive compaction: 413/context-length error recovered via emergency compact.
+    ReactiveCompact,
+    /// Snip compaction removed old rounds (no API call).
+    SnipCompacted { tokens_freed: u32 },
     FallbackModelSwitch,
     AfterTurnContinue,
+}
+
+/// A skill that was invoked during this session — tracked for post-compact restoration.
+#[derive(Debug, Clone)]
+struct InvokedSkill {
+    name: String,
+    content: String,
+    invoked_at: std::time::Instant,
 }
 
 /// Intermediate tool result during processing.
@@ -242,6 +267,12 @@ struct ProcessedToolResult {
 const POST_COMPACT_MAX_FILES: usize = 5;
 const POST_COMPACT_MAX_TOKENS_PER_FILE: usize = 5_000;
 const POST_COMPACT_FILE_BUDGET: usize = 50_000;
+const POST_COMPACT_MAX_TOKENS_PER_SKILL: usize = 5_000;
+const POST_COMPACT_SKILLS_BUDGET: usize = 25_000;
+
+/// Snip compaction: early threshold factor. Fires at threshold * SNIP_FACTOR
+/// before full compaction at threshold * 1.0.
+const SNIP_THRESHOLD_FACTOR: f32 = 0.85;
 
 /// Minimum tokens per continuation to consider productive. 3+ continuations
 /// below this threshold trigger diminishing returns detection.
@@ -385,22 +416,22 @@ impl Agent {
         let mut consecutive_low_output: u32 = 0;
 
         // --- Session resume: restore from checkpoint if available ---
-        if let Some(ref session_file) = self.config.session_file {
-            if let Some(state) = Self::load_session(session_file).await {
-                messages = state.messages;
-                iterations = state.iterations;
-                tracker.total_prompt_tokens = state.total_prompt_tokens;
-                tracker.total_completion_tokens = state.total_completion_tokens;
-                tracker.compactions = state.compactions;
-                // Inject a resume prompt so the model knows it's continuing.
-                messages.push(Message {
-                    role: Role::User,
-                    content: MessageContent::text(
-                        "Session resumed from checkpoint. Continue where you left off. \
-                         Do not repeat completed work.",
-                    ),
-                });
-            }
+        if let Some(ref session_file) = self.config.session_file
+            && let Some(state) = Self::load_session(session_file).await
+        {
+            messages = state.messages;
+            iterations = state.iterations;
+            tracker.total_prompt_tokens = state.total_prompt_tokens;
+            tracker.total_completion_tokens = state.total_completion_tokens;
+            tracker.compactions = state.compactions;
+            // Inject a resume prompt so the model knows it's continuing.
+            messages.push(Message {
+                role: Role::User,
+                content: MessageContent::text(
+                    "Session resumed from checkpoint. Continue where you left off. \
+                     Do not repeat completed work.",
+                ),
+            });
         }
         let mut mid_loop_recalls = 0u32;
         let mut output_recovery_count = 0u32;
@@ -409,6 +440,8 @@ impl Agent {
         let mut consecutive_errors = 0u32;
         let mut active_model = self.config.model.clone();
         let mut persist_dir_created: Option<PathBuf> = None;
+        let invoked_skills: Vec<InvokedSkill> = Vec::new();
+        let mut has_attempted_reactive_compact = false;
 
         loop {
             iterations += 1;
@@ -448,46 +481,77 @@ impl Agent {
                 Self::estimate_tokens_from_messages(&messages)
             };
 
-            let threshold =
+            let full_threshold =
                 (self.config.context_window as f32 * self.config.compact_threshold) as u32;
+            let snip_threshold =
+                (self.config.context_window as f32 * self.config.compact_threshold * SNIP_THRESHOLD_FACTOR) as u32;
+            let protected =
+                self.config.compact_preserve_head + self.config.compact_preserve_tail;
 
-            if estimated_tokens > threshold && tracker.compactions < MAX_COMPACTIONS_PER_RUN {
-                let protected =
-                    self.config.compact_preserve_head + self.config.compact_preserve_tail;
-                if messages.len() > protected {
-                    // Stage 1: Digest old tool results to reduce size cheaply.
-                    Self::digest_old_tool_results(
-                        &mut messages,
-                        self.config.compact_preserve_tail,
+            // --- Stage 0: Snip — remove entire old API rounds (no API call, ~free) ---
+            if estimated_tokens > snip_threshold && messages.len() > protected {
+                let freed = Self::snip_compact(
+                    &mut messages,
+                    self.config.compact_preserve_head,
+                    self.config.compact_preserve_tail,
+                );
+                if freed > 0 {
+                    debug!(
+                        agent = %self.config.name,
+                        tokens_freed = freed,
+                        "snip compaction freed tokens"
                     );
+                    transition = LoopTransition::SnipCompacted { tokens_freed: freed };
+                }
+            }
 
-                    // Re-check after digest.
-                    let post_digest = Self::estimate_tokens_from_messages(&messages);
-                    if post_digest > threshold {
-                        // Stage 2+3: Full compaction (head + LLM summary + tail).
-                        info!(
-                            agent = %self.config.name,
-                            estimated_tokens = post_digest,
-                            threshold,
-                            compaction = tracker.compactions + 1,
-                            "context approaching limit, compacting"
-                        );
-                        self.compact_messages(&mut messages, &recent_files).await;
-                    }
-                    tracker.compactions += 1;
-                    transition = LoopTransition::ContextCompacted;
+            // Re-estimate after snip.
+            let estimated_tokens = if matches!(transition, LoopTransition::SnipCompacted { .. }) {
+                Self::estimate_tokens_from_messages(&messages)
+            } else {
+                estimated_tokens
+            };
 
-                    // Save session checkpoint after compaction.
-                    if let Some(ref sf) = self.config.session_file {
-                        Self::save_session(
-                            &messages,
-                            &tracker,
-                            iterations,
-                            &active_model,
-                            sf,
-                        )
-                        .await;
-                    }
+            // --- Stage 1: Microcompact — clear old tool results by name + keep recent N ---
+            if estimated_tokens > snip_threshold && messages.len() > protected {
+                Self::microcompact(
+                    &mut messages,
+                    self.config.compact_preserve_tail,
+                    MICROCOMPACT_KEEP_RECENT,
+                );
+            }
+
+            // Re-estimate after microcompact.
+            let estimated_tokens = Self::estimate_tokens_from_messages(&messages);
+
+            // --- Stage 2: Full compaction (LLM summary + restoration) ---
+            if estimated_tokens > full_threshold
+                && tracker.compactions < MAX_COMPACTIONS_PER_RUN
+                && messages.len() > protected
+            {
+                info!(
+                    agent = %self.config.name,
+                    estimated_tokens,
+                    threshold = full_threshold,
+                    compaction = tracker.compactions + 1,
+                    "context approaching limit, compacting"
+                );
+                self.compact_messages(&mut messages, &recent_files, &invoked_skills)
+                    .await;
+                tracker.compactions += 1;
+                has_attempted_reactive_compact = false; // Reset after successful compact
+                transition = LoopTransition::ContextCompacted;
+
+                // Save session checkpoint after compaction.
+                if let Some(ref sf) = self.config.session_file {
+                    Self::save_session(
+                        &messages,
+                        &tracker,
+                        iterations,
+                        &active_model,
+                        sf,
+                    )
+                    .await;
                 }
             }
 
@@ -528,8 +592,9 @@ impl Agent {
                     let err_str = e.to_string();
                     consecutive_errors += 1;
 
-                    // Context-length error → compact and retry this iteration.
+                    // Context-length error → reactive compact and retry.
                     if Self::is_context_length_error(&err_str)
+                        && !has_attempted_reactive_compact
                         && tracker.compactions < MAX_COMPACTIONS_PER_RUN
                     {
                         let protected =
@@ -537,16 +602,25 @@ impl Agent {
                         if messages.len() > protected {
                             warn!(
                                 agent = %self.config.name,
-                                "context too long, compacting and retrying"
+                                "reactive compact: context too long, emergency compaction"
                             );
-                            Self::digest_old_tool_results(
+                            // Full pipeline: snip → microcompact → full compact.
+                            Self::snip_compact(
                                 &mut messages,
+                                self.config.compact_preserve_head,
                                 self.config.compact_preserve_tail,
                             );
-                            self.compact_messages(&mut messages, &recent_files).await;
+                            Self::microcompact(
+                                &mut messages,
+                                self.config.compact_preserve_tail,
+                                MICROCOMPACT_KEEP_RECENT,
+                            );
+                            self.compact_messages(&mut messages, &recent_files, &invoked_skills)
+                                .await;
                             tracker.compactions += 1;
+                            has_attempted_reactive_compact = true;
                             iterations -= 1;
-                            transition = LoopTransition::ContextLengthRecovery;
+                            transition = LoopTransition::ReactiveCompact;
                             continue;
                         }
                     }
@@ -600,12 +674,12 @@ impl Agent {
                 .await;
 
             // Emit text delta for chat stream.
-            if let Some(ref text) = response.content {
-                if !text.is_empty() {
-                    self.emit(crate::chat_stream::ChatStreamEvent::TextDelta {
-                        text: text.clone(),
-                    });
-                }
+            if let Some(ref text) = response.content
+                && !text.is_empty()
+            {
+                self.emit(crate::chat_stream::ChatStreamEvent::TextDelta {
+                    text: text.clone(),
+                });
             }
 
             self.emit(crate::chat_stream::ChatStreamEvent::TurnComplete {
@@ -967,18 +1041,19 @@ impl Agent {
 
             // --- Track recently-read files for post-compact restoration ---
             for r in &processed {
-                if !r.is_error && Self::is_file_read_tool(&r.name) {
-                    if let Some(path) = Self::extract_file_path_from_result(&r.output) {
-                        // Dedup by path (keep most recent).
-                        recent_files.retain(|f| f.path != path);
-                        recent_files.push(RecentFile {
-                            path,
-                            content: r.output.clone(),
-                        });
-                        // Keep only the most recent N files.
-                        if recent_files.len() > POST_COMPACT_MAX_FILES * 2 {
-                            recent_files.drain(..recent_files.len() - POST_COMPACT_MAX_FILES);
-                        }
+                if !r.is_error
+                    && Self::is_file_read_tool(&r.name)
+                    && let Some(path) = Self::extract_file_path_from_result(&r.output)
+                {
+                    // Dedup by path (keep most recent).
+                    recent_files.retain(|f| f.path != path);
+                    recent_files.push(RecentFile {
+                        path,
+                        content: r.output.clone(),
+                    });
+                    // Keep only the most recent N files.
+                    if recent_files.len() > POST_COMPACT_MAX_FILES * 2 {
+                        recent_files.drain(..recent_files.len() - POST_COMPACT_MAX_FILES);
                     }
                 }
             }
@@ -1435,6 +1510,53 @@ impl Agent {
         messages
     }
 
+    /// Build post-compact skill restoration messages from invoked skills.
+    /// Skills are sorted by invocation recency (most recent first) and truncated
+    /// to per-skill and aggregate token budgets.
+    fn build_skill_restoration(invoked_skills: &[InvokedSkill]) -> Vec<Message> {
+        if invoked_skills.is_empty() {
+            return Vec::new();
+        }
+
+        let mut messages = Vec::new();
+        let mut total_tokens = 0usize;
+
+        // Sort by recency (most recent first).
+        let mut sorted: Vec<&InvokedSkill> = invoked_skills.iter().collect();
+        sorted.sort_by(|a, b| b.invoked_at.cmp(&a.invoked_at));
+
+        for skill in sorted {
+            let skill_tokens = skill.content.len() / CHARS_PER_TOKEN;
+            let capped = skill_tokens.min(POST_COMPACT_MAX_TOKENS_PER_SKILL);
+
+            if total_tokens + capped > POST_COMPACT_SKILLS_BUDGET {
+                break;
+            }
+
+            let content = if skill_tokens > POST_COMPACT_MAX_TOKENS_PER_SKILL {
+                let max_chars = POST_COMPACT_MAX_TOKENS_PER_SKILL * CHARS_PER_TOKEN;
+                format!(
+                    "# Skill (restored after compaction): {}\n{}... [truncated]",
+                    skill.name,
+                    &skill.content[..skill.content.len().min(max_chars)]
+                )
+            } else {
+                format!(
+                    "# Skill (restored after compaction): {}\n{}",
+                    skill.name, skill.content
+                )
+            };
+
+            messages.push(Message {
+                role: Role::System,
+                content: MessageContent::text(content),
+            });
+            total_tokens += capped;
+        }
+
+        messages
+    }
+
     // -----------------------------------------------------------------------
     // Conversation repair
     // -----------------------------------------------------------------------
@@ -1533,10 +1655,10 @@ impl Agent {
 
             // Remove empty tool messages.
             messages.retain(|m| {
-                if m.role == Role::Tool {
-                    if let MessageContent::Parts(parts) = &m.content {
-                        return !parts.is_empty();
-                    }
+                if m.role == Role::Tool
+                    && let MessageContent::Parts(parts) = &m.content
+                {
+                    return !parts.is_empty();
                 }
                 true
             });
@@ -1568,15 +1690,112 @@ impl Agent {
         (total_chars / CHARS_PER_TOKEN) as u32
     }
 
-    /// Stage 1: Digest old tool results in-place.
-    /// Replaces ToolResult content in messages older than `preserve_tail` with
-    /// a short digest — dramatically reduces size without losing the conversation flow.
-    fn digest_old_tool_results(messages: &mut [Message], preserve_tail: usize) {
+    /// Snip compaction: remove entire old API rounds (assistant + tool messages)
+    /// from the compactable window. No API call — purely token estimation.
+    /// Returns estimated tokens freed.
+    fn snip_compact(
+        messages: &mut Vec<Message>,
+        preserve_head: usize,
+        preserve_tail: usize,
+    ) -> u32 {
+        if messages.len() <= preserve_head + preserve_tail {
+            return 0;
+        }
+        let window_start = preserve_head;
+        let window_end = messages.len().saturating_sub(preserve_tail);
+        if window_start >= window_end {
+            return 0;
+        }
+
+        // Find "API rounds" — sequences of (Assistant, Tool) messages.
+        // Remove the oldest rounds first (from window_start forward).
+        let mut remove_count = 0;
+        let mut tokens_freed: u32 = 0;
+        let mut i = window_start;
+
+        // Remove at most half the window to avoid over-snipping.
+        let max_remove = (window_end - window_start) / 2;
+
+        while i < window_end && remove_count < max_remove {
+            // A round starts with an Assistant message.
+            if messages[i].role != Role::Assistant {
+                i += 1;
+                continue;
+            }
+
+            // Count the round: Assistant + following Tool messages.
+            let round_start = i;
+            let mut round_end = i + 1;
+            while round_end < window_end && messages[round_end].role == Role::Tool {
+                round_end += 1;
+            }
+
+            // Estimate tokens in this round.
+            let round_tokens = Self::estimate_tokens_from_messages(&messages[round_start..round_end]);
+            tokens_freed += round_tokens;
+            remove_count += round_end - round_start;
+            let _next = round_end; // consumed by break
+
+            // Stop after removing one full round — snip is conservative.
+            break;
+        }
+
+        if remove_count > 0 {
+            // Remove the snipped messages.
+            messages.drain(window_start..window_start + remove_count);
+        }
+
+        tokens_freed
+    }
+
+    /// Microcompact: clear old tool results by tool name, keeping the N most recent.
+    /// More targeted than the old digest — only clears results from compactable tools
+    /// (read, shell, grep, glob, web_search, web_fetch, edit, write).
+    fn microcompact(
+        messages: &mut [Message],
+        preserve_tail: usize,
+        keep_recent: usize,
+    ) {
         if messages.len() <= preserve_tail {
             return;
         }
         let cutoff = messages.len() - preserve_tail;
 
+        // Collect all compactable tool_use IDs and their associated tool_result IDs.
+        // We need to match tool_use names to tool_result IDs.
+        let mut compactable_ids: Vec<String> = Vec::new();
+
+        // Pass 1: find tool_use blocks with compactable tool names.
+        for msg in messages[..cutoff].iter() {
+            if let MessageContent::Parts(parts) = &msg.content {
+                for part in parts {
+                    if let ContentPart::ToolUse { id, name, .. } = part {
+                        let lower = name.to_lowercase();
+                        if COMPACTABLE_TOOLS.iter().any(|t| lower.contains(t)) {
+                            compactable_ids.push(id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        if compactable_ids.len() <= keep_recent {
+            return; // Nothing to clear.
+        }
+
+        // Keep the most recent N, clear the rest.
+        let clear_set: std::collections::HashSet<&str> = compactable_ids
+            [..compactable_ids.len() - keep_recent]
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+
+        if clear_set.is_empty() {
+            return;
+        }
+
+        // Pass 2: clear tool_result content for the IDs to clear.
+        let mut cleared = 0usize;
         for msg in messages[..cutoff].iter_mut() {
             if msg.role != Role::Tool {
                 continue;
@@ -1584,31 +1803,39 @@ impl Agent {
             if let MessageContent::Parts(ref mut parts) = msg.content {
                 for part in parts.iter_mut() {
                     if let ContentPart::ToolResult {
+                        tool_use_id,
                         content,
-                        is_error,
                         ..
                     } = part
-                        && content.len() > 300
+                        && clear_set.contains(tool_use_id.as_str())
+                        && *content != MICROCOMPACT_CLEARED
                     {
-                        let prefix = if *is_error { "ERROR: " } else { "" };
-                        let preview = &content[..content
-                            .char_indices()
-                            .take_while(|(i, _)| *i < 200)
-                            .last()
-                            .map(|(i, c)| i + c.len_utf8())
-                            .unwrap_or(200)
-                            .min(content.len())];
-                        *content = format!("{prefix}{preview}... [digested]");
+                        *content = MICROCOMPACT_CLEARED.to_string();
+                        cleared += 1;
                     }
                 }
             }
+        }
+
+        if cleared > 0 {
+            debug!(
+                cleared,
+                total = compactable_ids.len(),
+                kept = keep_recent,
+                "microcompact: cleared old tool results"
+            );
         }
     }
 
     /// Stages 2+3: Compact conversation by summarizing middle messages.
     /// After compaction, restores: (1) active context (files/tools in use),
     /// (2) preserved skills, (3) recently-read file contents, (4) enrichments.
-    async fn compact_messages(&self, messages: &mut Vec<Message>, recent_files: &[RecentFile]) {
+    async fn compact_messages(
+        &self,
+        messages: &mut Vec<Message>,
+        recent_files: &[RecentFile],
+        invoked_skills: &[InvokedSkill],
+    ) {
         let head = self.config.compact_preserve_head.min(messages.len());
         let tail = self
             .config
@@ -1685,6 +1912,18 @@ impl Agent {
                 "restoring file contents after compaction"
             );
             compacted.extend(file_msgs);
+        }
+
+        // Post-compact skill restoration: re-inject invoked skill content
+        // so the model retains working instructions across compactions.
+        let skill_msgs = Self::build_skill_restoration(invoked_skills);
+        if !skill_msgs.is_empty() {
+            debug!(
+                agent = %self.config.name,
+                skills = skill_msgs.len(),
+                "restoring skill content after compaction"
+            );
+            compacted.extend(skill_msgs);
         }
 
         compacted.extend_from_slice(&messages[messages.len() - tail..]);
@@ -2520,11 +2759,20 @@ mod tests {
     }
 
     #[test]
-    fn test_digest_old_tool_results() {
+    fn test_microcompact() {
         let mut messages = vec![
             Message {
                 role: Role::System,
                 content: MessageContent::text("system"),
+            },
+            // Old assistant + tool round with compactable tool.
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::Parts(vec![ContentPart::ToolUse {
+                    id: "t1".into(),
+                    name: "read_file".into(),
+                    input: serde_json::json!({"file_path": "/src/main.rs"}),
+                }]),
             },
             Message {
                 role: Role::Tool,
@@ -2532,6 +2780,15 @@ mod tests {
                     tool_use_id: "t1".into(),
                     content: "x".repeat(1000),
                     is_error: false,
+                }]),
+            },
+            // Recent assistant + tool round with compactable tool.
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::Parts(vec![ContentPart::ToolUse {
+                    id: "t2".into(),
+                    name: "grep".into(),
+                    input: serde_json::json!({"pattern": "foo"}),
                 }]),
             },
             Message {
@@ -2544,23 +2801,64 @@ mod tests {
             },
         ];
 
-        // preserve_tail=1 means only the last message is preserved.
-        Agent::digest_old_tool_results(&mut messages, 1);
+        // keep_recent=1 means only the most recent compactable tool is kept.
+        Agent::microcompact(&mut messages, 0, 1);
 
-        // First tool result (index 1) should be digested.
-        if let MessageContent::Parts(parts) = &messages[1].content
-            && let ContentPart::ToolResult { content, .. } = &parts[0]
-        {
-            assert!(content.len() < 300, "should be digested, got {}", content.len());
-            assert!(content.contains("[digested]"));
-        }
-
-        // Second tool result (index 2, in tail) should be untouched.
+        // First tool result (t1) should be cleared.
         if let MessageContent::Parts(parts) = &messages[2].content
             && let ContentPart::ToolResult { content, .. } = &parts[0]
         {
-            assert_eq!(content.len(), 1000, "tail should be preserved");
+            assert_eq!(content, "[Old tool result content cleared]");
         }
+
+        // Second tool result (t2, most recent) should be preserved.
+        if let MessageContent::Parts(parts) = &messages[4].content
+            && let ContentPart::ToolResult { content, .. } = &parts[0]
+        {
+            assert_eq!(content.len(), 1000, "recent result should be preserved");
+        }
+    }
+
+    #[test]
+    fn test_snip_compact() {
+        let mut messages = vec![
+            Message {
+                role: Role::System,
+                content: MessageContent::text("system prompt"),
+            },
+            Message {
+                role: Role::User,
+                content: MessageContent::text("user request"),
+            },
+            // Old round to snip.
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::text("a".repeat(400)),
+            },
+            Message {
+                role: Role::Tool,
+                content: MessageContent::Parts(vec![ContentPart::ToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "b".repeat(400),
+                    is_error: false,
+                }]),
+            },
+            // Recent round to preserve.
+            Message {
+                role: Role::Assistant,
+                content: MessageContent::text("recent work"),
+            },
+        ];
+
+        let freed = Agent::snip_compact(&mut messages, 2, 1);
+        assert!(freed > 0, "should have freed tokens");
+        // Head (2) + tail (1) preserved, middle snipped.
+        assert_eq!(messages.len(), 3, "should have 3 messages after snip (was 5)");
+        // Head preserved.
+        assert_eq!(messages[0].role, Role::System);
+        assert_eq!(messages[1].role, Role::User);
+        // Tail preserved.
+        assert_eq!(messages[2].role, Role::Assistant);
     }
 
     #[test]
