@@ -1290,10 +1290,7 @@ impl AgentWorker {
                 &self.project_name,
             );
             // Signal to ContextCompressionMiddleware that the agent loop handles compaction.
-            worker_ctx.metadata.insert(
-                "agent_compaction_active".to_string(),
-                "true".to_string(),
-            );
+            worker_ctx.agent_compaction_active = true;
             Arc::new(MiddlewareObserver::from_arc(
                 Arc::clone(chain),
                 worker_ctx,

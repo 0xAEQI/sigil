@@ -3,8 +3,9 @@ use async_trait::async_trait;
 use sigil_core::traits::{ToolResult, ToolSpec};
 use tracing::debug;
 
+use crate::html_utils::{self, USER_AGENT};
+
 const DEFAULT_MAX_RESULTS: usize = 8;
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /// Search the web using DuckDuckGo and return results.
 pub struct WebSearchTool;
@@ -16,25 +17,7 @@ impl WebSearchTool {
 
     /// Extract text content from an HTML snippet, stripping tags.
     fn strip_tags(html: &str) -> String {
-        let mut result = String::with_capacity(html.len());
-        let mut in_tag = false;
-        for ch in html.chars() {
-            match ch {
-                '<' => in_tag = true,
-                '>' => {
-                    in_tag = false;
-                }
-                _ if !in_tag => result.push(ch),
-                _ => {}
-            }
-        }
-        result
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&nbsp;", " ")
+        html_utils::decode_html_entities(&html_utils::strip_html_tags(html))
             .trim()
             .to_string()
     }

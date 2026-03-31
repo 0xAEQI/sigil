@@ -41,7 +41,7 @@ impl ToolPattern {
     pub fn deny(pattern: impl Into<String>, reason: impl Into<String>) -> Self {
         let reason_str: String = reason.into();
         Self {
-            pattern: pattern.into(),
+            pattern: pattern.into().to_lowercase(),
             reason: reason_str.clone(),
             tier: PermissionTier::Deny(reason_str),
         }
@@ -49,7 +49,7 @@ impl ToolPattern {
 
     pub fn allow(pattern: impl Into<String>, reason: impl Into<String>) -> Self {
         Self {
-            pattern: pattern.into(),
+            pattern: pattern.into().to_lowercase(),
             reason: reason.into(),
             tier: PermissionTier::Allow,
         }
@@ -167,7 +167,7 @@ impl GuardrailsMiddleware {
         // Check deny patterns first (highest priority).
         for p in &self.patterns {
             if matches!(p.tier, PermissionTier::Deny(_))
-                && combined.contains(&p.pattern.to_lowercase())
+                && combined.contains(&p.pattern)
             {
                 return p.tier.clone();
             }
@@ -175,7 +175,7 @@ impl GuardrailsMiddleware {
 
         // Check allow patterns.
         for p in &self.patterns {
-            if p.tier == PermissionTier::Allow && combined.contains(&p.pattern.to_lowercase()) {
+            if p.tier == PermissionTier::Allow && combined.contains(&p.pattern) {
                 return PermissionTier::Allow;
             }
         }

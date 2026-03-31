@@ -4,6 +4,7 @@ pub mod file;
 pub mod git;
 pub mod glob;
 pub mod grep;
+pub mod html_utils;
 pub mod porkbun;
 pub mod shell;
 pub mod skill;

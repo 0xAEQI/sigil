@@ -3,8 +3,9 @@ use async_trait::async_trait;
 use sigil_core::traits::{ToolResult, ToolSpec};
 use tracing::debug;
 
+use crate::html_utils::{self, USER_AGENT};
+
 const DEFAULT_MAX_LENGTH: usize = 50_000;
-const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /// Fetch a web page and return its content as readable text.
 pub struct WebFetchTool;
@@ -40,28 +41,10 @@ impl WebFetchTool {
         }
 
         // Strip all remaining HTML tags.
-        let mut result = String::with_capacity(text.len());
-        let mut in_tag = false;
-        for ch in text.chars() {
-            match ch {
-                '<' => in_tag = true,
-                '>' => {
-                    in_tag = false;
-                    result.push(' '); // Replace tag with space to avoid words merging.
-                }
-                _ if !in_tag => result.push(ch),
-                _ => {}
-            }
-        }
+        let result = html_utils::strip_html_tags(&text);
 
         // Decode common HTML entities.
-        let result = result
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&nbsp;", " ");
+        let result = html_utils::decode_html_entities(&result);
 
         // Collapse whitespace: replace runs of whitespace with a single space,
         // but preserve paragraph breaks (double newlines).

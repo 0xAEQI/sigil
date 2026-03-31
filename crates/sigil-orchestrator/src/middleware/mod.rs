@@ -151,6 +151,9 @@ pub struct WorkerContext {
     pub cost_usd: f64,
     /// Arbitrary metadata that middleware can share.
     pub metadata: HashMap<String, String>,
+    /// When true, the agent loop handles context compaction directly;
+    /// ContextCompressionMiddleware defers to avoid conflicting recovery.
+    pub agent_compaction_active: bool,
 }
 
 impl WorkerContext {
@@ -169,6 +172,7 @@ impl WorkerContext {
             tool_call_history: Vec::new(),
             cost_usd: 0.0,
             metadata: HashMap::new(),
+            agent_compaction_active: false,
         }
     }
 }

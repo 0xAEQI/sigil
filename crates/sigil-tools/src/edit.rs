@@ -221,6 +221,14 @@ fn find_similar_substring(content: &str, needle: &str, max_diff: usize) -> Optio
         return None;
     }
 
+    // UTF-8 safety: ensure byte positions land on character boundaries.
+    if best_pos + needle_len > content.len()
+        || !content.is_char_boundary(best_pos)
+        || !content.is_char_boundary(best_pos + needle_len)
+    {
+        return None;
+    }
+
     // Extract the similar substring
     let similar = &content[best_pos..best_pos + needle_len];
     Some(similar.to_string())
@@ -247,15 +255,6 @@ fn find_fuzzy_match(content: &str, needle: &str) -> Option<(usize, String)> {
         if line_normalized.contains(&needle_normalized) {
             return Some((i + 1, line.to_string()));
         }
-    }
-
-    // Sliding window: find substrings that differ by ≤3 characters
-    if let Some(similar) = find_similar_substring(content, needle, 3) {
-        // Find the line number of the similar match
-        let pos = content.find(&similar).unwrap_or(0);
-        let line_num = content[..pos].lines().count().max(1);
-        let first_match_line = similar.lines().next().unwrap_or(&similar);
-        return Some((line_num, first_match_line.to_string()));
     }
 
     None

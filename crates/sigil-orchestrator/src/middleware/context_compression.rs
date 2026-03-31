@@ -194,7 +194,7 @@ impl Middleware for ContextCompressionMiddleware {
 
     async fn before_model(&self, ctx: &mut WorkerContext) -> MiddlewareAction {
         // Defer to the agent loop's token-aware compaction when active.
-        if ctx.metadata.get("agent_compaction_active").map_or(false, |v| v == "true") {
+        if ctx.agent_compaction_active {
             return MiddlewareAction::Continue;
         }
 
@@ -232,7 +232,7 @@ impl Middleware for ContextCompressionMiddleware {
     async fn on_error(&self, ctx: &mut WorkerContext, error: &str) -> MiddlewareAction {
         // When the agent loop handles compaction, it also handles context-length
         // errors (compact + retry). Defer to avoid conflicting recovery.
-        if ctx.metadata.get("agent_compaction_active").map_or(false, |v| v == "true") {
+        if ctx.agent_compaction_active {
             return MiddlewareAction::Continue;
         }
 
@@ -526,7 +526,7 @@ mod tests {
         let mw = ContextCompressionMiddleware::with_config(0.50, 10, 1, 1);
         let mut ctx = test_ctx();
         ctx.messages = make_messages(20); // Way above threshold
-        ctx.metadata.insert("agent_compaction_active".to_string(), "true".to_string());
+        ctx.agent_compaction_active = true;
 
         let action = mw.before_model(&mut ctx).await;
         assert!(matches!(action, MiddlewareAction::Continue));
@@ -537,7 +537,7 @@ mod tests {
     async fn defers_to_agent_compaction_on_error() {
         let mw = ContextCompressionMiddleware::with_config(0.50, 500, 2, 2);
         let mut ctx = test_ctx();
-        ctx.metadata.insert("agent_compaction_active".to_string(), "true".to_string());
+        ctx.agent_compaction_active = true;
 
         let action = mw.on_error(&mut ctx, "context length exceeded").await;
         assert!(matches!(action, MiddlewareAction::Continue));

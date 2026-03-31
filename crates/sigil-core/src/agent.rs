@@ -492,7 +492,10 @@ impl Agent {
             }
 
             // --- Conversation repair: ensure tool_use/tool_result pairing ---
-            Self::repair_tool_pairing(&mut messages);
+            // Only needed after compaction which may drop half of a use/result pair.
+            if matches!(transition, LoopTransition::ContextCompacted | LoopTransition::ContextLengthRecovery) {
+                Self::repair_tool_pairing(&mut messages);
+            }
 
             // Build request.
             let request = ChatRequest {
