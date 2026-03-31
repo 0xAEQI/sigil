@@ -34,6 +34,8 @@ struct AppState {
     scroll_offset: u16,
     ws_tx: Option<tungstenite::WebSocket<std::net::TcpStream>>,
     should_quit: bool,
+    agent_id: Option<String>,
+    project: Option<String>,
 }
 
 impl AppState {
@@ -49,6 +51,8 @@ impl AppState {
             scroll_offset: 0,
             ws_tx: None,
             should_quit: false,
+            agent_id: None,
+            project: None,
         }
     }
 
@@ -454,8 +458,35 @@ fn truncate(s: &str, max: usize) -> String {
 // ---------------------------------------------------------------------------
 
 /// Terminal chat interface using ratatui + crossterm + tungstenite.
-pub(crate) async fn cmd_chat_tui(config_path: &Option<PathBuf>) -> Result<()> {
+pub(crate) async fn cmd_chat_tui(
+    config_path: &Option<PathBuf>,
+    agent_name: Option<&str>,
+    project: Option<&str>,
+) -> Result<()> {
     let (config, _) = load_config(config_path)?;
+    let data_dir = config.data_dir();
+
+    // Resolve the persistent agent to chat with.
+    let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&data_dir)?;
+    let agent = if let Some(name) = agent_name {
+        registry.get_by_name(name).await?
+    } else {
+        registry.default_for_project(project).await?
+    };
+
+    let (agent_display, agent_id) = match &agent {
+        Some(a) => (
+            a.display_name.as_deref().unwrap_or(&a.name).to_string(),
+            Some(a.id.clone()),
+        ),
+        None => (
+            config
+                .leader_agent()
+                .map(|a| a.name.clone())
+                .unwrap_or_else(|| "Rei".into()),
+            None,
+        ),
+    };
 
     // Extract port from the bind address (e.g. "0.0.0.0:8400" -> 8400).
     let bind = &config.web.bind;
@@ -485,10 +516,10 @@ pub(crate) async fn cmd_chat_tui(config_path: &Option<PathBuf>) -> Result<()> {
     let mut term = ratatui::Terminal::new(backend)?;
 
     let mut state = AppState::new();
-    state.status_agent = config
-        .leader_agent()
-        .map(|a| a.name.clone())
-        .unwrap_or_else(|| "Rei".into());
+    state.status_agent = agent_display;
+    // Store agent_id and project in state for inclusion in WebSocket messages.
+    state.agent_id = agent_id;
+    state.project = project.map(|s| s.to_string());
 
     // Main event loop.
     let result = run_loop(&mut term, &mut state, &event_rx, &cmd_tx);
@@ -538,9 +569,15 @@ fn run_loop(
                             state.push_user(&text);
                             state.input.clear();
 
-                            let msg = serde_json::json!({
+                            let mut msg = serde_json::json!({
                                 "message": text,
                             });
+                            if let Some(ref aid) = state.agent_id {
+                                msg["agent_id"] = serde_json::json!(aid);
+                            }
+                            if let Some(ref p) = state.project {
+                                msg["project"] = serde_json::json!(p);
+                            }
                             let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
                         }
                     }

@@ -227,7 +227,14 @@ pub enum Commands {
     },
 
     /// Interactive streaming chat with a Sigil agent (TUI).
-    Chat,
+    Chat {
+        /// Persistent agent to chat with (default: auto-select based on project).
+        #[arg(short, long)]
+        agent: Option<String>,
+        /// Project scope for agent selection and memory.
+        #[arg(short = 'r', long = "project", alias = "rig")]
+        project: Option<String>,
+    },
 
     /// Run as an MCP (Model Context Protocol) server.
     Mcp,
