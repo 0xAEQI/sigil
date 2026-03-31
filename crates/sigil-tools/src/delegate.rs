@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use sigil_core::traits::{LogObserver, Observer, Provider, Tool, ToolResult, ToolSpec};
-use sigil_core::{Agent, AgentConfig, Identity, SessionType};
+use sigil_core::{Agent, AgentConfig, Identity, LoopNotification, NotificationSender, SessionType};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -86,19 +86,28 @@ pub struct AgentHandle {
 // ---------------------------------------------------------------------------
 
 /// Shared registry of background agents + notification channel.
+///
+/// `notification_tx` delivers `AgentNotification` for the delegate tool's tracking.
+/// `loop_tx` delivers `LoopNotification` to the parent agent's loop for injection
+/// as user-role messages between turns.
 #[derive(Clone)]
 pub struct AgentInfra {
     pub registry: Arc<Mutex<HashMap<String, AgentHandle>>>,
     pub notification_tx: mpsc::UnboundedSender<AgentNotification>,
+    /// Sends XML notifications into the parent agent loop.
+    pub loop_tx: NotificationSender,
 }
 
 impl AgentInfra {
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<AgentNotification>) {
+    /// Create infrastructure with a pre-existing loop notification sender.
+    /// The receiver should be passed to `Agent::with_notification_rx()`.
+    pub fn new(loop_tx: NotificationSender) -> (Self, mpsc::UnboundedReceiver<AgentNotification>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (
             Self {
                 registry: Arc::new(Mutex::new(HashMap::new())),
                 notification_tx: tx,
+                loop_tx,
             },
             rx,
         )
@@ -284,6 +293,7 @@ impl DelegateTool {
         let model = self.model.clone();
         let registry = infra.registry.clone();
         let notification_tx = infra.notification_tx.clone();
+        let loop_tx = infra.loop_tx.clone();
         let id = agent_id.clone();
         let desc = description.clone();
 
@@ -334,7 +344,12 @@ impl DelegateTool {
                     };
                     if !handle.notified {
                         handle.notified = true;
-                        let _ = notification_tx.send(notification);
+                        // Send to delegate tool's tracking channel.
+                        let _ = notification_tx.send(notification.clone());
+                        // Send XML to parent agent loop for injection between turns.
+                        let _ = loop_tx.send(LoopNotification {
+                            content: notification.to_xml(),
+                        });
                     }
                 }
             }
@@ -448,7 +463,8 @@ mod tests {
 
     #[test]
     fn test_agent_infra_creation() {
-        let (infra, _rx) = AgentInfra::new();
+        let (loop_tx, _loop_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (infra, _rx) = AgentInfra::new(loop_tx);
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let reg = infra.registry.lock().await;

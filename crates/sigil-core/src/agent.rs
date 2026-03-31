@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, warn};
 
 use crate::identity::Identity;
@@ -9,6 +10,19 @@ use crate::traits::{
     MemoryCategory, MemoryQuery, MemoryScope, Message, MessageContent, Observer, Provider, Role,
     StopReason, Tool, ToolResult, ToolSpec, Usage,
 };
+
+/// Generic notification that can be injected into the agent loop between turns.
+/// Used by background agents to deliver results to the parent.
+#[derive(Debug, Clone)]
+pub struct LoopNotification {
+    /// Content to inject as a user-role message (e.g., XML task-notification).
+    pub content: String,
+}
+
+/// Sender half for injecting notifications into an agent loop.
+pub type NotificationSender = mpsc::UnboundedSender<LoopNotification>;
+/// Receiver half for draining notifications inside the agent loop.
+pub type NotificationReceiver = mpsc::UnboundedReceiver<LoopNotification>;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -340,6 +354,8 @@ pub struct Agent {
     identity: Identity,
     memory: Option<Arc<dyn Memory>>,
     chat_stream: Option<crate::chat_stream::ChatStreamSender>,
+    /// Receiver for notifications from background agents. Drained between turns.
+    notification_rx: Option<Arc<Mutex<NotificationReceiver>>>,
 }
 
 impl Agent {
@@ -358,6 +374,7 @@ impl Agent {
             identity,
             memory: None,
             chat_stream: None,
+            notification_rx: None,
         }
     }
 
@@ -370,6 +387,13 @@ impl Agent {
     /// Attach a chat stream sender for real-time event streaming to clients.
     pub fn with_chat_stream(mut self, sender: crate::chat_stream::ChatStreamSender) -> Self {
         self.chat_stream = Some(sender);
+        self
+    }
+
+    /// Attach a notification receiver for background agent results.
+    /// Notifications are drained between turns and injected as user-role messages.
+    pub fn with_notification_rx(mut self, rx: NotificationReceiver) -> Self {
+        self.notification_rx = Some(Arc::new(Mutex::new(rx)));
         self
     }
 
@@ -1114,6 +1138,26 @@ impl Agent {
             let attachments = self.observer.collect_attachments(iterations).await;
             if !attachments.is_empty() {
                 Self::inject_enrichments(&mut messages, attachments, &self.config);
+            }
+
+            // --- Drain background agent notifications ---
+            if let Some(ref rx) = self.notification_rx {
+                let mut rx_guard = rx.lock().await;
+                let mut notif_count = 0u32;
+                while let Ok(notif) = rx_guard.try_recv() {
+                    messages.push(Message {
+                        role: Role::User,
+                        content: MessageContent::text(&notif.content),
+                    });
+                    notif_count += 1;
+                }
+                if notif_count > 0 {
+                    debug!(
+                        agent = %self.config.name,
+                        count = notif_count,
+                        "injected background agent notifications"
+                    );
+                }
             }
 
             transition = LoopTransition::ToolUse;
