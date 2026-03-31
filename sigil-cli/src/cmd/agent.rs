@@ -89,7 +89,7 @@ pub(crate) async fn cmd_agent(
             let (config, _) = load_config(config_path)?;
             let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
             let content = std::fs::read_to_string(&template)?;
-            let agent = registry.spawn_from_template(&content, project.as_deref()).await?;
+            let agent = registry.spawn_from_template(&content, project.as_deref(), None).await?;
             println!("Spawned persistent agent:");
             println!("  ID:      {}", agent.id);
             println!("  Name:    {}", agent.name);
@@ -102,8 +102,11 @@ pub(crate) async fn cmd_agent(
         crate::cli::AgentAction::Show { name } => {
             let (config, _) = load_config(config_path)?;
             let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
-            match registry.get_by_name(&name).await? {
-                Some(a) => {
+            let agents = registry.get_by_name(&name).await?;
+            if agents.is_empty() {
+                println!("No agents named '{name}' in registry.");
+            }
+            for a in &agents {
                     println!("Agent: {} ({})", a.name, a.id);
                     if let Some(d) = &a.display_name { println!("  Display:  {d}"); }
                     println!("  Status:   {}", a.status);
@@ -115,8 +118,7 @@ pub(crate) async fn cmd_agent(
                     println!("  Created:  {}", a.created_at);
                     if let Some(la) = &a.last_active { println!("  Active:   {la}"); }
                     println!("\n--- System Prompt ---\n{}", a.system_prompt);
-                },
-                None => println!("Agent '{name}' not found in registry."),
+                    println!();
             }
             Ok(())
         }

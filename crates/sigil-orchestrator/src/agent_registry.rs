@@ -38,10 +38,14 @@ use tracing::{debug, info};
 pub struct PersistentAgent {
     /// Stable UUID — used as entity_id for memory scoping.
     pub id: String,
-    /// Human-readable name (unique, e.g., "shadow", "sigil-architect").
+    /// Human-readable name (NOT unique — multiple agents can share a name).
+    /// The UUID is the true identity. Name is a display label.
     pub name: String,
     /// Display name shown in UI.
     pub display_name: Option<String>,
+    /// Template file this agent was created from (e.g., "shadow", "analyst").
+    /// Tracks origin. Multiple agents can share the same template.
+    pub template: String,
     /// The full system prompt — the agent's identity, personality, role,
     /// instructions. Stored in DB. This IS the agent.
     pub system_prompt: String,
@@ -159,8 +163,9 @@ impl AgentRegistry {
              PRAGMA busy_timeout = 5000;
              CREATE TABLE IF NOT EXISTS agents (
                  id TEXT PRIMARY KEY,
-                 name TEXT NOT NULL UNIQUE,
+                 name TEXT NOT NULL,
                  display_name TEXT,
+                 template TEXT NOT NULL DEFAULT '',
                  system_prompt TEXT NOT NULL DEFAULT '',
                  project TEXT,
                  department TEXT,
@@ -173,7 +178,8 @@ impl AgentRegistry {
                  total_tokens INTEGER NOT NULL DEFAULT 0
              );
              CREATE INDEX IF NOT EXISTS idx_agents_project ON agents(project);
-             CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);",
+             CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+             CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);",
         )?;
 
         info!(path = %db_path.display(), "agent registry opened");
@@ -187,15 +193,18 @@ impl AgentRegistry {
         &self,
         template_content: &str,
         project_override: Option<&str>,
+        department_override: Option<&str>,
     ) -> Result<PersistentAgent> {
         let (fm, system_prompt) = parse_agent_template(template_content);
+        let template_name = fm.name.clone().unwrap_or_else(|| "custom".to_string());
         let name = fm.name.unwrap_or_else(|| format!("agent-{}", &uuid::Uuid::new_v4().to_string()[..8]));
         self.spawn(
             &name,
             fm.display_name.as_deref(),
+            &template_name,
             &system_prompt,
             project_override.or(fm.project.as_deref()),
-            fm.department.as_deref(),
+            department_override.or(fm.department.as_deref()),
             fm.model.as_deref(),
             &fm.capabilities,
         ).await
@@ -206,6 +215,7 @@ impl AgentRegistry {
         &self,
         name: &str,
         display_name: Option<&str>,
+        template: &str,
         system_prompt: &str,
         project: Option<&str>,
         department: Option<&str>,
@@ -220,6 +230,7 @@ impl AgentRegistry {
             id: id.clone(),
             name: name.to_string(),
             display_name: display_name.map(|s| s.to_string()),
+            template: template.to_string(),
             system_prompt: system_prompt.to_string(),
             project: project.map(|s| s.to_string()),
             department: department.map(|s| s.to_string()),
@@ -234,12 +245,13 @@ impl AgentRegistry {
 
         let db = self.db.lock().await;
         db.execute(
-            "INSERT INTO agents (id, name, display_name, system_prompt, project, department, model, capabilities, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO agents (id, name, display_name, template, system_prompt, project, department, model, capabilities, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 agent.id,
                 agent.name,
                 agent.display_name,
+                agent.template,
                 agent.system_prompt,
                 agent.project,
                 agent.department,
@@ -286,12 +298,25 @@ impl AgentRegistry {
         Ok(agents)
     }
 
-    /// Get a specific agent by name.
-    pub async fn get_by_name(&self, name: &str) -> Result<Option<PersistentAgent>> {
+    /// Get agents by name (multiple can share a name).
+    /// Returns all matches sorted by created_at descending (newest first).
+    pub async fn get_by_name(&self, name: &str) -> Result<Vec<PersistentAgent>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT * FROM agents WHERE name = ?1 ORDER BY created_at DESC",
+        )?;
+        let agents = stmt
+            .query_map(params![name], |row| Ok(row_to_agent(row)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(agents)
+    }
+
+    /// Get the first active agent with this name (convenience for unambiguous lookups).
+    pub async fn get_active_by_name(&self, name: &str) -> Result<Option<PersistentAgent>> {
         let db = self.db.lock().await;
         let agent = db
             .query_row(
-                "SELECT * FROM agents WHERE name = ?1",
+                "SELECT * FROM agents WHERE name = ?1 AND status = 'active' ORDER BY created_at DESC LIMIT 1",
                 params![name],
                 |row| Ok(row_to_agent(row)),
             )
@@ -388,6 +413,7 @@ fn row_to_agent(row: &rusqlite::Row) -> PersistentAgent {
         id: row.get("id").unwrap_or_default(),
         name: row.get("name").unwrap_or_default(),
         display_name: row.get("display_name").ok(),
+        template: row.get("template").unwrap_or_default(),
         system_prompt: row.get("system_prompt").unwrap_or_default(),
         project: row.get("project").ok(),
         department: row.get("department").ok(),
@@ -427,7 +453,7 @@ mod tests {
     async fn spawn_and_get() {
         let reg = test_registry().await;
         let agent = reg
-            .spawn("shadow", Some("Shadow"), "You are Shadow.", None, None, Some("claude-sonnet-4.6"), &["spawn_agents".into()])
+            .spawn("shadow", Some("Shadow"), "shadow", "You are Shadow.", None, None, Some("claude-sonnet-4.6"), &["spawn_agents".into()])
             .await
             .unwrap();
 
@@ -438,16 +464,16 @@ mod tests {
         assert_eq!(agent.status, AgentStatus::Active);
         assert_eq!(agent.session_count, 0);
 
-        let fetched = reg.get_by_name("shadow").await.unwrap().unwrap();
-        assert_eq!(fetched.id, agent.id);
-        assert_eq!(fetched.system_prompt, "You are Shadow.");
+        let fetched = reg.get_by_name("shadow").await.unwrap();
+        assert_eq!(fetched.len(), 1);
+        assert_eq!(fetched[0].id, agent.id);
     }
 
     #[tokio::test]
     async fn spawn_project_scoped() {
         let reg = test_registry().await;
         let agent = reg
-            .spawn("sigil-lead", None, "Lead for sigil.", Some("sigil"), None, None, &[])
+            .spawn("sigil-lead", None, "shadow", "Lead for sigil.", Some("sigil"), None, None, &[])
             .await
             .unwrap();
 
@@ -465,7 +491,7 @@ mod tests {
     async fn record_session_updates_stats() {
         let reg = test_registry().await;
         let agent = reg
-            .spawn("test-agent", None, "Test agent.", None, None, None, &[])
+            .spawn("test-agent", None, "researcher", "Test agent.", None, None, None, &[])
             .await
             .unwrap();
 
@@ -481,21 +507,21 @@ mod tests {
     #[tokio::test]
     async fn status_lifecycle() {
         let reg = test_registry().await;
-        reg.spawn("lifecycle", None, "Lifecycle test.", None, None, None, &[])
+        reg.spawn("lifecycle", None, "shadow", "Lifecycle test.", None, None, None, &[])
             .await
             .unwrap();
 
         reg.set_status("lifecycle", AgentStatus::Paused)
             .await
             .unwrap();
-        let agent = reg.get_by_name("lifecycle").await.unwrap().unwrap();
-        assert_eq!(agent.status, AgentStatus::Paused);
+        let agents = reg.get_by_name("lifecycle").await.unwrap();
+        assert_eq!(agents[0].status, AgentStatus::Paused);
 
         reg.set_status("lifecycle", AgentStatus::Retired)
             .await
             .unwrap();
-        let agent = reg.get_by_name("lifecycle").await.unwrap().unwrap();
-        assert_eq!(agent.status, AgentStatus::Retired);
+        let agents = reg.get_by_name("lifecycle").await.unwrap();
+        assert_eq!(agents[0].status, AgentStatus::Retired);
 
         // Active filter should not return retired agents.
         let active = reg.list(None, Some(AgentStatus::Active)).await.unwrap();
@@ -505,10 +531,10 @@ mod tests {
     #[tokio::test]
     async fn default_for_project() {
         let reg = test_registry().await;
-        reg.spawn("root-shadow", None, "Root agent.", None, None, None, &[])
+        reg.spawn("root-shadow", None, "shadow", "Root agent.", None, None, None, &[])
             .await
             .unwrap();
-        reg.spawn("sigil-lead", None, "Sigil lead.", Some("sigil"), None, None, &[])
+        reg.spawn("sigil-lead", None, "shadow", "Sigil lead.", Some("sigil"), None, None, &[])
             .await
             .unwrap();
 
@@ -526,13 +552,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn duplicate_name_rejected() {
+    async fn duplicate_names_allowed() {
         let reg = test_registry().await;
-        reg.spawn("unique", None, "Unique.", None, None, None, &[])
+        let agent1 = reg
+            .spawn("shadow", None, "shadow", "First shadow.", None, None, None, &[])
             .await
             .unwrap();
-        let result = reg.spawn("unique", None, "Dup.", None, None, None, &[]).await;
-        assert!(result.is_err());
+        let agent2 = reg
+            .spawn("shadow", None, "shadow", "Second shadow.", None, None, None, &[])
+            .await
+            .unwrap();
+        // Same name, different UUIDs.
+        assert_ne!(agent1.id, agent2.id);
+        assert_eq!(agent1.name, agent2.name);
+        // get_by_name returns both.
+        let all = reg.get_by_name("shadow").await.unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     #[tokio::test]
@@ -548,7 +583,7 @@ capabilities: [spawn_agents, spawn_projects]
 You are Shadow, the user's personal assistant.
 You learn everything about the user aggressively.
 "#;
-        let agent = reg.spawn_from_template(template, None).await.unwrap();
+        let agent = reg.spawn_from_template(template, None, None).await.unwrap();
         assert_eq!(agent.name, "shadow");
         assert_eq!(agent.display_name.as_deref(), Some("Shadow — Your Dark Butler"));
         assert_eq!(agent.model.as_deref(), Some("anthropic/claude-sonnet-4.6"));

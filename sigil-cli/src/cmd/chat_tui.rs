@@ -470,7 +470,7 @@ pub(crate) async fn cmd_chat_tui(
     // Resolve the persistent agent to chat with.
     let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&data_dir)?;
     let agent = if let Some(name) = agent_name {
-        registry.get_by_name(name).await?
+        registry.get_active_by_name(name).await?
     } else {
         registry.default_for_project(project).await?
     };
