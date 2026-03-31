@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 /// A single message in the conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,11 +118,58 @@ pub enum StopReason {
     Unknown(String),
 }
 
+/// Events emitted during streaming.
+#[derive(Debug, Clone)]
+pub enum StreamEvent {
+    /// Incremental text content.
+    TextDelta(String),
+    /// A tool use block is starting.
+    ToolUseStart { id: String, name: String },
+    /// Incremental JSON input for the current tool use block.
+    ToolUseInput(String),
+    /// The complete response has been assembled (final usage available).
+    MessageComplete(ChatResponse),
+    /// Token usage update (may arrive mid-stream or at end).
+    Usage(Usage),
+}
+
 /// LLM provider trait. All providers must implement this.
 #[async_trait]
 pub trait Provider: Send + Sync {
     /// Send a chat request and get a response.
     async fn chat(&self, request: &ChatRequest) -> anyhow::Result<ChatResponse>;
+
+    /// Stream a chat response as incremental events.
+    ///
+    /// Default implementation wraps `chat()` — providers override for true streaming.
+    /// The sender is used to emit events; the final `MessageComplete` event MUST be sent.
+    async fn chat_stream(
+        &self,
+        request: &ChatRequest,
+        tx: mpsc::Sender<StreamEvent>,
+    ) -> anyhow::Result<()> {
+        let response = self.chat(request).await?;
+        // Emit text delta if present.
+        if let Some(ref text) = response.content {
+            let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
+        }
+        // Emit tool use events.
+        for tc in &response.tool_calls {
+            let _ = tx
+                .send(StreamEvent::ToolUseStart {
+                    id: tc.id.clone(),
+                    name: tc.name.clone(),
+                })
+                .await;
+            let _ = tx
+                .send(StreamEvent::ToolUseInput(tc.arguments.to_string()))
+                .await;
+        }
+        // Emit usage and completion.
+        let _ = tx.send(StreamEvent::Usage(response.usage.clone())).await;
+        let _ = tx.send(StreamEvent::MessageComplete(response)).await;
+        Ok(())
+    }
 
     /// Provider name for logging/metrics.
     fn name(&self) -> &str;

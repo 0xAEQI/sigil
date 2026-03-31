@@ -1254,11 +1254,16 @@ impl AgentWorker {
         identity: &Identity,
     ) -> Result<sigil_core::AgentResult> {
         let observer: Arc<dyn Observer> = if let Some(ref chain) = self.middleware_chain {
-            let worker_ctx = crate::middleware::WorkerContext::new(
+            let mut worker_ctx = crate::middleware::WorkerContext::new(
                 self.hook.as_ref().map(|h| h.task_id.0.as_str()).unwrap_or("unknown"),
                 task_context.chars().take(500).collect::<String>(),
                 &self.agent_name,
                 &self.project_name,
+            );
+            // Signal to ContextCompressionMiddleware that the agent loop handles compaction.
+            worker_ctx.metadata.insert(
+                "agent_compaction_active".to_string(),
+                "true".to_string(),
             );
             Arc::new(MiddlewareObserver::from_arc(
                 Arc::clone(chain),
@@ -1269,10 +1274,37 @@ impl AgentWorker {
             Arc::new(LogObserver)
         };
 
+        // Resolve context window from model name.
+        let context_window = sigil_providers::context_window_for_model(model);
+
+        // Resolve persist_dir: use project dir's .sigil/persist/{worker}, or temp on demand.
+        let persist_dir = self.project_dir.as_ref().map(|dir| {
+            let p = dir.join(".sigil").join("persist").join(&self.name);
+            if !p.exists() {
+                let _ = std::fs::create_dir_all(&p);
+            }
+            p
+        });
+
+        // Resolve session file for checkpoint/resume.
+        let session_file = self.project_dir.as_ref().map(|dir| {
+            let task_id = self
+                .hook
+                .as_ref()
+                .map(|h| h.task_id.0.as_str())
+                .unwrap_or("unknown");
+            dir.join(".sigil")
+                .join("sessions")
+                .join(format!("{}.json", task_id))
+        });
+
         let agent_config = AgentConfig {
             model: model.to_string(),
             max_iterations: 20,
             name: self.agent_name.clone(),
+            context_window,
+            persist_dir,
+            session_file,
             ..Default::default()
         };
 
@@ -1659,5 +1691,28 @@ impl Observer for MiddlewareObserver {
         };
         ctx.tool_call_history.push(call.clone());
         Self::map_action(self.chain.run_after_tool(&mut ctx, &call, &result).await)
+    }
+
+    async fn on_error(&self, _iteration: u32, error: &str) -> LoopAction {
+        let mut ctx = self.ctx.lock().await;
+        Self::map_action(self.chain.run_on_error(&mut ctx, error).await)
+    }
+
+    async fn after_turn(
+        &self,
+        _iteration: u32,
+        response_text: &str,
+        stop_reason: &str,
+    ) -> LoopAction {
+        let mut ctx = self.ctx.lock().await;
+        Self::map_action(self.chain.run_after_turn(&mut ctx, response_text, stop_reason).await)
+    }
+
+    async fn collect_attachments(
+        &self,
+        _iteration: u32,
+    ) -> Vec<sigil_core::traits::ContextAttachment> {
+        let mut ctx = self.ctx.lock().await;
+        self.chain.run_collect_enrichments(&mut ctx).await
     }
 }

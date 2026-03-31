@@ -183,6 +183,57 @@ pub fn estimate_cost(model: &str, prompt_tokens: u32, completion_tokens: u32) ->
     lookup(model).cost(prompt_tokens, completion_tokens)
 }
 
+// ---------------------------------------------------------------------------
+// Context window sizes
+// ---------------------------------------------------------------------------
+
+/// Known model context window sizes in tokens.
+/// Uses prefix matching (same as pricing). Returns a conservative default
+/// for unknown models.
+static CONTEXT_WINDOWS: &[(&str, u32)] = &[
+    // Claude 4.x family — 200k standard
+    ("claude-opus-4", 200_000),
+    ("claude-sonnet-4", 200_000),
+    ("claude-haiku-4", 200_000),
+    ("anthropic/claude-opus", 200_000),
+    ("anthropic/claude-sonnet", 200_000),
+    ("anthropic/claude-haiku", 200_000),
+    // Claude 3.x
+    ("claude-3.5-sonnet", 200_000),
+    ("claude-3-haiku", 200_000),
+    // MiniMax
+    ("minimax/minimax-m2.5", 1_000_000),
+    ("minimax/minimax-m1", 1_000_000),
+    // DeepSeek
+    ("deepseek/deepseek-v3", 128_000),
+    ("deepseek/deepseek-r1", 128_000),
+    ("deepseek/deepseek-chat", 128_000),
+    // GPT-4o
+    ("openai/gpt-4o", 128_000),
+    ("openai/gpt-4o-mini", 128_000),
+    // Gemini
+    ("google/gemini-2.5-pro", 1_000_000),
+    ("google/gemini-2.5-flash", 1_000_000),
+    // Llama (typical OpenRouter limits)
+    ("meta-llama/llama-4", 128_000),
+    ("meta-llama/llama-3", 128_000),
+    // Ollama (conservative local default)
+    ("ollama/", 32_000),
+];
+
+const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
+
+/// Look up the context window size for a model.
+pub fn context_window_for_model(model: &str) -> u32 {
+    let model_lower = model.to_lowercase();
+    for (prefix, window) in CONTEXT_WINDOWS {
+        if model_lower.starts_with(prefix) {
+            return *window;
+        }
+    }
+    DEFAULT_CONTEXT_WINDOW
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +274,25 @@ mod tests {
     fn test_zero_tokens() {
         let cost = estimate_cost("claude-opus-4-6", 0, 0);
         assert!(cost.abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_context_window_claude_sonnet() {
+        assert_eq!(context_window_for_model("anthropic/claude-sonnet-4.6"), 200_000);
+    }
+
+    #[test]
+    fn test_context_window_deepseek() {
+        assert_eq!(context_window_for_model("deepseek/deepseek-v3"), 128_000);
+    }
+
+    #[test]
+    fn test_context_window_unknown_model() {
+        assert_eq!(context_window_for_model("totally-unknown/v1"), DEFAULT_CONTEXT_WINDOW);
+    }
+
+    #[test]
+    fn test_context_window_gemini() {
+        assert_eq!(context_window_for_model("google/gemini-2.5-pro"), 1_000_000);
     }
 }

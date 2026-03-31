@@ -128,6 +128,8 @@ impl Default for Outcome {
     }
 }
 
+pub use sigil_core::traits::ContextAttachment;
+
 /// Mutable context threaded through the middleware chain during execution.
 ///
 /// Middleware can read and mutate this to influence execution behavior.
@@ -227,6 +229,26 @@ pub trait Middleware: Send + Sync + 'static {
     /// Called when an error occurs during execution.
     async fn on_error(&self, _ctx: &mut WorkerContext, _error: &str) -> MiddlewareAction {
         MiddlewareAction::Continue
+    }
+
+    /// Called when the model finishes a turn with no tool calls.
+    /// Allows middleware to validate the agent's response before accepting it.
+    /// Return `Inject` to force the agent to continue with additional instructions.
+    async fn after_turn(
+        &self,
+        _ctx: &mut WorkerContext,
+        _response_text: &str,
+        _stop_reason: &str,
+    ) -> MiddlewareAction {
+        MiddlewareAction::Continue
+    }
+
+    /// Collect context enrichments to inject before the next model call.
+    /// Unlike `before_model` (which uses Inject for simple messages), this
+    /// returns typed attachments with token budgets that the agent loop
+    /// manages and prioritizes.
+    async fn collect_enrichments(&self, _ctx: &mut WorkerContext) -> Vec<ContextAttachment> {
+        Vec::new()
     }
 }
 
@@ -353,6 +375,33 @@ impl MiddlewareChain {
     pub async fn run_on_error(&self, ctx: &mut WorkerContext, error: &str) -> MiddlewareAction {
         run_chain!(&self.layers, ctx, "on_error", |mw, ctx| mw
             .on_error(ctx, error))
+    }
+
+    /// Run `after_turn` across all middleware.
+    pub async fn run_after_turn(
+        &self,
+        ctx: &mut WorkerContext,
+        response_text: &str,
+        stop_reason: &str,
+    ) -> MiddlewareAction {
+        run_chain!(&self.layers, ctx, "after_turn", |mw, ctx| mw
+            .after_turn(ctx, response_text, stop_reason))
+    }
+
+    /// Collect enrichments from all middleware. Unlike other hooks, this
+    /// gathers from ALL middleware (no short-circuiting) and returns the
+    /// combined attachments sorted by priority.
+    pub async fn run_collect_enrichments(
+        &self,
+        ctx: &mut WorkerContext,
+    ) -> Vec<ContextAttachment> {
+        let mut all = Vec::new();
+        for layer in &self.layers {
+            let mut attachments = layer.collect_enrichments(ctx).await;
+            all.append(&mut attachments);
+        }
+        all.sort_by_key(|a| a.priority);
+        all
     }
 }
 

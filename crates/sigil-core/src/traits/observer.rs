@@ -2,6 +2,23 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// A typed context attachment for mid-turn enrichment.
+///
+/// Observers collect these between tool execution and the next model call.
+/// The agent loop applies per-type token budgets, sorts by priority, and
+/// injects surviving attachments as system messages.
+#[derive(Debug, Clone)]
+pub struct ContextAttachment {
+    /// Source identifier (e.g., "memory", "file_changes", "skills", "blackboard").
+    pub source: String,
+    /// Content to inject as a system message.
+    pub content: String,
+    /// Priority — lower values survive budget trimming first.
+    pub priority: u32,
+    /// Maximum token budget for this attachment (chars / 4 estimate).
+    pub max_tokens: u32,
+}
+
 /// Action returned by observer hooks to influence agent loop execution.
 #[derive(Debug, Clone, Default)]
 pub enum LoopAction {
@@ -107,6 +124,13 @@ pub trait Observer: Send + Sync {
         _stop_reason: &str,
     ) -> LoopAction {
         LoopAction::Continue
+    }
+
+    /// Collect context enrichments to inject before the next model call.
+    /// Returns typed attachments with token budgets that the agent loop
+    /// manages and prioritizes. Called after tool execution, before before_model.
+    async fn collect_attachments(&self, _iteration: u32) -> Vec<ContextAttachment> {
+        Vec::new()
     }
 }
 

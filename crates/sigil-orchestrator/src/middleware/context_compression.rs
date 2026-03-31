@@ -193,6 +193,11 @@ impl Middleware for ContextCompressionMiddleware {
     }
 
     async fn before_model(&self, ctx: &mut WorkerContext) -> MiddlewareAction {
+        // Defer to the agent loop's token-aware compaction when active.
+        if ctx.metadata.get("agent_compaction_active").map_or(false, |v| v == "true") {
+            return MiddlewareAction::Continue;
+        }
+
         let msg_count = ctx.messages.len();
         let threshold = self.threshold();
 
@@ -225,6 +230,12 @@ impl Middleware for ContextCompressionMiddleware {
     }
 
     async fn on_error(&self, ctx: &mut WorkerContext, error: &str) -> MiddlewareAction {
+        // When the agent loop handles compaction, it also handles context-length
+        // errors (compact + retry). Defer to avoid conflicting recovery.
+        if ctx.metadata.get("agent_compaction_active").map_or(false, |v| v == "true") {
+            return MiddlewareAction::Continue;
+        }
+
         if !Self::is_context_length_error(error) {
             return MiddlewareAction::Continue;
         }
@@ -508,6 +519,31 @@ mod tests {
             assert!(msg.contains("context tier exhausted"));
             assert!(msg.contains("3 step-downs"));
         }
+    }
+
+    #[tokio::test]
+    async fn defers_to_agent_compaction_before_model() {
+        let mw = ContextCompressionMiddleware::with_config(0.50, 10, 1, 1);
+        let mut ctx = test_ctx();
+        ctx.messages = make_messages(20); // Way above threshold
+        ctx.metadata.insert("agent_compaction_active".to_string(), "true".to_string());
+
+        let action = mw.before_model(&mut ctx).await;
+        assert!(matches!(action, MiddlewareAction::Continue));
+        assert_eq!(ctx.messages.len(), 20); // No compression
+    }
+
+    #[tokio::test]
+    async fn defers_to_agent_compaction_on_error() {
+        let mw = ContextCompressionMiddleware::with_config(0.50, 500, 2, 2);
+        let mut ctx = test_ctx();
+        ctx.metadata.insert("agent_compaction_active".to_string(), "true".to_string());
+
+        let action = mw.on_error(&mut ctx, "context length exceeded").await;
+        assert!(matches!(action, MiddlewareAction::Continue));
+        // No tier step-down
+        assert_eq!(mw.current_max_context_lines(), 500);
+        assert_eq!(mw.stepdown_count(), 0);
     }
 
     #[tokio::test]

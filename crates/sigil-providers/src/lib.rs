@@ -18,5 +18,5 @@ pub use embedder::OpenRouterEmbedder;
 pub use fallback::{FallbackChain, ProviderConfig};
 pub use ollama::OllamaProvider;
 pub use openrouter::OpenRouterProvider;
-pub use pricing::estimate_cost;
+pub use pricing::{context_window_for_model, estimate_cost};
 pub use reliable::ReliableProvider;

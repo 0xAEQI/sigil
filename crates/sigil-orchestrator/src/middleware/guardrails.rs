@@ -1,88 +1,187 @@
-//! Guardrails Middleware — blocks dangerous tool calls before execution.
+//! Guardrails Middleware — tiered permission system for tool calls.
 //!
-//! Maintains a deny list of dangerous patterns (e.g. `rm -rf`, `git push --force`,
-//! `DROP TABLE`). Before each tool call, the tool name and input are checked against
-//! the deny list. Matches halt execution with a structured explanation.
+//! Three tiers:
+//! - **Allow**: Known-safe patterns that always pass (read-only tools, safe commands).
+//! - **Deny**: Dangerous patterns that always halt (destructive commands, data loss).
+//! - **Ask**: Everything else — passes in autonomous mode, injects a caution warning
+//!   in supervised mode to let the model self-review before proceeding.
 //!
-//! The deny list is configurable per project/agent role.
+//! The existing deny list is preserved as the deny tier. The allow list covers
+//! read-only tools and safe command patterns. The ask tier is the default for
+//! unmatched calls.
 
 use async_trait::async_trait;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::{Middleware, MiddlewareAction, ToolCall, WorkerContext};
 
-/// A pattern to deny in tool calls.
-#[derive(Debug, Clone)]
-pub struct DenyPattern {
-    /// The string pattern to search for (case-insensitive substring match).
-    pub pattern: String,
-    /// Human-readable reason why this pattern is blocked.
-    pub reason: String,
+/// Permission tier for a tool call.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PermissionTier {
+    /// Always allowed — no checks needed.
+    Allow,
+    /// Requires review in supervised mode, auto-allowed in autonomous mode.
+    Ask,
+    /// Always blocked.
+    Deny(String),
 }
 
-impl DenyPattern {
-    pub fn new(pattern: impl Into<String>, reason: impl Into<String>) -> Self {
+/// A pattern that matches tool calls.
+#[derive(Debug, Clone)]
+pub struct ToolPattern {
+    /// The string pattern to search for (case-insensitive substring match).
+    pub pattern: String,
+    /// Human-readable reason for the classification.
+    pub reason: String,
+    /// Which tier this pattern belongs to.
+    pub tier: PermissionTier,
+}
+
+impl ToolPattern {
+    pub fn deny(pattern: impl Into<String>, reason: impl Into<String>) -> Self {
+        let reason_str: String = reason.into();
+        Self {
+            pattern: pattern.into(),
+            reason: reason_str.clone(),
+            tier: PermissionTier::Deny(reason_str),
+        }
+    }
+
+    pub fn allow(pattern: impl Into<String>, reason: impl Into<String>) -> Self {
         Self {
             pattern: pattern.into(),
             reason: reason.into(),
+            tier: PermissionTier::Allow,
         }
     }
 }
 
-/// Guardrails middleware with configurable deny patterns.
+/// Backwards-compatible type alias.
+pub type DenyPattern = ToolPattern;
+
+impl DenyPattern {
+    pub fn new(pattern: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::deny(pattern, reason)
+    }
+}
+
+/// Execution mode that determines how "ask" tier calls are handled.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExecutionMode {
+    /// Agent runs autonomously — ask-tier calls pass silently.
+    Autonomous,
+    /// Agent is supervised — ask-tier calls inject a caution message.
+    Supervised,
+}
+
+/// Guardrails middleware with tiered permissions.
 pub struct GuardrailsMiddleware {
-    deny_patterns: Vec<DenyPattern>,
+    patterns: Vec<ToolPattern>,
+    mode: ExecutionMode,
 }
 
 impl GuardrailsMiddleware {
-    /// Create with the given deny patterns.
+    /// Create with explicit patterns and mode.
     pub fn new(deny_patterns: Vec<DenyPattern>) -> Self {
-        Self { deny_patterns }
+        Self {
+            patterns: deny_patterns,
+            mode: ExecutionMode::Autonomous,
+        }
     }
 
-    /// Create with a sensible set of default deny patterns.
+    /// Create with tiered patterns and mode.
+    pub fn tiered(patterns: Vec<ToolPattern>, mode: ExecutionMode) -> Self {
+        Self { patterns, mode }
+    }
+
+    /// Create with a sensible set of default patterns (all tiers).
     pub fn with_defaults() -> Self {
-        Self::new(vec![
-            DenyPattern::new(
-                "rm -rf /",
-                "Recursive deletion of root filesystem is prohibited",
-            ),
-            DenyPattern::new(
-                "rm -rf ~",
-                "Recursive deletion of home directory is prohibited",
-            ),
-            DenyPattern::new("rm -rf *", "Wildcard recursive deletion is prohibited"),
-            DenyPattern::new(
-                "git push --force",
-                "Force push is prohibited — use --force-with-lease if necessary",
-            ),
-            DenyPattern::new(
-                "git push -f",
-                "Force push is prohibited — use --force-with-lease if necessary",
-            ),
-            DenyPattern::new("DROP TABLE", "SQL DROP TABLE is prohibited"),
-            DenyPattern::new("DROP DATABASE", "SQL DROP DATABASE is prohibited"),
-            DenyPattern::new("TRUNCATE TABLE", "SQL TRUNCATE TABLE is prohibited"),
-            DenyPattern::new(":(){ :|:& };:", "Fork bomb is prohibited"),
-            DenyPattern::new("mkfs.", "Filesystem formatting is prohibited"),
-            DenyPattern::new("dd if=/dev/zero", "Disk overwrite with dd is prohibited"),
-            DenyPattern::new("> /dev/sda", "Direct disk device write is prohibited"),
-            DenyPattern::new(
-                "chmod -R 777",
-                "Recursive world-writable permissions are prohibited",
-            ),
-        ])
+        let mut patterns = Self::default_deny_patterns();
+        patterns.extend(Self::default_allow_patterns());
+        Self {
+            patterns,
+            mode: ExecutionMode::Autonomous,
+        }
     }
 
-    /// Check a tool call against the deny list.
-    fn check_call(&self, call: &ToolCall) -> Option<&DenyPattern> {
+    /// Create with defaults in the specified mode.
+    pub fn with_defaults_mode(mode: ExecutionMode) -> Self {
+        let mut patterns = Self::default_deny_patterns();
+        patterns.extend(Self::default_allow_patterns());
+        Self { patterns, mode }
+    }
+
+    fn default_deny_patterns() -> Vec<ToolPattern> {
+        vec![
+            ToolPattern::deny("rm -rf /", "Recursive deletion of root filesystem"),
+            ToolPattern::deny("rm -rf ~", "Recursive deletion of home directory"),
+            ToolPattern::deny("rm -rf *", "Wildcard recursive deletion"),
+            ToolPattern::deny(
+                "git push --force",
+                "Force push — use --force-with-lease if necessary",
+            ),
+            ToolPattern::deny(
+                "git push -f",
+                "Force push — use --force-with-lease if necessary",
+            ),
+            ToolPattern::deny("DROP TABLE", "SQL DROP TABLE"),
+            ToolPattern::deny("DROP DATABASE", "SQL DROP DATABASE"),
+            ToolPattern::deny("TRUNCATE TABLE", "SQL TRUNCATE TABLE"),
+            ToolPattern::deny(":(){ :|:& };:", "Fork bomb"),
+            ToolPattern::deny("mkfs.", "Filesystem formatting"),
+            ToolPattern::deny("dd if=/dev/zero", "Disk overwrite with dd"),
+            ToolPattern::deny("> /dev/sda", "Direct disk device write"),
+            ToolPattern::deny("chmod -R 777", "Recursive world-writable permissions"),
+        ]
+    }
+
+    fn default_allow_patterns() -> Vec<ToolPattern> {
+        vec![
+            // Read-only tools are always safe.
+            ToolPattern::allow("Read", "Read-only file access"),
+            ToolPattern::allow("Glob", "File pattern matching"),
+            ToolPattern::allow("Grep", "Content search"),
+            ToolPattern::allow("sigil_recall", "Memory search"),
+            ToolPattern::allow("sigil_graph", "Code graph query"),
+            ToolPattern::allow("sigil_status", "Status check"),
+            ToolPattern::allow("sigil_skills", "Skill loading"),
+            ToolPattern::allow("sigil_blackboard", "Blackboard read"),
+            ToolPattern::allow("sigil_agents", "Agent listing"),
+            // Safe git commands.
+            ToolPattern::allow("git status", "Git status check"),
+            ToolPattern::allow("git log", "Git log view"),
+            ToolPattern::allow("git diff", "Git diff view"),
+            ToolPattern::allow("git branch", "Git branch list"),
+            ToolPattern::allow("cargo test", "Test execution"),
+            ToolPattern::allow("cargo check", "Compilation check"),
+            ToolPattern::allow("cargo clippy", "Lint check"),
+        ]
+    }
+
+    /// Classify a tool call into a permission tier.
+    fn classify(&self, call: &ToolCall) -> PermissionTier {
         let name_lower = call.name.to_lowercase();
         let input_lower = call.input.to_lowercase();
         let combined = format!("{name_lower} {input_lower}");
 
-        self.deny_patterns
-            .iter()
-            .find(|dp| combined.contains(&dp.pattern.to_lowercase()))
+        // Check deny patterns first (highest priority).
+        for p in &self.patterns {
+            if matches!(p.tier, PermissionTier::Deny(_))
+                && combined.contains(&p.pattern.to_lowercase())
+            {
+                return p.tier.clone();
+            }
+        }
+
+        // Check allow patterns.
+        for p in &self.patterns {
+            if p.tier == PermissionTier::Allow && combined.contains(&p.pattern.to_lowercase()) {
+                return PermissionTier::Allow;
+            }
+        }
+
+        // Default: ask tier.
+        PermissionTier::Ask
     }
 }
 
@@ -97,19 +196,37 @@ impl Middleware for GuardrailsMiddleware {
     }
 
     async fn before_tool(&self, _ctx: &mut WorkerContext, call: &ToolCall) -> MiddlewareAction {
-        if let Some(denied) = self.check_call(call) {
-            warn!(
-                tool = %call.name,
-                pattern = %denied.pattern,
-                reason = %denied.reason,
-                "guardrails blocked dangerous tool call"
-            );
-            return MiddlewareAction::Halt(format!(
-                "Guardrails blocked: tool '{}' matched deny pattern '{}'. Reason: {}",
-                call.name, denied.pattern, denied.reason
-            ));
+        match self.classify(call) {
+            PermissionTier::Allow => {
+                debug!(tool = %call.name, "guardrails: allowed");
+                MiddlewareAction::Continue
+            }
+            PermissionTier::Ask => match self.mode {
+                ExecutionMode::Autonomous => {
+                    debug!(tool = %call.name, "guardrails: ask tier, autonomous mode — passing");
+                    MiddlewareAction::Continue
+                }
+                ExecutionMode::Supervised => {
+                    debug!(tool = %call.name, "guardrails: ask tier, supervised mode — injecting caution");
+                    MiddlewareAction::Inject(vec![format!(
+                        "[Guardrails] Tool '{}' is not on the allow list. \
+                         Verify this action is safe before proceeding.",
+                        call.name
+                    )])
+                }
+            },
+            PermissionTier::Deny(reason) => {
+                warn!(
+                    tool = %call.name,
+                    reason = %reason,
+                    "guardrails blocked dangerous tool call"
+                );
+                MiddlewareAction::Halt(format!(
+                    "Guardrails blocked: tool '{}' matched deny pattern. Reason: {}",
+                    call.name, reason
+                ))
+            }
         }
-        MiddlewareAction::Continue
     }
 }
 
@@ -145,7 +262,7 @@ mod tests {
         };
         let action = mw.before_tool(&mut ctx, &call).await;
         assert!(
-            matches!(action, MiddlewareAction::Halt(ref s) if s.contains("rm -rf /")),
+            matches!(action, MiddlewareAction::Halt(ref s) if s.contains("Recursive deletion")),
             "expected Halt for rm -rf /, got {action:?}"
         );
     }
@@ -257,5 +374,97 @@ mod tests {
         };
         let action = mw.before_tool(&mut ctx, &call).await;
         assert!(matches!(action, MiddlewareAction::Continue));
+    }
+
+    // --- New tiered permission tests ---
+
+    #[tokio::test]
+    async fn read_tool_is_allow_tier() {
+        let mw = GuardrailsMiddleware::with_defaults();
+        let call = ToolCall {
+            name: "Read".into(),
+            input: "/some/file".into(),
+        };
+        assert_eq!(mw.classify(&call), PermissionTier::Allow);
+    }
+
+    #[tokio::test]
+    async fn glob_tool_is_allow_tier() {
+        let mw = GuardrailsMiddleware::with_defaults();
+        let call = ToolCall {
+            name: "Glob".into(),
+            input: "**/*.rs".into(),
+        };
+        assert_eq!(mw.classify(&call), PermissionTier::Allow);
+    }
+
+    #[tokio::test]
+    async fn unknown_tool_is_ask_tier() {
+        let mw = GuardrailsMiddleware::with_defaults();
+        let call = ToolCall {
+            name: "Write".into(),
+            input: "some content".into(),
+        };
+        assert_eq!(mw.classify(&call), PermissionTier::Ask);
+    }
+
+    #[tokio::test]
+    async fn ask_tier_passes_in_autonomous_mode() {
+        let mw = GuardrailsMiddleware::with_defaults_mode(ExecutionMode::Autonomous);
+        let mut ctx = test_ctx();
+
+        let call = ToolCall {
+            name: "Write".into(),
+            input: "some content".into(),
+        };
+        let action = mw.before_tool(&mut ctx, &call).await;
+        assert!(matches!(action, MiddlewareAction::Continue));
+    }
+
+    #[tokio::test]
+    async fn ask_tier_injects_caution_in_supervised_mode() {
+        let mw = GuardrailsMiddleware::with_defaults_mode(ExecutionMode::Supervised);
+        let mut ctx = test_ctx();
+
+        let call = ToolCall {
+            name: "Write".into(),
+            input: "some content".into(),
+        };
+        let action = mw.before_tool(&mut ctx, &call).await;
+        assert!(
+            matches!(action, MiddlewareAction::Inject(ref msgs) if msgs[0].contains("Guardrails")),
+            "expected Inject with caution, got {action:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deny_takes_priority_over_allow() {
+        // git status is allowed, but git push --force is denied
+        let mw = GuardrailsMiddleware::with_defaults();
+
+        let safe_call = ToolCall {
+            name: "Bash".into(),
+            input: "git status".into(),
+        };
+        assert_eq!(mw.classify(&safe_call), PermissionTier::Allow);
+
+        let dangerous_call = ToolCall {
+            name: "Bash".into(),
+            input: "git push --force origin main".into(),
+        };
+        assert!(matches!(
+            mw.classify(&dangerous_call),
+            PermissionTier::Deny(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn sigil_recall_is_allow_tier() {
+        let mw = GuardrailsMiddleware::with_defaults();
+        let call = ToolCall {
+            name: "sigil_recall".into(),
+            input: "query".into(),
+        };
+        assert_eq!(mw.classify(&call), PermissionTier::Allow);
     }
 }

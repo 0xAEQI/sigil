@@ -5,9 +5,9 @@ use tracing::{debug, info, warn};
 
 use crate::identity::Identity;
 use crate::traits::{
-    ChatRequest, ChatResponse, ContentPart, Event, LoopAction, Memory, MemoryCategory, MemoryQuery,
-    MemoryScope, Message, MessageContent, Observer, Provider, Role, StopReason, Tool, ToolResult,
-    ToolSpec, Usage,
+    ChatRequest, ChatResponse, ContentPart, ContextAttachment, Event, LoopAction, Memory,
+    MemoryCategory, MemoryQuery, MemoryScope, Message, MessageContent, Observer, Provider, Role,
+    StopReason, Tool, ToolResult, ToolSpec, Usage,
 };
 
 // ---------------------------------------------------------------------------
@@ -83,6 +83,10 @@ pub struct AgentConfig {
     pub fallback_model: Option<String>,
     /// Directory for persisting large tool results. None = use temp dir on demand.
     pub persist_dir: Option<PathBuf>,
+    /// File path for session state persistence. When set, the agent saves its
+    /// conversation state after each compaction. On restart, if the file exists,
+    /// the agent resumes from the saved state instead of starting fresh.
+    pub session_file: Option<PathBuf>,
 }
 
 impl Default for AgentConfig {
@@ -105,6 +109,7 @@ impl Default for AgentConfig {
             compact_preserve_tail: 6,
             fallback_model: None,
             persist_dir: None,
+            session_file: None,
         }
     }
 }
@@ -139,6 +144,29 @@ pub struct AgentResult {
     pub iterations: u32,
     pub model: String,
     pub stop_reason: AgentStopReason,
+}
+
+// ---------------------------------------------------------------------------
+// Session state — serializable checkpoint for resume
+// ---------------------------------------------------------------------------
+
+/// Serializable snapshot of agent loop state for session resume.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionState {
+    /// Conversation messages at checkpoint time.
+    pub messages: Vec<Message>,
+    /// Iterations completed.
+    pub iterations: u32,
+    /// Total prompt tokens consumed.
+    pub total_prompt_tokens: u32,
+    /// Total completion tokens consumed.
+    pub total_completion_tokens: u32,
+    /// Number of compactions performed.
+    pub compactions: u32,
+    /// Active model at checkpoint (may differ from config if fallback was triggered).
+    pub active_model: String,
+    /// Timestamp of checkpoint (epoch millis).
+    pub timestamp_ms: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +323,25 @@ impl Agent {
         let mut tracker = ContextTracker::default();
         let mut iterations = 0u32;
         let mut final_text = String::new();
+
+        // --- Session resume: restore from checkpoint if available ---
+        if let Some(ref session_file) = self.config.session_file {
+            if let Some(state) = Self::load_session(session_file).await {
+                messages = state.messages;
+                iterations = state.iterations;
+                tracker.total_prompt_tokens = state.total_prompt_tokens;
+                tracker.total_completion_tokens = state.total_completion_tokens;
+                tracker.compactions = state.compactions;
+                // Inject a resume prompt so the model knows it's continuing.
+                messages.push(Message {
+                    role: Role::User,
+                    content: MessageContent::text(
+                        "Session resumed from checkpoint. Continue where you left off. \
+                         Do not repeat completed work.",
+                    ),
+                });
+            }
+        }
         let mut mid_loop_recalls = 0u32;
         let mut output_recovery_count = 0u32;
         let mut stop_reason = AgentStopReason::EndTurn;
@@ -369,6 +416,18 @@ impl Agent {
                     }
                     tracker.compactions += 1;
                     transition = LoopTransition::ContextCompacted;
+
+                    // Save session checkpoint after compaction.
+                    if let Some(ref sf) = self.config.session_file {
+                        Self::save_session(
+                            &messages,
+                            &tracker,
+                            iterations,
+                            &active_model,
+                            sf,
+                        )
+                        .await;
+                    }
                 }
             }
 
@@ -841,6 +900,12 @@ impl Agent {
                 }
             }
 
+            // --- Collect enrichments from observers ---
+            let attachments = self.observer.collect_attachments(iterations).await;
+            if !attachments.is_empty() {
+                Self::inject_enrichments(&mut messages, attachments, &self.config);
+            }
+
             transition = LoopTransition::ToolUse;
 
             // If stop reason is EndTurn (not ToolUse), break after executing tools.
@@ -850,6 +915,11 @@ impl Agent {
         }
 
         self.reflect(&messages).await;
+
+        // Final session checkpoint — save before cleanup.
+        if let Some(ref sf) = self.config.session_file {
+            Self::save_session(&messages, &tracker, iterations, &active_model, sf).await;
+        }
 
         // Cleanup persisted tool results.
         if let Some(dir) = persist_dir_created
@@ -1096,6 +1166,64 @@ impl Agent {
                 results[idx].output = Self::truncate_result(&results[idx].output, target_len);
                 current_total -= old_len - results[idx].output.len();
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Mid-turn context enrichment
+    // -----------------------------------------------------------------------
+
+    /// Apply token budgets to enrichment attachments and inject as system messages.
+    ///
+    /// Attachments arrive sorted by priority (lower = higher priority).
+    /// Each attachment has its own max_tokens budget. We also enforce a global
+    /// enrichment budget (5% of context_window) to prevent enrichments from
+    /// consuming too much of the model's capacity.
+    fn inject_enrichments(
+        messages: &mut Vec<Message>,
+        attachments: Vec<ContextAttachment>,
+        config: &AgentConfig,
+    ) {
+        let global_budget = (config.context_window as usize) / 20; // 5% of window
+        let mut total_tokens = 0usize;
+
+        for att in &attachments {
+            let att_tokens = att.content.len() / CHARS_PER_TOKEN;
+            let capped = att_tokens.min(att.max_tokens as usize);
+
+            if total_tokens + capped > global_budget {
+                debug!(
+                    source = %att.source,
+                    "enrichment dropped — global budget exhausted"
+                );
+                continue;
+            }
+
+            let content = if att_tokens > att.max_tokens as usize {
+                // Truncate to budget
+                let max_chars = att.max_tokens as usize * CHARS_PER_TOKEN;
+                format!(
+                    "# {} (enrichment)\n{}",
+                    att.source,
+                    &att.content[..att.content.len().min(max_chars)]
+                )
+            } else {
+                format!("# {} (enrichment)\n{}", att.source, att.content)
+            };
+
+            messages.push(Message {
+                role: Role::System,
+                content: MessageContent::text(content),
+            });
+            total_tokens += capped;
+        }
+
+        if total_tokens > 0 {
+            debug!(
+                injected = attachments.len(),
+                total_tokens,
+                "mid-turn enrichments injected"
+            );
         }
     }
 
@@ -1751,6 +1879,89 @@ impl Agent {
             }
         }
         Ok(ToolResult::error(format!("Unknown tool: {name}")))
+    }
+
+    // -----------------------------------------------------------------------
+    // Session persistence
+    // -----------------------------------------------------------------------
+
+    /// Save a session checkpoint to the configured session file.
+    async fn save_session(
+        messages: &[Message],
+        tracker: &ContextTracker,
+        iterations: u32,
+        active_model: &str,
+        session_file: &Path,
+    ) {
+        let state = SessionState {
+            messages: messages.to_vec(),
+            iterations,
+            total_prompt_tokens: tracker.total_prompt_tokens,
+            total_completion_tokens: tracker.total_completion_tokens,
+            compactions: tracker.compactions,
+            active_model: active_model.to_string(),
+            timestamp_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        };
+
+        match serde_json::to_string(&state) {
+            Ok(json) => {
+                if let Some(parent) = session_file.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match tokio::fs::write(session_file, json).await {
+                    Ok(()) => {
+                        debug!(
+                            path = %session_file.display(),
+                            iterations,
+                            messages = messages.len(),
+                            "session checkpoint saved"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            path = %session_file.display(),
+                            "failed to save session checkpoint: {e}"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("failed to serialize session state: {e}");
+            }
+        }
+    }
+
+    /// Load a session checkpoint from the configured session file.
+    /// Returns None if the file doesn't exist or can't be parsed.
+    async fn load_session(session_file: &Path) -> Option<SessionState> {
+        match tokio::fs::read_to_string(session_file).await {
+            Ok(json) => match serde_json::from_str::<SessionState>(&json) {
+                Ok(state) => {
+                    info!(
+                        path = %session_file.display(),
+                        iterations = state.iterations,
+                        messages = state.messages.len(),
+                        age_ms = {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
+                            now.saturating_sub(state.timestamp_ms)
+                        },
+                        "resuming from session checkpoint"
+                    );
+                    Some(state)
+                }
+                Err(e) => {
+                    warn!(path = %session_file.display(), "corrupt session file, starting fresh: {e}");
+                    None
+                }
+            },
+            Err(_) => None, // File doesn't exist — normal case.
+        }
     }
 }
 

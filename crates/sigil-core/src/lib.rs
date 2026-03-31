@@ -12,7 +12,7 @@ pub mod identity;
 pub mod security;
 pub mod traits;
 
-pub use agent::{Agent, AgentConfig, AgentResult, AgentStopReason};
+pub use agent::{Agent, AgentConfig, AgentResult, AgentStopReason, SessionState};
 pub use config::{
     AgentOrgContext, AgentRole, AgentVoice, ContextBudgetConfig, ExecutionMode, MissionDef,
     OrgRelationshipConfig, OrgRelationshipKind, OrgRitualConfig, OrgRoleConfig, OrgUnitConfig,
