@@ -169,53 +169,75 @@ fn parse_simple_yaml(text: &str) -> serde_json::Value {
             let val = val.trim();
 
             if val.is_empty() {
-                // Could be a list-of-objects (e.g., `triggers:` followed by `  - name: ...`)
-                let mut items: Vec<serde_json::Value> = Vec::new();
-                i += 1;
-                while i < lines.len() {
-                    let sub = lines[i];
-                    let trimmed = sub.trim();
-                    // Stop if we hit a non-indented line (next top-level key)
-                    if !sub.starts_with(' ') && !sub.starts_with('\t') && !trimmed.is_empty() {
-                        break;
-                    }
-                    if trimmed.is_empty() {
-                        i += 1;
-                        continue;
-                    }
-                    // New list item: starts with "- "
-                    if let Some(first_kv) = trimmed.strip_prefix("- ") {
-                        let mut obj = serde_json::Map::new();
-                        // Parse the first key: value on the "- " line
-                        if let Some((k, v)) = first_kv.split_once(':') {
-                            let v = v.trim().trim_matches('"');
-                            insert_typed_value(&mut obj, k.trim(), v);
+                // Peek ahead: "  - key:" → list-of-objects, "  key:" → nested map
+                let next_line = lines.get(i + 1).map(|l| l.trim()).unwrap_or("");
+                let is_list = next_line.starts_with("- ");
+
+                if is_list {
+                    let mut items: Vec<serde_json::Value> = Vec::new();
+                    i += 1;
+                    while i < lines.len() {
+                        let sub = lines[i];
+                        let trimmed = sub.trim();
+                        if !sub.starts_with(' ') && !sub.starts_with('\t') && !trimmed.is_empty() {
+                            break;
                         }
-                        i += 1;
-                        // Continue reading indented key: value lines for this object
-                        while i < lines.len() {
-                            let inner = lines[i].trim();
-                            if inner.is_empty() {
-                                i += 1;
-                                continue;
-                            }
-                            if inner.starts_with("- ")
-                                || (!lines[i].starts_with(' ') && !lines[i].starts_with('\t'))
-                            {
-                                break; // Next item or end of block
-                            }
-                            if let Some((k, v)) = inner.split_once(':') {
+                        if trimmed.is_empty() {
+                            i += 1;
+                            continue;
+                        }
+                        if let Some(first_kv) = trimmed.strip_prefix("- ") {
+                            let mut obj = serde_json::Map::new();
+                            if let Some((k, v)) = first_kv.split_once(':') {
                                 let v = v.trim().trim_matches('"');
                                 insert_typed_value(&mut obj, k.trim(), v);
                             }
                             i += 1;
+                            while i < lines.len() {
+                                let inner = lines[i].trim();
+                                if inner.is_empty() {
+                                    i += 1;
+                                    continue;
+                                }
+                                if inner.starts_with("- ")
+                                    || (!lines[i].starts_with(' ') && !lines[i].starts_with('\t'))
+                                {
+                                    break;
+                                }
+                                if let Some((k, v)) = inner.split_once(':') {
+                                    let v = v.trim().trim_matches('"');
+                                    insert_typed_value(&mut obj, k.trim(), v);
+                                }
+                                i += 1;
+                            }
+                            items.push(serde_json::Value::Object(obj));
+                        } else {
+                            i += 1;
                         }
-                        items.push(serde_json::Value::Object(obj));
-                    } else {
+                    }
+                    map.insert(key, serde_json::Value::Array(items));
+                } else {
+                    // Nested map (e.g., `faces:` followed by `  greeting: "..."`)
+                    let mut nested = serde_json::Map::new();
+                    i += 1;
+                    while i < lines.len() {
+                        let sub = lines[i];
+                        let trimmed = sub.trim();
+                        if !sub.starts_with(' ') && !sub.starts_with('\t') && !trimmed.is_empty() {
+                            break;
+                        }
+                        if trimmed.is_empty() {
+                            i += 1;
+                            continue;
+                        }
+                        if let Some((k, v)) = trimmed.split_once(':') {
+                            let v = v.trim().trim_matches('"');
+                            insert_typed_value(&mut nested, k.trim(), v);
+                        }
                         i += 1;
                     }
+                    map.insert(key, serde_json::Value::Object(nested));
                 }
-                map.insert(key, serde_json::Value::Array(items));
                 continue;
             }
 
