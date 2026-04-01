@@ -258,10 +258,6 @@ decomposition_model = \"{default_model}\"\n\
 infer_deps_threshold = 0.85\n\
 dispatch_ttl_secs = 3600\n\
 \n\
-[heartbeat]\n\
-enabled = false\n\
-default_interval_minutes = 30\n\
-\n\
 [[agents]]\n\
 name = \"leader\"\n\
 prefix = \"ld\"\n\
@@ -291,8 +287,6 @@ max_workers = 1\n\
 # name = \"sigil\"\n\
 # prefix = \"sg\"\n\
 # repo = \"/absolute/path/to/repo\"\n\
-# team.org = \"core\"\n\
-# team.unit = \"control-plane\"\n\
 # team.leader = \"leader\"\n\
 # runtime = \"{runtime}\"\n",
         render_provider_block(provider, default_model),

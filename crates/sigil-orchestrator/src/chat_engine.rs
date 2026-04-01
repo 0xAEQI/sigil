@@ -1629,6 +1629,8 @@ mod tests {
             orchestrator: None,
             missions: Vec::new(),
             departments: Vec::new(),
+            domain_hints: Vec::new(),
+            compact_instructions: None,
         };
         let project = Project::from_config(&config, dir.path(), "test-model")?;
         Ok((Arc::new(project), dir))
@@ -1979,8 +1981,6 @@ mod tests {
             worker_timeout_secs: 60,
             max_cost_per_day_usd: None,
             team: Some(ProjectTeamConfig {
-                org: None,
-                unit: None,
                 leader: "leader".to_string(),
                 agents: vec!["researcher".to_string(), "reviewer".to_string()],
             }),
@@ -1992,6 +1992,8 @@ mod tests {
                 agents: vec!["reviewer".to_string()],
                 description: None,
             }],
+            domain_hints: Vec::new(),
+            compact_instructions: None,
         };
         let project = Arc::new(Project::from_config(&config, dir.path(), "test-model").unwrap());
         let provider: Arc<dyn Provider> = Arc::new(DoneProvider);
@@ -1999,8 +2001,6 @@ mod tests {
         supervisor.execution_mode = sigil_core::ExecutionMode::Agent;
         supervisor.set_team(
             ProjectTeamConfig {
-                org: None,
-                unit: None,
                 leader: "leader".to_string(),
                 agents: vec!["researcher".to_string(), "reviewer".to_string()],
             },

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use sigil_core::traits::{Provider, Tool};
-use sigil_core::{AgentRole, ExecutionMode, Identity, ProviderKind, SecretStore, SigilConfig};
+use sigil_core::{AgentRole, Identity, ProviderKind, SecretStore, SigilConfig};
 use sigil_memory::SqliteMemory;
 use sigil_orchestrator::ProjectRegistry;
 use sigil_providers::{AnthropicProvider, OllamaProvider, OpenRouterEmbedder, OpenRouterProvider};
@@ -172,22 +172,6 @@ pub(crate) fn build_provider_for_runtime(
             Ok(Arc::new(OllamaProvider::new(url, model)))
         }
     }
-}
-
-pub(crate) fn build_provider(config: &SigilConfig) -> Result<Arc<dyn Provider>> {
-    let runtime = config
-        .sigil
-        .default_runtime
-        .as_deref()
-        .and_then(|name| config.runtime_preset_named(name))
-        .unwrap_or_else(|| sigil_core::RuntimePresetConfig {
-            provider: config
-                .default_provider_kind()
-                .unwrap_or(ProviderKind::OpenRouter),
-            execution_mode: Some(ExecutionMode::Agent),
-            model: None,
-        });
-    build_provider_for_runtime(config, runtime.provider, runtime.model.as_deref())
 }
 
 pub(crate) fn one_shot_agent_name(config: &SigilConfig, project_name: Option<&str>) -> String {
@@ -366,98 +350,20 @@ pub(crate) fn open_memory(
     }
 }
 
-pub(crate) fn resolved_project_org_name(
-    config: &SigilConfig,
-    project_name: &str,
-) -> Option<String> {
-    let team = config.project(project_name)?.team.as_ref()?;
-    team.org.clone().or_else(|| {
-        team.unit
-            .as_deref()
-            .and_then(|_| config.resolve_organization(None))
-            .map(|org| org.name.clone())
-    })
+pub(crate) fn format_project_org_hint(_config: &SigilConfig, _project_name: &str) -> String {
+    String::new()
 }
 
-pub(crate) fn format_project_org_hint(config: &SigilConfig, project_name: &str) -> String {
-    let Some(team) = config
-        .project(project_name)
-        .and_then(|project| project.team.as_ref())
-    else {
-        return String::new();
-    };
-
-    match (
-        resolved_project_org_name(config, project_name),
-        team.unit.as_deref(),
-    ) {
-        (Some(org), Some(unit)) => format!(" org={org} unit={unit}"),
-        (Some(org), None) => format!(" org={org}"),
-        (None, Some(unit)) => format!(" unit={unit}"),
-        (None, None) => String::new(),
-    }
-}
-
-pub(crate) fn format_agent_org_hint(config: &SigilConfig, agent_name: &str) -> String {
-    let organizations = config.organizations_for_agent(agent_name);
-    if organizations.is_empty() {
-        return String::new();
-    }
-
-    if organizations.len() > 1 {
-        let mut names = organizations
-            .into_iter()
-            .map(|org| org.name.clone())
-            .collect::<Vec<_>>();
-        names.sort();
-        names.dedup();
-        return format!(" orgs=[{}]", names.join(", "));
-    }
-
-    config
-        .agent_org_context(agent_name)
-        .map(|ctx| {
-            let mut parts = vec![format!("org={}", ctx.organization)];
-            if let Some(unit) = ctx.unit {
-                parts.push(format!("unit={unit}"));
-            }
-            if let Some(title) = ctx.title {
-                parts.push(format!("title={title}"));
-            }
-            format!(" {}", parts.join(" "))
-        })
-        .unwrap_or_default()
+pub(crate) fn format_agent_org_hint(_config: &SigilConfig, _agent_name: &str) -> String {
+    String::new()
 }
 
 pub(crate) fn augment_identity_with_org_context(
     config: &SigilConfig,
     mut identity: Identity,
-    agent_name: Option<&str>,
+    _agent_name: Option<&str>,
     project_name: Option<&str>,
 ) -> Identity {
-    let mut sections = Vec::new();
-    let preferred_org = project_name.and_then(|name| resolved_project_org_name(config, name));
-
-    if let Some(agent_name) = agent_name {
-        if let Some(ctx) = config.agent_org_context_for(agent_name, preferred_org.as_deref()) {
-            sections.push(ctx.as_identity_context());
-        } else {
-            let memberships = config.organizations_for_agent(agent_name);
-            if memberships.len() > 1 {
-                let mut names = memberships
-                    .into_iter()
-                    .map(|org| org.name.clone())
-                    .collect::<Vec<_>>();
-                names.sort();
-                names.dedup();
-                sections.push(format!(
-                    "# Organizational Context\n\nOrganizations: {}\nNo single organization was selected for this interaction.",
-                    names.join(", ")
-                ));
-            }
-        }
-    }
-
     if let Some(project_name) = project_name {
         let team = config.project_team(project_name);
         let mut lines = vec![format!("Project team leader: {}", team.leader)];
@@ -465,26 +371,12 @@ pub(crate) fn augment_identity_with_org_context(
             "Project team agents: {}",
             team.effective_agents().join(", ")
         ));
-        if let Some(project) = config.project(project_name)
-            && let Some(team_cfg) = project.team.as_ref()
-        {
-            if let Some(ref org) = preferred_org {
-                lines.push(format!("Project organization: {org}"));
-            }
-            if let Some(ref unit) = team_cfg.unit {
-                lines.push(format!("Project unit: {unit}"));
-            }
-        }
-        sections.push(format!("# Project Team Context\n\n{}", lines.join("\n")));
-    }
-
-    if !sections.is_empty() {
+        let section = format!("# Project Team Context\n\n{}", lines.join("\n"));
         let existing = identity.operational.unwrap_or_default();
-        let appended = sections.join("\n\n---\n\n");
         identity.operational = Some(if existing.is_empty() {
-            appended
+            section
         } else {
-            format!("{existing}\n\n---\n\n{appended}")
+            format!("{existing}\n\n---\n\n{section}")
         });
     }
 

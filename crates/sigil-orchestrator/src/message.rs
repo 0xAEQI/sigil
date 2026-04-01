@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,11 +38,6 @@ pub enum DispatchKind {
         subject: String,
         description: String,
         attempts: u32,
-    },
-
-    HeartbeatAlert {
-        project: String,
-        issues: String,
     },
 
     Resolution {
@@ -105,7 +100,6 @@ impl DispatchKind {
                 | Self::TaskBlocked { .. }
                 | Self::TaskFailed { .. }
                 | Self::WorkerCrashed { .. }
-                | Self::HeartbeatAlert { .. }
                 | Self::Resolution { .. }
                 | Self::Escalation { .. }
         )
@@ -119,7 +113,6 @@ impl DispatchKind {
             Self::PatrolReport { .. } => "PATROL",
             Self::WorkerCrashed { .. } => "WORKER_CRASHED",
             Self::Escalation { .. } => "ESCALATE",
-            Self::HeartbeatAlert { .. } => "HEARTBEAT_ALERT",
             Self::Resolution { .. } => "RESOLVED",
             Self::TaskProposal { .. } => "TASK_PROPOSAL",
             Self::AgentAdvice { .. } => "AGENT_ADVICE",
@@ -162,9 +155,6 @@ impl DispatchKind {
                      Full description:\n{description}\n\n\
                      Blocked after {attempts} resolution attempt(s).",
             ),
-            Self::HeartbeatAlert { project, issues } => {
-                format!("Project {project} heartbeat detected issues:\n{issues}")
-            }
             Self::Resolution { task_id, answer } => {
                 format!("Resolution for task {task_id}: {answer}")
             }
@@ -312,6 +302,7 @@ pub struct DispatchBus {
     backend: BusBackend,
     ttl_secs: u64,
     max_queue_per_recipient: usize,
+    event_broadcaster: Option<Arc<crate::execution_events::EventBroadcaster>>,
 }
 
 impl DispatchBus {
@@ -322,7 +313,13 @@ impl DispatchBus {
             },
             ttl_secs: 3600,
             max_queue_per_recipient: 1000,
+            event_broadcaster: None,
         }
+    }
+
+    /// Set the event broadcaster for emitting DispatchReceived events.
+    pub fn set_event_broadcaster(&mut self, broadcaster: Arc<crate::execution_events::EventBroadcaster>) {
+        self.event_broadcaster = Some(broadcaster);
     }
 
     pub fn with_persistence(path: PathBuf) -> Self {
@@ -340,6 +337,7 @@ impl DispatchBus {
                     },
                     ttl_secs: 3600,
                     max_queue_per_recipient: 1000,
+                    event_broadcaster: None,
                 }
             }
             Err(e) => {
@@ -415,6 +413,11 @@ impl DispatchBus {
     }
 
     pub async fn send(&self, mail: Dispatch) {
+        // Capture event data before mail is consumed by backend.
+        let event_from = mail.from.clone();
+        let event_to = mail.to.clone();
+        let event_kind = mail.kind.subject_tag().to_string();
+
         match &self.backend {
             BusBackend::Memory { queues } => {
                 let recipient = mail.to.clone();
@@ -484,6 +487,15 @@ impl DispatchBus {
                     ],
                 );
             }
+        }
+
+        // Emit DispatchReceived event for trigger system.
+        if let Some(ref broadcaster) = self.event_broadcaster {
+            broadcaster.publish(crate::execution_events::ExecutionEvent::DispatchReceived {
+                from_agent: event_from,
+                to_agent: event_to,
+                kind: event_kind,
+            });
         }
     }
 

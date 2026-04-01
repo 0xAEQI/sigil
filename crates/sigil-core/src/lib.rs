@@ -8,18 +8,23 @@
 
 pub mod agent;
 pub mod chat_stream;
+pub mod checkpoint;
 pub mod config;
 pub mod identity;
 pub mod security;
+pub mod shell_hooks;
+pub mod streaming_executor;
 pub mod traits;
 
-pub use agent::{Agent, AgentConfig, AgentResult, AgentStopReason, SessionState, SessionType};
+pub use agent::{
+    Agent, AgentConfig, AgentResult, AgentStopReason, ContentReplacementState, LoopNotification,
+    NotificationReceiver, NotificationSender, SessionState, SessionType,
+};
 pub use chat_stream::{ChatStreamEvent, ChatStreamSender};
 pub use config::{
-    AgentOrgContext, AgentRole, AgentVoice, ContextBudgetConfig, ExecutionMode, MissionDef,
-    OrgRelationshipConfig, OrgRelationshipKind, OrgRitualConfig, OrgRoleConfig, OrgUnitConfig,
-    OrganizationConfig, PeerAgentConfig, ProjectConfig, ProjectTeamConfig, ProviderKind,
-    RuntimePresetConfig, SigilConfig, TeamConfig, discover_agents, load_agent_config,
+    AgentRole, AgentVoice, ContextBudgetConfig, ExecutionMode, MissionDef, PeerAgentConfig,
+    ProjectConfig, ProjectTeamConfig, ProviderKind, RuntimePresetConfig, SigilConfig, TeamConfig,
+    discover_agents, load_agent_config,
 };
 pub use identity::Identity;
 pub use security::SecretStore;
