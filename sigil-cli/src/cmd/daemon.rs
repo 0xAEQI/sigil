@@ -544,7 +544,11 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     // Wire agent_registry + trigger_store into all supervisors.
                     daemon
                         .registry
-                        .wire_agent_system(agent_reg, trigger_store)
+                        .wire_agent_system(
+                            agent_reg,
+                            trigger_store,
+                            daemon.chat_engine.as_ref().map(|ce| ce.conversations.clone()),
+                        )
                         .await;
                 }
                 Err(e) => {
