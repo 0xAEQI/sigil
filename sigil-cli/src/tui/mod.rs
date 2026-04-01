@@ -85,9 +85,7 @@ fn spawn_ws_thread(
                     }
                 }
                 Ok(Message::Close(_)) => break,
-                Err(tungstenite::Error::Io(ref e))
-                    if e.kind() == io::ErrorKind::WouldBlock =>
-                {
+                Err(tungstenite::Error::Io(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(_) => {
@@ -338,11 +336,7 @@ pub async fn run(
             }
             AgentVisual {
                 name: a.name.clone(),
-                display_name: a
-                    .display_name
-                    .as_deref()
-                    .unwrap_or(&a.name)
-                    .to_string(),
+                display_name: a.display_name.as_deref().unwrap_or(&a.name).to_string(),
                 color,
                 avatar: a.avatar.clone().unwrap_or_else(|| "⚕".into()),
                 faces,
@@ -442,12 +436,7 @@ pub async fn run(
                             state.cursor_pos = 0;
 
                             if text.starts_with('/') {
-                                handle_slash_command(
-                                    &text,
-                                    &mut state,
-                                    &mut stdout,
-                                    &cmd_tx,
-                                );
+                                handle_slash_command(&text, &mut state, &mut stdout, &cmd_tx);
                             } else {
                                 state.push_user(&text);
                                 render::print_message(
@@ -520,4 +509,3 @@ pub async fn run(
 
     Ok(())
 }
-

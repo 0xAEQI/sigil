@@ -75,11 +75,21 @@ impl Default for ThemeColors {
     }
 }
 
-fn default_gold() -> String { "#FFD700".into() }
-fn default_dark() -> String { "#191919".into() }
-fn default_dim() -> String { "#808080".into() }
-fn default_red() -> String { "#FF4444".into() }
-fn default_cyan() -> String { "#00CED1".into() }
+fn default_gold() -> String {
+    "#FFD700".into()
+}
+fn default_dark() -> String {
+    "#191919".into()
+}
+fn default_dim() -> String {
+    "#808080".into()
+}
+fn default_red() -> String {
+    "#FF4444".into()
+}
+fn default_cyan() -> String {
+    "#00CED1".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpinnerConfig {
@@ -101,13 +111,23 @@ impl Default for SpinnerConfig {
 }
 
 fn default_spinner_frames() -> Vec<String> {
-    vec!["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
-        .into_iter().map(String::from).collect()
+    vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        .into_iter()
+        .map(String::from)
+        .collect()
 }
 
 fn default_thinking_verbs() -> Vec<String> {
-    vec!["thinking", "pondering", "considering", "analyzing", "reasoning"]
-        .into_iter().map(String::from).collect()
+    vec![
+        "thinking",
+        "pondering",
+        "considering",
+        "analyzing",
+        "reasoning",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,9 +153,15 @@ impl Default for BrandingConfig {
     }
 }
 
-fn default_welcome() -> String { "type /help for commands, /exit to quit".into() }
-fn default_goodbye() -> String { "goodbye".into() }
-fn default_prompt_symbol() -> String { "❯".into() }
+fn default_welcome() -> String {
+    "type /help for commands, /exit to quit".into()
+}
+fn default_goodbye() -> String {
+    "goodbye".into()
+}
+fn default_prompt_symbol() -> String {
+    "❯".into()
+}
 
 impl Theme {
     /// Default theme (gold/warm).
@@ -162,8 +188,10 @@ impl Theme {
                 ..ThemeColors::default()
             },
             spinner: SpinnerConfig {
-                frames: vec!["⟪","⟫","⟪","⟫","⟪","⟫"]
-                    .into_iter().map(String::from).collect(),
+                frames: vec!["⟪", "⟫", "⟪", "⟫", "⟪", "⟫"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
                 ..SpinnerConfig::default()
             },
             branding: BrandingConfig {
@@ -198,10 +226,9 @@ impl Theme {
 
     /// Load a theme from a TOML file.
     pub fn load(path: &Path) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("failed to read theme: {e}"))?;
-        toml::from_str(&content)
-            .map_err(|e| format!("failed to parse theme: {e}"))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("failed to read theme: {e}"))?;
+        toml::from_str(&content).map_err(|e| format!("failed to parse theme: {e}"))
     }
 
     /// Get a built-in theme by name.

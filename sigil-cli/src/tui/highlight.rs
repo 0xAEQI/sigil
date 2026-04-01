@@ -1,19 +1,18 @@
 //! Syntax highlighting via syntect — converts source code to styled spans.
 
+use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style as SynStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
-use syntect::easy::HighlightLines;
 
 use super::markdown::{StyledLine, StyledSpan};
 
 static SYNTAX_SET: std::sync::LazyLock<SyntaxSet> =
     std::sync::LazyLock::new(SyntaxSet::load_defaults_newlines);
 
-static THEME: std::sync::LazyLock<syntect::highlighting::Theme> =
-    std::sync::LazyLock::new(|| {
-        let ts = ThemeSet::load_defaults();
-        ts.themes["base16-ocean.dark"].clone()
-    });
+static THEME: std::sync::LazyLock<syntect::highlighting::Theme> = std::sync::LazyLock::new(|| {
+    let ts = ThemeSet::load_defaults();
+    ts.themes["base16-ocean.dark"].clone()
+});
 
 fn normalize_lang(lang: &str) -> &str {
     match lang.to_lowercase().as_str() {
@@ -64,7 +63,12 @@ pub fn highlight_code(code: &str, lang: &str) -> Vec<StyledLine> {
             }
             Err(_) => {
                 lines.push(StyledLine {
-                    spans: vec![StyledSpan { text: format!("  {line}"), dim: true, code: true, ..StyledSpan::plain("") }],
+                    spans: vec![StyledSpan {
+                        text: format!("  {line}"),
+                        dim: true,
+                        code: true,
+                        ..StyledSpan::plain("")
+                    }],
                     is_code_block: true,
                     indent: 0,
                 });

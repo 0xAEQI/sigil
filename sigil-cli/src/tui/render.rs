@@ -19,11 +19,7 @@ use super::state::{AgentState, AppState, ChatMessage, MessageKind};
 pub fn print_message(stdout: &mut impl Write, msg: &ChatMessage, state: &AppState, width: u16) {
     match &msg.kind {
         MessageKind::User => {
-            let _ = writeln!(
-                stdout,
-                "\n  \x1b[1;36mYou:\x1b[0m {}",
-                msg.content
-            );
+            let _ = writeln!(stdout, "\n  \x1b[1;36mYou:\x1b[0m {}", msg.content);
         }
         MessageKind::AssistantText => {
             let lines = super::markdown::parse_markdown(&msg.content);
@@ -44,10 +40,7 @@ pub fn print_message(stdout: &mut impl Write, msg: &ChatMessage, state: &AppStat
         MessageKind::ResponseBoxClose => {
             let (r, g, b) = state.agent.color;
             let border = "─".repeat((width as usize).saturating_sub(4));
-            let _ = writeln!(
-                stdout,
-                "  \x1b[38;2;{r};{g};{b}m╰{border}╯\x1b[0m\n"
-            );
+            let _ = writeln!(stdout, "  \x1b[38;2;{r};{g};{b}m╰{border}╯\x1b[0m\n");
         }
         MessageKind::ToolActivity { success, .. } => {
             let color = if *success { "\x1b[90m" } else { "\x1b[31m" };
@@ -197,10 +190,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
                 .fg(agent_color)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            streaming_indicator,
-            Style::default().fg(Color::Yellow),
-        ),
+        Span::styled(streaming_indicator, Style::default().fg(Color::Yellow)),
         Span::styled("│", Style::default().fg(Color::DarkGray)),
         Span::styled(model_short, Style::default().fg(Color::White)),
         Span::styled("│", Style::default().fg(Color::DarkGray)),
@@ -215,8 +205,7 @@ fn draw_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(format!(" {elapsed} "), Style::default().fg(Color::DarkGray)),
     ]);
 
-    let bar = Paragraph::new(line)
-        .style(Style::default().bg(Color::Rgb(25, 25, 25)));
+    let bar = Paragraph::new(line).style(Style::default().bg(Color::Rgb(25, 25, 25)));
     frame.render_widget(bar, area);
 }
 

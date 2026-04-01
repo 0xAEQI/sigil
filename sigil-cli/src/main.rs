@@ -1,7 +1,10 @@
+#![allow(dead_code)]
+
 mod cli;
 mod cmd;
 mod helpers;
 mod service;
+#[allow(clippy::collapsible_if)]
 mod tui;
 
 use anyhow::Result;

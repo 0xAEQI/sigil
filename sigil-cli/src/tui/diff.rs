@@ -1,7 +1,7 @@
 //! Diff rendering — displays file changes with colored +/- lines.
 
-use similar::{ChangeTag, TextDiff};
 use super::markdown::{StyledLine, StyledSpan};
+use similar::{ChangeTag, TextDiff};
 
 /// Render a unified diff between old and new content.
 pub fn render_diff(old: &str, new: &str, file_path: &str) -> Vec<StyledLine> {
@@ -94,12 +94,12 @@ mod tests {
         // Should have file headers.
         assert!(lines[0].spans[0].text.contains("test.rs"));
         // Should have colored changes.
-        let has_red = lines.iter().any(|l| {
-            l.spans.iter().any(|s| s.color == Some((255, 100, 100)))
-        });
-        let has_green = lines.iter().any(|l| {
-            l.spans.iter().any(|s| s.color == Some((100, 255, 100)))
-        });
+        let has_red = lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.color == Some((255, 100, 100))));
+        let has_green = lines
+            .iter()
+            .any(|l| l.spans.iter().any(|s| s.color == Some((100, 255, 100))));
         assert!(has_red, "should have red (deleted) lines");
         assert!(has_green, "should have green (added) lines");
     }
@@ -107,7 +107,11 @@ mod tests {
     #[test]
     fn test_no_changes() {
         let lines = render_diff("same\n", "same\n", "test.rs");
-        assert!(lines.iter().any(|l| l.spans.iter().any(|s| s.text.contains("no changes"))));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.spans.iter().any(|s| s.text.contains("no changes")))
+        );
     }
 
     #[test]
