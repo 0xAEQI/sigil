@@ -150,6 +150,11 @@ pub struct AgentConfig {
     /// from the provider instead of waiting for the full response. Requires the
     /// provider to support chat_stream(). Default: false.
     pub use_streaming_tools: bool,
+    /// Cheap/fast model for simple messages. When set, the agent routes trivial
+    /// turns (short messages without code, URLs, or complex keywords) to this
+    /// model instead of the primary. Saves cost on simple queries while keeping
+    /// quality for complex work. Hermes calls this "smart model routing."
+    pub routing_model: Option<String>,
     /// Optional per-project/per-agent compaction instructions appended to the
     /// 9-section compaction prompt. Example: "Always preserve trade positions
     /// and PnL numbers in the summary."
@@ -180,6 +185,7 @@ impl Default for AgentConfig {
             session_type: SessionType::Async,
             token_budget: None,
             use_streaming_tools: false,
+            routing_model: None,
             compact_instructions: None,
         }
     }
@@ -211,6 +217,41 @@ impl AgentConfig {
         }
 
         None
+    }
+
+    /// Determine if a message is "simple" — suitable for a cheap routing model.
+    /// Conservative: any sign of complexity keeps the primary model.
+    /// Based on Hermes's smart model routing heuristic.
+    fn is_simple_message(text: &str) -> bool {
+        // Too long → complex
+        if text.len() > 500 {
+            return false;
+        }
+        // Contains code indicators → complex
+        if text.contains("```") || text.contains("fn ") || text.contains("def ")
+            || text.contains("class ") || text.contains("import ")
+        {
+            return false;
+        }
+        // Contains URLs → complex (needs web context)
+        if text.contains("http://") || text.contains("https://") {
+            return false;
+        }
+        // Complex keywords → keep primary
+        let complex_keywords = [
+            "refactor", "implement", "debug", "fix", "migrate", "deploy",
+            "architecture", "design", "review", "analyze", "optimize",
+            "test", "benchmark", "security", "performance",
+        ];
+        let lower = text.to_lowercase();
+        if complex_keywords.iter().any(|kw| lower.contains(kw)) {
+            return false;
+        }
+        // Multiple sentences → likely complex
+        if text.matches(". ").count() >= 3 {
+            return false;
+        }
+        true
     }
 
     fn parse_token_shorthand(s: &str) -> Option<u32> {
@@ -712,9 +753,31 @@ impl Agent {
                 Self::repair_tool_pairing(&mut messages);
             }
 
+            // Smart model routing: use cheap model for simple messages when configured.
+            let turn_model = if let Some(ref routing) = self.config.routing_model
+                && iterations == 1  // Only route on first turn (tool-use turns need the strong model)
+            {
+                let last_user_text = messages.iter().rev()
+                    .find(|m| m.role == Role::User)
+                    .and_then(|m| m.content.as_text())
+                    .unwrap_or("");
+                if AgentConfig::is_simple_message(last_user_text) {
+                    debug!(
+                        agent = %self.config.name,
+                        routing = %routing,
+                        "smart routing: simple message → cheap model"
+                    );
+                    routing.clone()
+                } else {
+                    active_model.clone()
+                }
+            } else {
+                active_model.clone()
+            };
+
             // Build request.
             let request = ChatRequest {
-                model: active_model.clone(),
+                model: turn_model.clone(),
                 messages: messages.clone(),
                 tools: tool_specs.clone(),
                 max_tokens: self.config.max_tokens,
@@ -1247,6 +1310,34 @@ impl Agent {
 
             // --- Enforce aggregate per-turn budget ---
             Self::enforce_result_budget(&mut processed, self.config.max_tool_results_per_turn);
+
+            // --- Budget pressure injection into last tool result (Hermes pattern) ---
+            // Inject warnings into the last tool result JSON instead of as separate
+            // system messages. Avoids breaking message structure. Two tiers: 70% and 90%.
+            {
+                let budget_pct = if self.config.max_iterations > 0 {
+                    (iterations as f32 / self.config.max_iterations as f32 * 100.0) as u32
+                } else {
+                    0
+                };
+                if budget_pct >= 90 {
+                    if let Some(last) = processed.last_mut() {
+                        last.output.push_str(&format!(
+                            "\n\n⚠️ BUDGET WARNING: {budget_pct}% of iteration budget used \
+                             ({iterations}/{} turns). Wrap up current work and commit results NOW.",
+                            self.config.max_iterations
+                        ));
+                    }
+                } else if budget_pct >= 70
+                    && let Some(last) = processed.last_mut()
+                {
+                    last.output.push_str(&format!(
+                        "\n\n💡 Budget note: {budget_pct}% of iteration budget used \
+                         ({iterations}/{} turns). Plan remaining work efficiently.",
+                        self.config.max_iterations
+                    ));
+                }
+            }
 
             // --- Track recently-read files for post-compact restoration ---
             for r in &processed {
