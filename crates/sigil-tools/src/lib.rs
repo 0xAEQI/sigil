@@ -1,4 +1,5 @@
 pub mod continue_agent;
+pub mod craft_next;
 pub mod delegate;
 pub mod edit;
 pub mod execute_plan;
@@ -15,6 +16,7 @@ pub mod web_fetch;
 pub mod web_search;
 
 pub use continue_agent::ContinueAgentTool;
+pub use craft_next::CraftNextTool;
 pub use delegate::DelegateTool;
 pub use edit::FileEditTool;
 pub use execute_plan::ExecutePlanTool;
