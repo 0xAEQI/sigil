@@ -191,19 +191,9 @@ pub fn parse_markdown(text: &str) -> Vec<StyledLine> {
             },
             Event::Text(text) => {
                 if in_code_block {
-                    // Each line of the code block as a separate styled line.
-                    for line in text.lines() {
-                        lines.push(StyledLine {
-                            spans: vec![StyledSpan {
-                                text: format!("  {line}"),
-                                dim: true,
-                                code: true,
-                                ..StyledSpan::plain("")
-                            }],
-                            is_code_block: true,
-                            indent: 0,
-                        });
-                    }
+                    // Syntax-highlighted code block via syntect.
+                    let highlighted = super::highlight::highlight_code(&text, &code_block_lang);
+                    lines.extend(highlighted);
                 } else if in_heading || in_bold {
                     current_spans.push(StyledSpan::bold(text.to_string()));
                 } else if in_italic {

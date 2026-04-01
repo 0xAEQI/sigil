@@ -4,9 +4,12 @@
 //! naturally above a pinned bottom area with status bar + input.
 //! Daemon client model: session survives TUI disconnect.
 
+pub mod diff;
+pub mod highlight;
 pub mod markdown;
 pub mod render;
 pub mod state;
+pub mod theme;
 
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -75,10 +78,10 @@ fn spawn_ws_thread(
             // Check inbound messages.
             match ws.read() {
                 Ok(Message::Text(text)) => {
-                    if let Ok(evt) = serde_json::from_str::<ChatStreamEvent>(&text) {
-                        if event_tx.send(evt).is_err() {
-                            break;
-                        }
+                    if let Ok(evt) = serde_json::from_str::<ChatStreamEvent>(&text)
+                        && event_tx.send(evt).is_err()
+                    {
+                        break;
                     }
                 }
                 Ok(Message::Close(_)) => break,
