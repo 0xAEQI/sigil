@@ -74,6 +74,43 @@ pub enum EventPattern {
         #[serde(skip_serializing_if = "Option::is_none")]
         tool: Option<String>,
     },
+    /// Fire when a memory entry matching the key pattern is stored.
+    #[serde(rename = "memory_stored")]
+    MemoryStored {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        key_pattern: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
+    },
+    /// Fire when a blackboard entry matching the key pattern is posted.
+    #[serde(rename = "blackboard_posted")]
+    BlackboardPosted {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        key_pattern: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+    },
+    /// Fire when project cost exceeds a threshold (USD).
+    #[serde(rename = "budget_exceeded")]
+    BudgetExceeded {
+        project: String,
+        threshold_usd: f64,
+    },
+    /// Fire when a persistent agent has been idle for N seconds.
+    #[serde(rename = "agent_idle")]
+    AgentIdle {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
+        idle_secs: u64,
+    },
+    /// Fire when a dispatch is received matching criteria.
+    #[serde(rename = "dispatch_received")]
+    DispatchReceived {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        from_agent: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
+    },
 }
 
 /// Input for creating a new trigger.
@@ -315,6 +352,79 @@ impl EventPattern {
                 Some(t) => tool_name == t,
                 None => true,
             },
+            (
+                EventPattern::MemoryStored {
+                    key_pattern,
+                    scope: pattern_scope,
+                },
+                ExecutionEvent::MemoryStored { key, scope, .. },
+            ) => {
+                let key_match = key_pattern
+                    .as_ref()
+                    .map_or(true, |p| key.contains(p.as_str()));
+                let scope_match = pattern_scope
+                    .as_ref()
+                    .map_or(true, |s| scope.eq_ignore_ascii_case(s));
+                key_match && scope_match
+            }
+            (
+                EventPattern::BlackboardPosted {
+                    key_pattern,
+                    project: pattern_project,
+                },
+                ExecutionEvent::BlackboardPosted { key, project, .. },
+            ) => {
+                let key_match = key_pattern
+                    .as_ref()
+                    .map_or(true, |p| key.contains(p.as_str()));
+                let proj_match = pattern_project
+                    .as_ref()
+                    .map_or(true, |p| project == p);
+                key_match && proj_match
+            }
+            (
+                EventPattern::BudgetExceeded {
+                    project: pattern_project,
+                    threshold_usd,
+                },
+                ExecutionEvent::BudgetExceeded {
+                    project,
+                    current_usd,
+                    ..
+                },
+            ) => project == pattern_project && current_usd >= threshold_usd,
+            (
+                EventPattern::AgentIdle {
+                    agent_id: pattern_agent,
+                    idle_secs: threshold,
+                },
+                ExecutionEvent::AgentIdle {
+                    agent_id,
+                    idle_secs,
+                },
+            ) => {
+                let agent_match = pattern_agent
+                    .as_ref()
+                    .map_or(true, |p| agent_id == p);
+                agent_match && idle_secs >= threshold
+            }
+            (
+                EventPattern::DispatchReceived {
+                    from_agent: pattern_from,
+                    kind: pattern_kind,
+                },
+                ExecutionEvent::DispatchReceived {
+                    from_agent, kind, ..
+                },
+            ) => {
+                let from_match = pattern_from
+                    .as_ref()
+                    .map_or(true, |p| from_agent == p);
+                let kind_match = pattern_kind
+                    .as_ref()
+                    .map_or(true, |k| kind == k);
+                from_match && kind_match
+            }
             _ => false,
         }
     }

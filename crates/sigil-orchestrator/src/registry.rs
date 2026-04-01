@@ -741,6 +741,8 @@ mod tests {
             orchestrator: None,
             missions: Vec::new(),
             departments: Vec::new(),
+            domain_hints: Vec::new(),
+            compact_instructions: None,
         };
         let project = Project::from_config(&config, dir.path(), "test-model")?;
         Ok((Arc::new(project), dir))
