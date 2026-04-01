@@ -1,6 +1,18 @@
 use anyhow::{Context, Result};
 use sigil_core::traits::{Provider, Tool};
 use sigil_core::{AgentRole, Identity, ProviderKind, SecretStore, SigilConfig};
+
+/// Resolve `${ENV_VAR}` patterns in a config value. Returns empty string if
+/// the value is a `${...}` pattern and the env var is not set.
+fn resolve_env_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with("${") && trimmed.ends_with('}') {
+        let var_name = &trimmed[2..trimmed.len() - 1];
+        std::env::var(var_name).unwrap_or_default()
+    } else {
+        trimmed.to_string()
+    }
+}
 use sigil_memory::SqliteMemory;
 use sigil_orchestrator::ProjectRegistry;
 use sigil_providers::{AnthropicProvider, OllamaProvider, OpenRouterEmbedder, OpenRouterProvider};
@@ -111,8 +123,10 @@ pub(crate) fn get_api_key(config: &SigilConfig) -> Result<String> {
         .openrouter
         .as_ref()
         .context("no OpenRouter provider configured")?;
-    if !or_config.api_key.is_empty() {
-        return Ok(or_config.api_key.clone());
+    // Resolve ${ENV_VAR} patterns, then fall back to SecretStore.
+    let key = resolve_env_value(&or_config.api_key);
+    if !key.is_empty() {
+        return Ok(key);
     }
     let store_path = provider_secret_store_path(config);
     let store = SecretStore::open(&store_path)?;
@@ -136,8 +150,9 @@ fn get_anthropic_api_key(config: &SigilConfig) -> Result<String> {
         .anthropic
         .as_ref()
         .context("no Anthropic provider configured")?;
-    if !anthropic.api_key.is_empty() {
-        return Ok(anthropic.api_key.clone());
+    let key = resolve_env_value(&anthropic.api_key);
+    if !key.is_empty() {
+        return Ok(key);
     }
     let store = SecretStore::open(&provider_secret_store_path(config))?;
     store

@@ -1,0 +1,7 @@
+name = "reviewer"
+prefix = "rv"
+model = "stepfun/step-3.5-flash:free"
+role = "advisor"
+voice = "silent"
+runtime = "openrouter_agent"
+max_workers = 1

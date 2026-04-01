@@ -36,7 +36,7 @@ default_interval_minutes = 30
 # Agent lifecycle engine — autonomous reflection, evolution, proactive scanning
 [lifecycle]
 enabled = false
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 
 # Global repo pool — all agents can access all repos
 [repos]
@@ -54,14 +54,14 @@ unifutures = "/home/claudedev/unifutures"
 
 # System team — Rei at the helm
 [team]
-leader = "rei"
-agents = ["rei"]
-router_model = "xiaomi/mimo-v2-pro"
+leader = "shadow"
+agents = ["shadow"]
+router_model = "stepfun/step-3.5-flash:free"
 router_cooldown_secs = 60
 max_background_cost_usd = 0.0
 
 # Agents discovered from agents/{name}/agent.toml files on disk.
-# Active: rei, engineer, trader, designer, researcher, reviewer
+# Active: shadow, engineer, trader, designer, researcher, reviewer
 
 [channels.telegram]
 token_secret = "TELEGRAM_BOT_TOKEN"
@@ -73,11 +73,11 @@ debounce_window_ms = 3000
 background_automation_enabled = false
 expertise_routing = true
 adaptive_retry = false
-failure_analysis_model = "xiaomi/mimo-v2-pro"
+failure_analysis_model = "stepfun/step-3.5-flash:free"
 preflight_enabled = false
-preflight_model = "xiaomi/mimo-v2-pro"
+preflight_model = "stepfun/step-3.5-flash:free"
 preflight_max_cost_usd = 0.02
-decomposition_model = "xiaomi/mimo-v2-pro"
+decomposition_model = "stepfun/step-3.5-flash:free"
 auto_redecompose = false
 infer_deps_threshold = 0.6
 blackboard_transient_ttl_hours = 48
@@ -155,7 +155,7 @@ message = "3+ worker timeouts across projects in 30 minutes"
 name = "sigil"
 prefix = "sg"
 repo = "/home/claudedev/sigil"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 2
 worktree_root = "/home/claudedev/worktrees"
 execution_mode = "agent"
@@ -181,7 +181,7 @@ description = "Web dashboard, UX, landing page"
 name = "algostaking"
 prefix = "as"
 repo = "/home/claudedev/algostaking-backend"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 3
 worktree_root = "/home/claudedev/worktrees"
 execution_mode = "agent"
@@ -213,7 +213,7 @@ description = "Model evaluation, feature research, backtesting"
 name = "aeqi"
 prefix = "aq"
 repo = "/home/claudedev/aeqi-core"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 2
 execution_mode = "agent"
 worker_timeout_secs = 1800
@@ -225,7 +225,7 @@ team.agents = ["engineer", "designer"]
 name = "riftdecks-shop"
 prefix = "rd"
 repo = "/home/claudedev/riftdecks"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 2
 execution_mode = "agent"
 worker_timeout_secs = 1800
@@ -237,7 +237,7 @@ team.agents = ["designer"]
 name = "entity-legal"
 prefix = "el"
 repo = "/home/claudedev/sigil/projects/entity-legal/web"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 2
 execution_mode = "agent"
 worker_timeout_secs = 1800
@@ -249,7 +249,7 @@ team.agents = ["designer"]
 name = "sigil-ui"
 prefix = "su"
 repo = "/home/claudedev/sigil-ui"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 1
 execution_mode = "agent"
 worker_timeout_secs = 1800
@@ -261,7 +261,7 @@ team.agents = ["designer"]
 name = "unifutures"
 prefix = "uf"
 repo = "/home/claudedev/unifutures"
-model = "xiaomi/mimo-v2-pro"
+model = "stepfun/step-3.5-flash:free"
 max_workers = 1
 execution_mode = "agent"
 worker_timeout_secs = 1800

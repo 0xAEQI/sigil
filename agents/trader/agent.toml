@@ -1,0 +1,12 @@
+name = "trader"
+prefix = "tr"
+model = "stepfun/step-3.5-flash:free"
+role = "advisor"
+voice = "vocal"
+runtime = "openrouter_agent"
+execution_mode = "agent"
+max_workers = 2
+max_turns = 25
+default_repo = "algostaking"
+expertise = ["algostaking", "trading", "quantitative", "rust-hft"]
+telegram_token_secret = "TRADER_TELEGRAM_TOKEN"

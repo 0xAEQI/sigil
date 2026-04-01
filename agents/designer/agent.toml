@@ -1,0 +1,12 @@
+name = "designer"
+prefix = "ds"
+model = "stepfun/step-3.5-flash:free"
+role = "advisor"
+voice = "vocal"
+runtime = "openrouter_agent"
+execution_mode = "agent"
+max_workers = 1
+max_turns = 15
+default_repo = "riftdecks"
+expertise = ["riftdecks-shop", "entity-legal"]
+telegram_token_secret = "DESIGNER_TELEGRAM_TOKEN"

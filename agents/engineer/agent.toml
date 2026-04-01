@@ -1,0 +1,11 @@
+name = "engineer"
+prefix = "en"
+model = "stepfun/step-3.5-flash:free"
+role = "advisor"
+voice = "silent"
+runtime = "openrouter_agent"
+execution_mode = "agent"
+max_workers = 1
+max_turns = 20
+default_repo = "sigil"
+expertise = ["sigil", "algostaking", "rust", "infrastructure", "aeqi", "unifutures"]

@@ -1,0 +1,12 @@
+name = "rei"
+prefix = "re"
+model = "stepfun/step-3.5-flash:free"
+role = "orchestrator"
+voice = "vocal"
+runtime = "openrouter_agent"
+execution_mode = "agent"
+max_workers = 3
+max_turns = 30
+default_repo = "sigil"
+capabilities = ["orchestration", "memory", "delegation", "infrastructure"]
+expertise = ["orchestration", "architecture", "strategy", "infrastructure", "all"]
