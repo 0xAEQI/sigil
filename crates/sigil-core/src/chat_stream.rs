@@ -15,15 +15,10 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type")]
 pub enum ChatStreamEvent {
     /// Agent is starting a new turn (LLM call).
-    TurnStart {
-        turn: u32,
-        model: String,
-    },
+    TurnStart { turn: u32, model: String },
 
     /// Incremental text token from the model's response.
-    TextDelta {
-        text: String,
-    },
+    TextDelta { text: String },
 
     /// The model is invoking a tool.
     ToolStart {
@@ -32,10 +27,7 @@ pub enum ChatStreamEvent {
     },
 
     /// Incremental output from a running tool (e.g., shell stdout).
-    ToolProgress {
-        tool_use_id: String,
-        output: String,
-    },
+    ToolProgress { tool_use_id: String, output: String },
 
     /// A tool execution completed.
     ToolComplete {
@@ -48,9 +40,7 @@ pub enum ChatStreamEvent {
     },
 
     /// Status message from the agent runtime (e.g., "Compacting context...").
-    Status {
-        message: String,
-    },
+    Status { message: String },
 
     /// Agent is delegating to a subagent.
     DelegateStart {
@@ -95,10 +85,7 @@ pub enum ChatStreamEvent {
     },
 
     /// An error occurred.
-    Error {
-        message: String,
-        recoverable: bool,
-    },
+    Error { message: String, recoverable: bool },
 }
 
 /// A chat stream sender that observers/middleware can use to emit events.

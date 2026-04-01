@@ -377,7 +377,10 @@ impl Supervisor {
 
         let mut worker = match self.execution_mode {
             sigil_core::ExecutionMode::ClaudeCode => {
-                let cwd = self.repo.clone().unwrap_or_else(|| std::path::PathBuf::from("."));
+                let cwd = self
+                    .repo
+                    .clone()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
                 let budget = self.worker_max_budget_usd.unwrap_or(5.0);
                 AgentWorker::new_claude_code(
                     agent_name.clone(),
@@ -446,70 +449,68 @@ impl Supervisor {
         }
 
         // Inject TriggerManageTool if agent has manage_triggers capability.
-        if persistent_capabilities.iter().any(|c| c == "manage_triggers") {
-            if let (Some(ts), Some(agent_id)) =
-                (&self.trigger_store, &persistent_agent_id)
-            {
-                if let crate::agent_worker::WorkerExecution::Agent {
-                    ref mut tools, ..
-                } = worker.execution
-                {
-                    tools.push(Arc::new(crate::tools::TriggerManageTool::new(
-                        ts.clone(),
-                        agent_id.clone(),
-                    )));
-                    info!(
-                        project = %self.project_name,
-                        agent_id = %agent_id,
-                        "injected manage_triggers tool"
-                    );
-                }
-            }
+        if persistent_capabilities
+            .iter()
+            .any(|c| c == "manage_triggers")
+            && let (Some(ts), Some(agent_id)) = (&self.trigger_store, &persistent_agent_id)
+            && let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
+                worker.execution
+        {
+            tools.push(Arc::new(crate::tools::TriggerManageTool::new(
+                ts.clone(),
+                agent_id.clone(),
+            )));
+            info!(
+                project = %self.project_name,
+                agent_id = %agent_id,
+                "injected manage_triggers tool"
+            );
         }
 
         // Inject communication tools for all persistent agents (dispatch + channel).
-        if persistent_agent_id.is_some() {
-            if let crate::agent_worker::WorkerExecution::Agent {
-                ref mut tools, ..
-            } = worker.execution
-            {
-                // dispatch_read + dispatch_send for agent-to-agent messaging.
-                tools.push(Arc::new(crate::tools::MailReadTool::new(
-                    self.dispatch_bus.clone(),
-                )));
-                tools.push(Arc::new(crate::tools::MailSendTool::new(
-                    self.dispatch_bus.clone(),
-                )));
+        if persistent_agent_id.is_some()
+            && let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
+                worker.execution
+        {
+            // dispatch_read + dispatch_send for agent-to-agent messaging.
+            tools.push(Arc::new(crate::tools::MailReadTool::new(
+                self.dispatch_bus.clone(),
+            )));
+            tools.push(Arc::new(crate::tools::MailSendTool::new(
+                self.dispatch_bus.clone(),
+            )));
 
-                // channel_post for department/project conversation channels.
-                if let (Some(convs), Some(broadcaster)) =
-                    (&self.conversation_store, &self.event_broadcaster)
-                {
-                    tools.push(Arc::new(crate::tools::ChannelPostTool::new(
-                        convs.clone(),
-                        broadcaster.clone(),
-                        agent_name.clone(),
-                    )));
-                }
+            // channel_post for department/project conversation channels.
+            if let (Some(convs), Some(broadcaster)) =
+                (&self.conversation_store, &self.event_broadcaster)
+            {
+                tools.push(Arc::new(crate::tools::ChannelPostTool::new(
+                    convs.clone(),
+                    broadcaster.clone(),
+                    agent_name.clone(),
+                )));
             }
         }
 
         // Inject org context into identity (manager, peers, reports, channels).
-        if let (Some(registry), Some(agent_id)) =
-            (&self.agent_registry, &persistent_agent_id)
-        {
+        if let (Some(registry), Some(agent_id)) = (&self.agent_registry, &persistent_agent_id) {
             let mut org_lines = Vec::new();
 
             if let Ok(Some(parent)) = registry.parent(agent_id).await {
                 org_lines.push(format!(
                     "Manager: {}{}",
                     parent.name,
-                    parent.display_name.as_ref().map(|d| format!(" ({d})")).unwrap_or_default()
+                    parent
+                        .display_name
+                        .as_ref()
+                        .map(|d| format!(" ({d})"))
+                        .unwrap_or_default()
                 ));
             }
 
             if let Ok(siblings) = registry.siblings(agent_id).await {
-                let names: Vec<&str> = siblings.iter()
+                let names: Vec<&str> = siblings
+                    .iter()
                     .filter(|s| s.status == crate::agent_registry::AgentStatus::Active)
                     .map(|s| s.name.as_str())
                     .collect();
@@ -519,7 +520,8 @@ impl Supervisor {
             }
 
             if let Ok(children) = registry.children(agent_id).await {
-                let names: Vec<&str> = children.iter()
+                let names: Vec<&str> = children
+                    .iter()
                     .filter(|c| c.status == crate::agent_registry::AgentStatus::Active)
                     .map(|c| c.name.as_str())
                     .collect();
@@ -554,20 +556,18 @@ impl Supervisor {
 
             if let Some(skill) = self.load_skill(skill_name)
                 && (!skill.tools.allow.is_empty() || !skill.tools.deny.is_empty())
-            {
-                if let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
+                && let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
                     worker.execution
-                {
-                    let before = tools.len();
-                    tools.retain(|t| skill.is_tool_allowed(t.name()));
-                    info!(
-                        project = %self.project_name,
-                        skill = %skill_name,
-                        before = before,
-                        after = tools.len(),
-                        "filtered tools by skill policy"
-                    );
-                }
+            {
+                let before = tools.len();
+                tools.retain(|t| skill.is_tool_allowed(t.name()));
+                info!(
+                    project = %self.project_name,
+                    skill = %skill_name,
+                    before = before,
+                    after = tools.len(),
+                    "filtered tools by skill policy"
+                );
             }
         }
 
@@ -1086,21 +1086,21 @@ impl Supervisor {
                             if domain == "cron" {
                                 tracing::trace!(task_id = %task_id_clone, "skipping expertise record for cron task");
                             } else {
-                            let outcome_kind = match &outcome {
-                                TaskOutcome::Done(_) => TaskOutcomeKind::Done,
-                                TaskOutcome::Failed(_) => TaskOutcomeKind::Failed,
-                                TaskOutcome::Handoff { .. } => TaskOutcomeKind::Handoff,
-                                TaskOutcome::Blocked { .. } => TaskOutcomeKind::Blocked,
-                            };
-                            let _ = ledger.record(&ExpertiseRecord {
-                                agent_name: agent_name_for_records.clone(),
-                                task_domain: domain,
-                                outcome: outcome_kind,
-                                cost_usd,
-                                duration_secs,
-                                turns,
-                                timestamp: chrono::Utc::now(),
-                            });
+                                let outcome_kind = match &outcome {
+                                    TaskOutcome::Done(_) => TaskOutcomeKind::Done,
+                                    TaskOutcome::Failed(_) => TaskOutcomeKind::Failed,
+                                    TaskOutcome::Handoff { .. } => TaskOutcomeKind::Handoff,
+                                    TaskOutcome::Blocked { .. } => TaskOutcomeKind::Blocked,
+                                };
+                                let _ = ledger.record(&ExpertiseRecord {
+                                    agent_name: agent_name_for_records.clone(),
+                                    task_domain: domain,
+                                    outcome: outcome_kind,
+                                    cost_usd,
+                                    duration_secs,
+                                    turns,
+                                    timestamp: chrono::Utc::now(),
+                                });
                             }
                         }
 
@@ -1345,7 +1345,6 @@ impl Supervisor {
                             }
                             TaskOutcome::Handoff { .. } => {}
                         }
-
                     }
                     Err(e) => {
                         warn!(

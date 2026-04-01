@@ -74,11 +74,11 @@ impl AppState {
     }
 
     fn append_assistant_text(&mut self, delta: &str) {
-        if let Some(last) = self.messages.last_mut() {
-            if last.role == "Rei" {
-                last.text.push_str(delta);
-                return;
-            }
+        if let Some(last) = self.messages.last_mut()
+            && last.role == "Rei"
+        {
+            last.text.push_str(delta);
+            return;
         }
         // No active assistant line — create one.
         self.push_assistant_start();
@@ -173,16 +173,14 @@ fn spawn_ws_thread(
             // Try to read an incoming message (non-blocking).
             match ws.read() {
                 Ok(Message::Text(text)) => {
-                    if let Ok(evt) = serde_json::from_str::<ChatStreamEvent>(&text) {
-                        if event_tx.send(evt).is_err() {
-                            break;
-                        }
+                    if let Ok(evt) = serde_json::from_str::<ChatStreamEvent>(&text)
+                        && event_tx.send(evt).is_err()
+                    {
+                        break;
                     }
                 }
                 Ok(Message::Close(_)) => break,
-                Err(tungstenite::Error::Io(ref e))
-                    if e.kind() == io::ErrorKind::WouldBlock =>
-                {
+                Err(tungstenite::Error::Io(ref e)) if e.kind() == io::ErrorKind::WouldBlock => {
                     // Nothing available — sleep briefly so we don't spin.
                     std::thread::sleep(Duration::from_millis(10));
                 }
@@ -272,8 +270,7 @@ fn draw_status(frame: &mut Frame, area: Rect, state: &AppState) {
         state.status_agent, model_display, tokens_fmt, cost_fmt, extra,
     );
 
-    let bar = Paragraph::new(text)
-        .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+    let bar = Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White));
     frame.render_widget(bar, area);
 }
 
@@ -555,41 +552,41 @@ fn run_loop(
         }
 
         // Poll crossterm events with 50ms timeout for responsiveness.
-        if event::poll(Duration::from_millis(50))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Esc => {
-                        state.should_quit = true;
-                    }
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        state.should_quit = true;
-                    }
-                    KeyCode::Enter => {
-                        let text = state.input.trim().to_string();
-                        if !text.is_empty() {
-                            state.push_user(&text);
-                            state.input.clear();
-
-                            let mut msg = serde_json::json!({
-                                "message": text,
-                            });
-                            if let Some(ref aid) = state.agent_id {
-                                msg["agent_id"] = serde_json::json!(aid);
-                            }
-                            if let Some(ref p) = state.project {
-                                msg["project"] = serde_json::json!(p);
-                            }
-                            let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        state.input.pop();
-                    }
-                    KeyCode::Char(c) => {
-                        state.input.push(c);
-                    }
-                    _ => {}
+        if event::poll(Duration::from_millis(50))?
+            && let Event::Key(key) = event::read()?
+        {
+            match key.code {
+                KeyCode::Esc => {
+                    state.should_quit = true;
                 }
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.should_quit = true;
+                }
+                KeyCode::Enter => {
+                    let text = state.input.trim().to_string();
+                    if !text.is_empty() {
+                        state.push_user(&text);
+                        state.input.clear();
+
+                        let mut msg = serde_json::json!({
+                            "message": text,
+                        });
+                        if let Some(ref aid) = state.agent_id {
+                            msg["agent_id"] = serde_json::json!(aid);
+                        }
+                        if let Some(ref p) = state.project {
+                            msg["project"] = serde_json::json!(p);
+                        }
+                        let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
+                    }
+                }
+                KeyCode::Backspace => {
+                    state.input.pop();
+                }
+                KeyCode::Char(c) => {
+                    state.input.push(c);
+                }
+                _ => {}
             }
         }
 

@@ -6,11 +6,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
+use crate::agent_registry::AgentRegistry;
 use crate::chat_engine::{ChatEngine, ChatMessage, ChatSource};
 use crate::conversation_store::{
     agency_chat_id, department_chat_id, named_channel_chat_id, project_chat_id,
 };
-use crate::agent_registry::AgentRegistry;
 use crate::execution_events::{EventBroadcaster, ExecutionEvent};
 use crate::message::{Dispatch, DispatchBus, DispatchHealth};
 use crate::registry::ProjectRegistry;
@@ -239,7 +239,6 @@ impl Daemon {
         }
     }
 
-
     pub fn set_background_automation_enabled(&mut self, enabled: bool) {
         self.background_automation_enabled = enabled;
     }
@@ -275,10 +274,10 @@ impl Daemon {
 
         // Advance-before-execute: update last_fired BEFORE creating the task.
         // If the agent crashes mid-execution, the trigger won't re-fire on restart.
-        if let Some(ref ts) = self.trigger_store {
-            if let Err(e) = ts.advance_before_execute(&trigger.id).await {
-                warn!(trigger = %trigger.name, error = %e, "failed to advance trigger");
-            }
+        if let Some(ref ts) = self.trigger_store
+            && let Err(e) = ts.advance_before_execute(&trigger.id).await
+        {
+            warn!(trigger = %trigger.name, error = %e, "failed to advance trigger");
         }
 
         let subject = format!("[trigger:{}] {}", trigger.name, trigger.skill);
@@ -315,7 +314,10 @@ impl Daemon {
             let _ = trigger_store.record_fire(&trigger.id, 0.0).await;
 
             // Auto-disable one-shot triggers.
-            if matches!(trigger.trigger_type, crate::trigger::TriggerType::Once { .. }) {
+            if matches!(
+                trigger.trigger_type,
+                crate::trigger::TriggerType::Once { .. }
+            ) {
                 let _ = trigger_store.update_enabled(&trigger.id, false).await;
                 info!(trigger = %trigger.name, "one-shot trigger auto-disabled");
             }
@@ -492,10 +494,10 @@ impl Daemon {
                             continue;
                         }
                         // Check cooldown.
-                        if let Some(last) = cooldowns.get(&trigger.id) {
-                            if (Utc::now() - *last).num_seconds() < cooldown_secs as i64 {
-                                continue;
-                            }
+                        if let Some(last) = cooldowns.get(&trigger.id)
+                            && (Utc::now() - *last).num_seconds() < cooldown_secs as i64
+                        {
+                            continue;
                         }
                         cooldowns.insert(trigger.id.clone(), Utc::now());
 
@@ -509,8 +511,7 @@ impl Daemon {
                             None
                         };
                         if let Some(project) = project {
-                            let subject =
-                                format!("[trigger:{}] {}", trigger.name, trigger.skill);
+                            let subject = format!("[trigger:{}] {}", trigger.name, trigger.skill);
                             let desc = format!(
                                 "Event trigger '{}' fired. Run skill '{}'.",
                                 trigger.name, trigger.skill
@@ -600,10 +601,7 @@ impl Daemon {
             Err(e) => warn!(error = %e, "failed to load cost ledger"),
         }
 
-        info!(
-            triggers = self.trigger_store.is_some(),
-            "daemon started"
-        );
+        info!(triggers = self.trigger_store.is_some(), "daemon started");
 
         while self.running.load(std::sync::atomic::Ordering::SeqCst) {
             // 1. Patrol cycle: reap finished workers, assign + launch new ones (non-blocking).
@@ -767,8 +765,13 @@ impl Daemon {
             }
 
             // 9. Flush debounced memory writes to project memory stores.
-            if let Ok(mut wq) = self.write_queue.lock() {
-                let ready = wq.drain_ready(chrono::Utc::now());
+            let ready = {
+                match self.write_queue.lock() {
+                    Ok(mut wq) => wq.drain_ready(chrono::Utc::now()),
+                    Err(_) => Vec::new(),
+                }
+            };
+            {
                 if !ready.is_empty() {
                     info!(count = ready.len(), "flushing debounced memory writes");
                     if let Some(ref engine) = self.chat_engine {
@@ -1166,15 +1169,18 @@ impl Daemon {
                     match &registry.blackboard {
                         Some(bb) => {
                             let entries = if cross_project {
-                                bb.query_cross_project(&tags, since, limit).unwrap_or_default()
+                                bb.query_cross_project(&tags, since, limit)
+                                    .unwrap_or_default()
                             } else if !tags.is_empty() {
                                 if let Some(since_dt) = since {
-                                    bb.query_since(project_filter, &tags, since_dt, limit).unwrap_or_default()
+                                    bb.query_since(project_filter, &tags, since_dt, limit)
+                                        .unwrap_or_default()
                                 } else {
                                     bb.query(project_filter, &tags, limit).unwrap_or_default()
                                 }
                             } else if let Some(since_dt) = since {
-                                bb.query_since(project_filter, &[], since_dt, limit).unwrap_or_default()
+                                bb.query_since(project_filter, &[], since_dt, limit)
+                                    .unwrap_or_default()
                             } else {
                                 bb.list_project(project_filter, limit).unwrap_or_default()
                             };
@@ -1201,7 +1207,10 @@ impl Daemon {
                 }
 
                 "get_blackboard" => {
-                    let project = request.get("project").and_then(|v| v.as_str()).unwrap_or("");
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     let key = request.get("key").and_then(|v| v.as_str()).unwrap_or("");
                     match &registry.blackboard {
                         Some(bb) => match bb.get_by_key(project, key) {
@@ -1220,15 +1229,29 @@ impl Daemon {
                             Ok(None) => serde_json::json!({"ok": true, "entry": null}),
                             Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                         },
-                        None => serde_json::json!({"ok": false, "error": "blackboard not initialized"}),
+                        None => {
+                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                        }
                     }
                 }
 
                 "claim_blackboard" => {
-                    let resource = request.get("resource").and_then(|v| v.as_str()).unwrap_or("");
-                    let project = request.get("project").and_then(|v| v.as_str()).unwrap_or("");
-                    let agent = request.get("agent").and_then(|v| v.as_str()).unwrap_or("worker");
-                    let content = request.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    let resource = request
+                        .get("resource")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let agent = request
+                        .get("agent")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("worker");
+                    let content = request
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
                     if resource.is_empty() || project.is_empty() {
                         serde_json::json!({"ok": false, "error": "resource and project are required"})
@@ -1246,29 +1269,50 @@ impl Daemon {
                                 }
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             },
-                            None => serde_json::json!({"ok": false, "error": "blackboard not initialized"}),
+                            None => {
+                                serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                            }
                         }
                     }
                 }
 
                 "release_blackboard" => {
-                    let resource = request.get("resource").and_then(|v| v.as_str()).unwrap_or("");
-                    let project = request.get("project").and_then(|v| v.as_str()).unwrap_or("");
-                    let agent = request.get("agent").and_then(|v| v.as_str()).unwrap_or("worker");
-                    let force = request.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let resource = request
+                        .get("resource")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let agent = request
+                        .get("agent")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("worker");
+                    let force = request
+                        .get("force")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
 
                     match &registry.blackboard {
                         Some(bb) => match bb.release(resource, agent, project, force) {
                             Ok(true) => serde_json::json!({"ok": true, "released": true}),
-                            Ok(false) => serde_json::json!({"ok": true, "released": false, "reason": "not found or not owned"}),
+                            Ok(false) => {
+                                serde_json::json!({"ok": true, "released": false, "reason": "not found or not owned"})
+                            }
                             Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                         },
-                        None => serde_json::json!({"ok": false, "error": "blackboard not initialized"}),
+                        None => {
+                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                        }
                     }
                 }
 
                 "delete_blackboard" => {
-                    let project = request.get("project").and_then(|v| v.as_str()).unwrap_or("");
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
                     let key = request.get("key").and_then(|v| v.as_str()).unwrap_or("");
 
                     match &registry.blackboard {
@@ -1277,13 +1321,21 @@ impl Daemon {
                             Ok(false) => serde_json::json!({"ok": true, "deleted": false}),
                             Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                         },
-                        None => serde_json::json!({"ok": false, "error": "blackboard not initialized"}),
+                        None => {
+                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                        }
                     }
                 }
 
                 "check_claim" => {
-                    let resource = request.get("resource").and_then(|v| v.as_str()).unwrap_or("");
-                    let project = request.get("project").and_then(|v| v.as_str()).unwrap_or("");
+                    let resource = request
+                        .get("resource")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let project = request
+                        .get("project")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
 
                     match &registry.blackboard {
                         Some(bb) => match bb.check_claim(resource, project) {
@@ -1293,7 +1345,9 @@ impl Daemon {
                             Ok(None) => serde_json::json!({"ok": true, "claimed": false}),
                             Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                         },
-                        None => serde_json::json!({"ok": false, "error": "blackboard not initialized"}),
+                        None => {
+                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                        }
                     }
                 }
 
@@ -1487,12 +1541,17 @@ impl Daemon {
                                                     let mut cleaned = 0u32;
                                                     for entry in &entries {
                                                         if entry.key.starts_with(&prefix) {
-                                                            let _ = bb.delete_by_key(&name, &entry.key);
+                                                            let _ =
+                                                                bb.delete_by_key(&name, &entry.key);
                                                             cleaned += 1;
                                                         }
                                                     }
                                                     if cleaned > 0 {
-                                                        tracing::debug!(task_id, cleaned, "cleaned blackboard entries on task close");
+                                                        tracing::debug!(
+                                                            task_id,
+                                                            cleaned,
+                                                            "cleaned blackboard entries on task close"
+                                                        );
                                                     }
                                                 }
                                             }
@@ -1782,15 +1841,18 @@ impl Daemon {
                                 Ok(events) => {
                                     let mut items = Vec::with_capacity(events.len());
                                     for event in &events {
-                                        let task_snapshot = if let Some(metadata) = event.metadata.as_ref()
+                                        let task_snapshot = if let Some(metadata) =
+                                            event.metadata.as_ref()
                                         {
-                                            if let Some(task_id) =
-                                                metadata.get("task_id").and_then(|value| value.as_str())
+                                            if let Some(task_id) = metadata
+                                                .get("task_id")
+                                                .and_then(|value| value.as_str())
                                             {
                                                 let project_hint = metadata
                                                     .get("project")
                                                     .and_then(|value| value.as_str());
-                                                find_task_snapshot(&registry, project_hint, task_id).await
+                                                find_task_snapshot(&registry, project_hint, task_id)
+                                                    .await
                                             } else {
                                                 None
                                             }
@@ -2030,7 +2092,9 @@ impl Daemon {
                                         .collect();
                                     serde_json::json!({"ok": true, "memories": rows, "count": rows.len()})
                                 }
-                                Err(e) => serde_json::json!({"ok": false, "error": format!("search failed: {e}")}),
+                                Err(e) => {
+                                    serde_json::json!({"ok": false, "error": format!("search failed: {e}")})
+                                }
                             }
                         } else {
                             serde_json::json!({"ok": true, "memories": [], "count": 0})
@@ -2492,7 +2556,6 @@ impl Daemon {
     pub fn is_running(&self) -> bool {
         self.running.load(std::sync::atomic::Ordering::SeqCst)
     }
-
 }
 
 fn dispatch_state(dispatch: &Dispatch, overdue_cutoff: chrono::DateTime<Utc>) -> &'static str {

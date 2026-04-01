@@ -116,8 +116,8 @@ impl StreamingToolExecutor {
             if tool.status != ToolStatus::Queued {
                 continue;
             }
-            let can_execute = executing_all_safe.0
-                || (tool.is_concurrent_safe && executing_all_safe.1);
+            let can_execute =
+                executing_all_safe.0 || (tool.is_concurrent_safe && executing_all_safe.1);
             if can_execute {
                 to_start.push(i);
             } else if !tool.is_concurrent_safe {
@@ -216,8 +216,7 @@ impl StreamingToolExecutor {
                         tool.status = ToolStatus::Cancelled;
                     }
                     Err(join_err) => {
-                        tool.result =
-                            Some(ToolResult::error(format!("Tool panicked: {join_err}")));
+                        tool.result = Some(ToolResult::error(format!("Tool panicked: {join_err}")));
                         tool.status = ToolStatus::Cancelled;
                     }
                 }

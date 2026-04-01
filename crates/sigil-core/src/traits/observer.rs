@@ -98,12 +98,7 @@ pub trait Observer: Send + Sync {
     }
 
     /// Called after each tool execution completes.
-    async fn after_tool(
-        &self,
-        _tool_name: &str,
-        _output: &str,
-        _is_error: bool,
-    ) -> LoopAction {
+    async fn after_tool(&self, _tool_name: &str, _output: &str, _is_error: bool) -> LoopAction {
         LoopAction::Continue
     }
 

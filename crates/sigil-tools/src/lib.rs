@@ -16,8 +16,8 @@ pub mod web_search;
 
 pub use continue_agent::ContinueAgentTool;
 pub use delegate::DelegateTool;
-pub use execute_plan::ExecutePlanTool;
 pub use edit::FileEditTool;
+pub use execute_plan::ExecutePlanTool;
 pub use file::{FileReadTool, FileWriteTool, ListDirTool};
 pub use git::GitWorktreeTool;
 pub use glob::GlobTool;

@@ -87,68 +87,102 @@ pub(crate) async fn cmd_agent(
         }
         crate::cli::AgentAction::Spawn { template, project } => {
             let (config, _) = load_config(config_path)?;
-            let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
+            let registry =
+                sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
             let content = std::fs::read_to_string(&template)?;
-            let agent = registry.spawn_from_template(&content, project.as_deref(), None).await?;
+            let agent = registry
+                .spawn_from_template(&content, project.as_deref(), None)
+                .await?;
             println!("Spawned persistent agent:");
             println!("  ID:      {}", agent.id);
             println!("  Name:    {}", agent.name);
-            println!("  Display: {}", agent.display_name.as_deref().unwrap_or("-"));
-            println!("  Project: {}", agent.project.as_deref().unwrap_or("(root)"));
-            println!("  Model:   {}", agent.model.as_deref().unwrap_or("(default)"));
+            println!(
+                "  Display: {}",
+                agent.display_name.as_deref().unwrap_or("-")
+            );
+            println!(
+                "  Project: {}",
+                agent.project.as_deref().unwrap_or("(root)")
+            );
+            println!(
+                "  Model:   {}",
+                agent.model.as_deref().unwrap_or("(default)")
+            );
             println!("  Caps:    {:?}", agent.capabilities);
             Ok(())
         }
         crate::cli::AgentAction::Show { name } => {
             let (config, _) = load_config(config_path)?;
-            let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
+            let registry =
+                sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
             let agents = registry.get_by_name(&name).await?;
             if agents.is_empty() {
                 println!("No agents named '{name}' in registry.");
             }
             for a in &agents {
-                    println!("Agent: {} ({})", a.name, a.id);
-                    if let Some(d) = &a.display_name { println!("  Display:  {d}"); }
-                    println!("  Status:   {}", a.status);
-                    println!("  Project:  {}", a.project.as_deref().unwrap_or("(root)"));
-                    println!("  Model:    {}", a.model.as_deref().unwrap_or("(default)"));
-                    println!("  Caps:     {:?}", a.capabilities);
-                    println!("  Sessions: {}", a.session_count);
-                    println!("  Tokens:   {}", a.total_tokens);
-                    println!("  Created:  {}", a.created_at);
-                    if let Some(la) = &a.last_active { println!("  Active:   {la}"); }
-                    println!("\n--- System Prompt ---\n{}", a.system_prompt);
-                    println!();
+                println!("Agent: {} ({})", a.name, a.id);
+                if let Some(d) = &a.display_name {
+                    println!("  Display:  {d}");
+                }
+                println!("  Status:   {}", a.status);
+                println!("  Project:  {}", a.project.as_deref().unwrap_or("(root)"));
+                println!("  Model:    {}", a.model.as_deref().unwrap_or("(default)"));
+                println!("  Caps:     {:?}", a.capabilities);
+                println!("  Sessions: {}", a.session_count);
+                println!("  Tokens:   {}", a.total_tokens);
+                println!("  Created:  {}", a.created_at);
+                if let Some(la) = &a.last_active {
+                    println!("  Active:   {la}");
+                }
+                println!("\n--- System Prompt ---\n{}", a.system_prompt);
+                println!();
             }
             Ok(())
         }
         crate::cli::AgentAction::Retire { name } => {
             let (config, _) = load_config(config_path)?;
-            let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
-            registry.set_status(&name, sigil_orchestrator::agent_registry::AgentStatus::Retired).await?;
+            let registry =
+                sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
+            registry
+                .set_status(
+                    &name,
+                    sigil_orchestrator::agent_registry::AgentStatus::Retired,
+                )
+                .await?;
             println!("Agent '{name}' retired. Memory preserved.");
             Ok(())
         }
         crate::cli::AgentAction::Activate { name } => {
             let (config, _) = load_config(config_path)?;
-            let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
-            registry.set_status(&name, sigil_orchestrator::agent_registry::AgentStatus::Active).await?;
+            let registry =
+                sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
+            registry
+                .set_status(
+                    &name,
+                    sigil_orchestrator::agent_registry::AgentStatus::Active,
+                )
+                .await?;
             println!("Agent '{name}' activated.");
             Ok(())
         }
         crate::cli::AgentAction::Registry { project } => {
             let (config, _) = load_config(config_path)?;
-            let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
+            let registry =
+                sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
             let agents = registry.list(project.as_deref(), None).await?;
             if agents.is_empty() {
                 println!("No persistent agents registered.");
                 println!("Spawn one: sigil agent spawn <template.md>");
                 return Ok(());
             }
-            println!("{:<20} {:<10} {:<15} {:<10} {:<8}", "NAME", "STATUS", "PROJECT", "SESSIONS", "TOKENS");
+            println!(
+                "{:<20} {:<10} {:<15} {:<10} {:<8}",
+                "NAME", "STATUS", "PROJECT", "SESSIONS", "TOKENS"
+            );
             println!("{}", "-".repeat(63));
             for a in &agents {
-                println!("{:<20} {:<10} {:<15} {:<10} {:<8}",
+                println!(
+                    "{:<20} {:<10} {:<15} {:<10} {:<8}",
                     a.name,
                     a.status.to_string(),
                     a.project.as_deref().unwrap_or("(root)"),

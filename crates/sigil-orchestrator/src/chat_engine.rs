@@ -874,7 +874,9 @@ impl ChatEngine {
         let status = {
             if let Some(rig) = self.registry.get_project(&project).await {
                 let store = rig.tasks.lock().await;
-                store.get(task_id).map(|b| (b.status, Self::task_completion_reason(b)))
+                store
+                    .get(task_id)
+                    .map(|b| (b.status, Self::task_completion_reason(b)))
             } else {
                 None
             }

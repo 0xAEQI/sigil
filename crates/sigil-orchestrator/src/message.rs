@@ -318,7 +318,10 @@ impl DispatchBus {
     }
 
     /// Set the event broadcaster for emitting DispatchReceived events.
-    pub fn set_event_broadcaster(&mut self, broadcaster: Arc<crate::execution_events::EventBroadcaster>) {
+    pub fn set_event_broadcaster(
+        &mut self,
+        broadcaster: Arc<crate::execution_events::EventBroadcaster>,
+    ) {
         self.event_broadcaster = Some(broadcaster);
     }
 

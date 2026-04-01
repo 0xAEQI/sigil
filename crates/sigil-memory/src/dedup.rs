@@ -205,9 +205,7 @@ pub fn is_support(candidate: &str, existing: &str) -> bool {
     let candidate_lower = candidate.to_lowercase();
 
     // Check if candidate contains support markers
-    let has_support = SUPPORT_MARKERS
-        .iter()
-        .any(|m| candidate_lower.contains(m));
+    let has_support = SUPPORT_MARKERS.iter().any(|m| candidate_lower.contains(m));
 
     if !has_support {
         return false;

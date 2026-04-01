@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //! Agent orchestration engine — the operational heart of Sigil.
 //!
 //! Coordinates worker execution ([`AgentWorker`]), supervisor patrol ([`Supervisor`]),
@@ -14,8 +15,8 @@ pub mod agent_worker;
 pub mod audit;
 pub mod blackboard;
 pub mod chat_engine;
-pub mod claude_code;
 pub mod checkpoint;
+pub mod claude_code;
 pub mod context_budget;
 pub mod conversation_store;
 pub mod cost_ledger;

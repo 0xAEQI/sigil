@@ -455,12 +455,12 @@ impl Provider for AnthropicProvider {
 
                 match event.event_type.as_str() {
                     "message_start" => {
-                        if let Ok(msg) = serde_json::from_str::<SseMessageStart>(data) {
-                            if let Some(u) = msg.message.usage {
-                                usage.prompt_tokens = u.input_tokens;
-                                usage.completion_tokens = u.output_tokens;
-                                let _ = tx.send(StreamEvent::Usage(usage.clone())).await;
-                            }
+                        if let Ok(msg) = serde_json::from_str::<SseMessageStart>(data)
+                            && let Some(u) = msg.message.usage
+                        {
+                            usage.prompt_tokens = u.input_tokens;
+                            usage.completion_tokens = u.output_tokens;
+                            let _ = tx.send(StreamEvent::Usage(usage.clone())).await;
                         }
                     }
 
@@ -496,8 +496,7 @@ impl Provider for AnthropicProvider {
                             match cbd.delta {
                                 SseDelta::TextDelta { text } => {
                                     let _ = tx.send(StreamEvent::TextDelta(text.clone())).await;
-                                    if let Some(BlockAccum::Text(accum)) =
-                                        blocks.get_mut(cbd.index)
+                                    if let Some(BlockAccum::Text(accum)) = blocks.get_mut(cbd.index)
                                     {
                                         accum.push_str(&text);
                                     }
@@ -506,9 +505,8 @@ impl Provider for AnthropicProvider {
                                     let _ = tx
                                         .send(StreamEvent::ToolUseInput(partial_json.clone()))
                                         .await;
-                                    if let Some(BlockAccum::ToolUse {
-                                        input_json, ..
-                                    }) = blocks.get_mut(cbd.index)
+                                    if let Some(BlockAccum::ToolUse { input_json, .. }) =
+                                        blocks.get_mut(cbd.index)
                                     {
                                         input_json.push_str(&partial_json);
                                     }

@@ -12,7 +12,7 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -199,7 +199,9 @@ fn parse_simple_yaml(text: &str) -> serde_json::Value {
                                 i += 1;
                                 continue;
                             }
-                            if inner.starts_with("- ") || (!lines[i].starts_with(' ') && !lines[i].starts_with('\t')) {
+                            if inner.starts_with("- ")
+                                || (!lines[i].starts_with(' ') && !lines[i].starts_with('\t'))
+                            {
                                 break; // Next item or end of block
                             }
                             if let Some((k, v)) = inner.split_once(':') {
@@ -338,7 +340,9 @@ impl AgentRegistry {
     ) -> Result<PersistentAgent> {
         let (fm, system_prompt) = parse_agent_template(template_content);
         let template_name = fm.name.clone().unwrap_or_else(|| "custom".to_string());
-        let name = fm.name.unwrap_or_else(|| format!("agent-{}", &uuid::Uuid::new_v4().to_string()[..8]));
+        let name = fm
+            .name
+            .unwrap_or_else(|| format!("agent-{}", &uuid::Uuid::new_v4().to_string()[..8]));
         let triggers = fm.triggers.clone();
 
         // Resolve parent name to UUID if specified.
@@ -353,17 +357,19 @@ impl AgentRegistry {
             None
         };
 
-        let mut agent = self.spawn(
-            &name,
-            fm.display_name.as_deref(),
-            &template_name,
-            &system_prompt,
-            project_override.or(fm.project.as_deref()),
-            department_override.or(fm.department.as_deref()),
-            parent_id.as_deref(),
-            fm.model.as_deref(),
-            &fm.capabilities,
-        ).await?;
+        let mut agent = self
+            .spawn(
+                &name,
+                fm.display_name.as_deref(),
+                &template_name,
+                &system_prompt,
+                project_override.or(fm.project.as_deref()),
+                department_override.or(fm.department.as_deref()),
+                parent_id.as_deref(),
+                fm.model.as_deref(),
+                &fm.capabilities,
+            )
+            .await?;
 
         // Apply visual identity from template frontmatter.
         if fm.color.is_some() || fm.avatar.is_some() || !fm.faces.is_empty() {
@@ -498,9 +504,7 @@ impl AgentRegistry {
             params_vec.iter().map(|p| p.as_ref()).collect();
         let mut stmt = db.prepare(&sql)?;
         let agents = stmt
-            .query_map(params_refs.as_slice(), |row| {
-                Ok(row_to_agent(row))
-            })?
+            .query_map(params_refs.as_slice(), |row| Ok(row_to_agent(row)))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(agents)
@@ -510,9 +514,8 @@ impl AgentRegistry {
     /// Returns all matches sorted by created_at descending (newest first).
     pub async fn get_by_name(&self, name: &str) -> Result<Vec<PersistentAgent>> {
         let db = self.db.lock().await;
-        let mut stmt = db.prepare(
-            "SELECT * FROM agents WHERE name = ?1 ORDER BY created_at DESC",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT * FROM agents WHERE name = ?1 ORDER BY created_at DESC")?;
         let agents = stmt
             .query_map(params![name], |row| Ok(row_to_agent(row)))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -536,11 +539,9 @@ impl AgentRegistry {
     pub async fn get(&self, id: &str) -> Result<Option<PersistentAgent>> {
         let db = self.db.lock().await;
         let agent = db
-            .query_row(
-                "SELECT * FROM agents WHERE id = ?1",
-                params![id],
-                |row| Ok(row_to_agent(row)),
-            )
+            .query_row("SELECT * FROM agents WHERE id = ?1", params![id], |row| {
+                Ok(row_to_agent(row))
+            })
             .optional()?;
         Ok(agent)
     }
@@ -598,11 +599,9 @@ impl AgentRegistry {
         match parent_id {
             Some(pid) => {
                 let agent = db
-                    .query_row(
-                        "SELECT * FROM agents WHERE id = ?1",
-                        params![pid],
-                        |row| Ok(row_to_agent(row)),
-                    )
+                    .query_row("SELECT * FROM agents WHERE id = ?1", params![pid], |row| {
+                        Ok(row_to_agent(row))
+                    })
                     .optional()?;
                 Ok(agent)
             }
@@ -693,7 +692,10 @@ impl AgentRegistry {
 
     /// Get the default agent for a project (first active agent scoped to that project,
     /// or the first root-scoped active agent).
-    pub async fn default_for_project(&self, project: Option<&str>) -> Result<Option<PersistentAgent>> {
+    pub async fn default_for_project(
+        &self,
+        project: Option<&str>,
+    ) -> Result<Option<PersistentAgent>> {
         let db = self.db.lock().await;
 
         // Try project-scoped first.
@@ -834,7 +836,17 @@ mod tests {
     async fn spawn_and_get() {
         let reg = test_registry().await;
         let agent = reg
-            .spawn("shadow", Some("Shadow"), "shadow", "You are Shadow.", None, None, None, Some("claude-sonnet-4.6"), &["spawn_agents".into()])
+            .spawn(
+                "shadow",
+                Some("Shadow"),
+                "shadow",
+                "You are Shadow.",
+                None,
+                None,
+                None,
+                Some("claude-sonnet-4.6"),
+                &["spawn_agents".into()],
+            )
             .await
             .unwrap();
 
@@ -854,7 +866,17 @@ mod tests {
     async fn spawn_project_scoped() {
         let reg = test_registry().await;
         let agent = reg
-            .spawn("sigil-lead", None, "shadow", "Lead for sigil.", Some("sigil"), None, None, None, &[])
+            .spawn(
+                "sigil-lead",
+                None,
+                "shadow",
+                "Lead for sigil.",
+                Some("sigil"),
+                None,
+                None,
+                None,
+                &[],
+            )
             .await
             .unwrap();
 
@@ -872,7 +894,17 @@ mod tests {
     async fn record_session_updates_stats() {
         let reg = test_registry().await;
         let agent = reg
-            .spawn("test-agent", None, "researcher", "Test agent.", None, None, None, None, &[])
+            .spawn(
+                "test-agent",
+                None,
+                "researcher",
+                "Test agent.",
+                None,
+                None,
+                None,
+                None,
+                &[],
+            )
             .await
             .unwrap();
 
@@ -888,9 +920,19 @@ mod tests {
     #[tokio::test]
     async fn status_lifecycle() {
         let reg = test_registry().await;
-        reg.spawn("lifecycle", None, "shadow", "Lifecycle test.", None, None, None, None, &[])
-            .await
-            .unwrap();
+        reg.spawn(
+            "lifecycle",
+            None,
+            "shadow",
+            "Lifecycle test.",
+            None,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
 
         reg.set_status("lifecycle", AgentStatus::Paused)
             .await
@@ -912,19 +954,47 @@ mod tests {
     #[tokio::test]
     async fn default_for_project() {
         let reg = test_registry().await;
-        reg.spawn("root-shadow", None, "shadow", "Root agent.", None, None, None, None, &[])
-            .await
-            .unwrap();
-        reg.spawn("sigil-lead", None, "shadow", "Sigil lead.", Some("sigil"), None, None, None, &[])
-            .await
-            .unwrap();
+        reg.spawn(
+            "root-shadow",
+            None,
+            "shadow",
+            "Root agent.",
+            None,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
+        reg.spawn(
+            "sigil-lead",
+            None,
+            "shadow",
+            "Sigil lead.",
+            Some("sigil"),
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
 
         // Project-scoped takes priority.
-        let default = reg.default_for_project(Some("sigil")).await.unwrap().unwrap();
+        let default = reg
+            .default_for_project(Some("sigil"))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(default.name, "sigil-lead");
 
         // Unknown project falls back to root.
-        let default = reg.default_for_project(Some("unknown")).await.unwrap().unwrap();
+        let default = reg
+            .default_for_project(Some("unknown"))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(default.name, "root-shadow");
 
         // No project → root.
@@ -936,11 +1006,31 @@ mod tests {
     async fn duplicate_names_allowed() {
         let reg = test_registry().await;
         let agent1 = reg
-            .spawn("shadow", None, "shadow", "First shadow.", None, None, None, None, &[])
+            .spawn(
+                "shadow",
+                None,
+                "shadow",
+                "First shadow.",
+                None,
+                None,
+                None,
+                None,
+                &[],
+            )
             .await
             .unwrap();
         let agent2 = reg
-            .spawn("shadow", None, "shadow", "Second shadow.", None, None, None, None, &[])
+            .spawn(
+                "shadow",
+                None,
+                "shadow",
+                "Second shadow.",
+                None,
+                None,
+                None,
+                None,
+                &[],
+            )
             .await
             .unwrap();
         // Same name, different UUIDs.
@@ -966,7 +1056,10 @@ You learn everything about the user aggressively.
 "#;
         let agent = reg.spawn_from_template(template, None, None).await.unwrap();
         assert_eq!(agent.name, "shadow");
-        assert_eq!(agent.display_name.as_deref(), Some("Shadow — Your Dark Butler"));
+        assert_eq!(
+            agent.display_name.as_deref(),
+            Some("Shadow — Your Dark Butler")
+        );
         assert_eq!(agent.model.as_deref(), Some("anthropic/claude-sonnet-4.6"));
         assert_eq!(agent.capabilities, vec!["spawn_agents", "spawn_projects"]);
         assert!(agent.system_prompt.contains("personal assistant"));
@@ -1004,12 +1097,20 @@ You are a monitoring agent.
 
         let brief = triggers.iter().find(|t| t.name == "morning-brief").unwrap();
         assert_eq!(brief.skill, "morning-brief");
-        assert!(matches!(brief.trigger_type, crate::trigger::TriggerType::Schedule { ref expr } if expr == "0 9 * * *"));
+        assert!(
+            matches!(brief.trigger_type, crate::trigger::TriggerType::Schedule { ref expr } if expr == "0 9 * * *")
+        );
         assert_eq!(brief.max_budget_usd, Some(0.50));
 
         let watch = triggers.iter().find(|t| t.name == "failure-watch").unwrap();
         assert_eq!(watch.skill, "failure-triage");
-        assert!(matches!(watch.trigger_type, crate::trigger::TriggerType::Event { cooldown_secs: 300, .. }));
+        assert!(matches!(
+            watch.trigger_type,
+            crate::trigger::TriggerType::Event {
+                cooldown_secs: 300,
+                ..
+            }
+        ));
     }
 
     #[tokio::test]
@@ -1018,19 +1119,59 @@ You are a monitoring agent.
 
         // Create hierarchy: shadow → lead → (engineer, reviewer)
         let shadow = reg
-            .spawn("shadow", None, "shadow", "Root.", None, None, None, None, &[])
+            .spawn(
+                "shadow",
+                None,
+                "shadow",
+                "Root.",
+                None,
+                None,
+                None,
+                None,
+                &[],
+            )
             .await
             .unwrap();
         let lead = reg
-            .spawn("lead", None, "lead", "Lead.", Some("sigil"), None, Some(&shadow.id), None, &[])
+            .spawn(
+                "lead",
+                None,
+                "lead",
+                "Lead.",
+                Some("sigil"),
+                None,
+                Some(&shadow.id),
+                None,
+                &[],
+            )
             .await
             .unwrap();
         let eng = reg
-            .spawn("engineer", None, "eng", "Eng.", Some("sigil"), None, Some(&lead.id), None, &[])
+            .spawn(
+                "engineer",
+                None,
+                "eng",
+                "Eng.",
+                Some("sigil"),
+                None,
+                Some(&lead.id),
+                None,
+                &[],
+            )
             .await
             .unwrap();
         let rev = reg
-            .spawn("reviewer", None, "rev", "Rev.", Some("sigil"), None, Some(&lead.id), None, &[])
+            .spawn(
+                "reviewer",
+                None,
+                "rev",
+                "Rev.",
+                Some("sigil"),
+                None,
+                Some(&lead.id),
+                None,
+                &[],
+            )
             .await
             .unwrap();
 
@@ -1060,8 +1201,14 @@ You are a monitoring agent.
         assert!(reg.siblings(&shadow.id).await.unwrap().is_empty()); // root has no siblings
 
         // Department name
-        assert_eq!(reg.department_name(&lead.id).await.unwrap(), Some("lead".to_string())); // leader of dept
-        assert_eq!(reg.department_name(&eng.id).await.unwrap(), Some("lead".to_string())); // member, dept is parent's name
+        assert_eq!(
+            reg.department_name(&lead.id).await.unwrap(),
+            Some("lead".to_string())
+        ); // leader of dept
+        assert_eq!(
+            reg.department_name(&eng.id).await.unwrap(),
+            Some("lead".to_string())
+        ); // member, dept is parent's name
         assert!(reg.department_name(&shadow.id).await.unwrap().is_some()); // shadow has children → dept "shadow"
     }
 
@@ -1091,9 +1238,19 @@ You are a monitoring agent.
         let reg = test_registry().await;
 
         // Create shadow first
-        reg.spawn("shadow", None, "shadow", "Root.", None, None, None, None, &[])
-            .await
-            .unwrap();
+        reg.spawn(
+            "shadow",
+            None,
+            "shadow",
+            "Root.",
+            None,
+            None,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
 
         let template = r#"---
 name: engineer

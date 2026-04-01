@@ -2,8 +2,8 @@ pub mod rust;
 pub mod solidity;
 pub mod typescript;
 
-use anyhow::Result;
 use crate::schema::{CodeEdge, CodeNode};
+use anyhow::Result;
 
 /// Extraction result from parsing a single file.
 #[derive(Debug, Default)]

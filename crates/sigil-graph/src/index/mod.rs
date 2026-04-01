@@ -1,14 +1,14 @@
-use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 use crate::analysis::{community::detect_communities, process::detect_processes};
 use crate::extract::resolve::resolve_graph;
 use crate::parser::LanguageProvider;
 use crate::parser::rust::RustProvider;
-use crate::parser::typescript::TypeScriptProvider;
 use crate::parser::solidity::SolidityProvider;
-use crate::schema::{CodeNode, CodeEdge, EdgeType, NodeLabel};
+use crate::parser::typescript::TypeScriptProvider;
+use crate::schema::{CodeEdge, CodeNode, EdgeType, NodeLabel};
 use crate::storage::GraphStore;
 
 /// Index a project directory into a code graph.
@@ -75,17 +75,20 @@ impl Indexer {
         // Phase 2.5: Build type environments for Rust files (enables type-aware call resolution)
         let mut type_envs = std::collections::HashMap::new();
         for (file_path, rel_path, provider_idx) in &files {
-            if self.providers[*provider_idx].language_id() == "rust" {
-                if let Ok(source) = std::fs::read_to_string(file_path) {
-                    let env = crate::extract::types::build_type_env_rust(&source, rel_path);
-                    if env.binding_count() > 0 {
-                        type_envs.insert(rel_path.clone(), env);
-                    }
+            if self.providers[*provider_idx].language_id() == "rust"
+                && let Ok(source) = std::fs::read_to_string(file_path)
+            {
+                let env = crate::extract::types::build_type_env_rust(&source, rel_path);
+                if env.binding_count() > 0 {
+                    type_envs.insert(rel_path.clone(), env);
                 }
             }
         }
         if !type_envs.is_empty() {
-            info!(files_with_types = type_envs.len(), "type environments built");
+            info!(
+                files_with_types = type_envs.len(),
+                "type environments built"
+            );
         }
 
         // Phase 3: Resolve symbols (with type-aware resolution)
@@ -98,7 +101,10 @@ impl Indexer {
 
         // Phase 4: Community detection
         let communities = detect_communities(&all_nodes, &resolved_edges, 3);
-        info!(communities = communities.len(), "community detection complete");
+        info!(
+            communities = communities.len(),
+            "community detection complete"
+        );
 
         // Assign community IDs to nodes
         for community in &communities {
@@ -250,11 +256,7 @@ impl Indexer {
 
     /// Incremental index: only re-parse files changed since last indexed commit.
     /// Falls back to full index if no previous commit is stored.
-    pub fn index_incremental(
-        &self,
-        project_dir: &Path,
-        store: &GraphStore,
-    ) -> Result<IndexResult> {
+    pub fn index_incremental(&self, project_dir: &Path, store: &GraphStore) -> Result<IndexResult> {
         let last_commit = store.get_meta("last_commit")?;
 
         // Get current HEAD
@@ -282,7 +284,10 @@ impl Indexer {
         };
 
         if last == head_commit {
-            info!("graph is current (commit {}), skipping re-index", head_commit);
+            info!(
+                "graph is current (commit {}), skipping re-index",
+                head_commit
+            );
             let stats = store.stats()?;
             return Ok(IndexResult {
                 files_parsed: 0,
@@ -351,10 +356,7 @@ impl Indexer {
                 continue; // File was deleted
             }
 
-            let ext = abs_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
+            let ext = abs_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
             for provider in &self.providers {
                 if provider.extensions().contains(&ext) {
@@ -394,7 +396,11 @@ impl Indexer {
         }
         existing_nodes.extend(new_nodes.iter().cloned());
 
-        let (resolved, unresolved) = resolve_graph(&existing_nodes, new_edges, &std::collections::HashMap::new());
+        let (resolved, unresolved) = resolve_graph(
+            &existing_nodes,
+            new_edges,
+            &std::collections::HashMap::new(),
+        );
 
         // Store the new nodes and resolved edges
         store.batch_insert(&new_nodes, &resolved)?;

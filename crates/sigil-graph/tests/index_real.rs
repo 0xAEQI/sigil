@@ -16,14 +16,35 @@ fn index_sigil_core() {
     println!("Index result: {result}");
 
     // sigil-core has many Rust files
-    assert!(result.files_parsed >= 5, "expected >=5 files, got {}", result.files_parsed);
-    assert!(result.nodes >= 50, "expected >=50 nodes, got {}", result.nodes);
-    assert!(result.edges >= 20, "expected >=20 edges, got {}", result.edges);
+    assert!(
+        result.files_parsed >= 5,
+        "expected >=5 files, got {}",
+        result.files_parsed
+    );
+    assert!(
+        result.nodes >= 50,
+        "expected >=50 nodes, got {}",
+        result.nodes
+    );
+    assert!(
+        result.edges >= 20,
+        "expected >=20 edges, got {}",
+        result.edges
+    );
 
     // Should find the Observer trait (search by name, also try FTS)
     let results = store.search_nodes("observer", 10).unwrap();
-    println!("FTS 'observer' results: {:?}", results.iter().map(|n| (&n.name, &n.label)).collect::<Vec<_>>());
-    assert!(!results.is_empty(), "FTS should find observer-related nodes");
+    println!(
+        "FTS 'observer' results: {:?}",
+        results
+            .iter()
+            .map(|n| (&n.name, &n.label))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !results.is_empty(),
+        "FTS should find observer-related nodes"
+    );
 
     // Find Observer trait by scanning nodes in its file
     let trait_files = store.nodes_in_file("src/traits/observer.rs").unwrap();

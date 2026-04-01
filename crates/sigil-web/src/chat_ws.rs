@@ -49,19 +49,17 @@ async fn handle_chat_socket(mut socket: axum::extract::ws::WebSocket, state: App
 
     // Wait for the client's first message (the chat request).
     let request = match socket.recv().await {
-        Some(Ok(Message::Text(text))) => {
-            match serde_json::from_str::<serde_json::Value>(&text) {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = socket
+        Some(Ok(Message::Text(text))) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = socket
                         .send(Message::Text(
                             serde_json::json!({"type": "Error", "message": e.to_string(), "recoverable": false}).to_string().into(),
                         ))
                         .await;
-                    return;
-                }
+                return;
             }
-        }
+        },
         _ => return,
     };
 
@@ -108,7 +106,9 @@ async fn handle_chat_socket(mut socket: axum::extract::ws::WebSocket, state: App
         if let Some(context) = task_handle.get("context").and_then(|v| v.as_str()) {
             let _ = socket
                 .send(Message::Text(
-                    serde_json::json!({"type": "TextDelta", "text": context}).to_string().into(),
+                    serde_json::json!({"type": "TextDelta", "text": context})
+                        .to_string()
+                        .into(),
                 ))
                 .await;
             let _ = socket
@@ -210,7 +210,9 @@ async fn handle_chat_socket(mut socket: axum::extract::ws::WebSocket, state: App
         warn!(task_id = %task_id_owned, "chat stream timed out");
         let _ = socket
             .send(Message::Text(
-                serde_json::json!({"type": "Error", "message": "timeout", "recoverable": false}).to_string().into(),
+                serde_json::json!({"type": "Error", "message": "timeout", "recoverable": false})
+                    .to_string()
+                    .into(),
             ))
             .await;
     }

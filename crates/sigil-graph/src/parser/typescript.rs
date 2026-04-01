@@ -102,17 +102,17 @@ fn extract_ts_items(
                     extract_ts_class_body(&child, source, file_path, &id, extraction);
 
                     // Check extends
-                    if let Some(heritage) = child.child_by_field_name("heritage") {
-                        if let Ok(text) = heritage.utf8_text(source.as_bytes()) {
-                            extraction.edges.push(
-                                CodeEdge::new(
-                                    &id,
-                                    &format!("unresolved:trait:{}", text.trim()),
-                                    EdgeType::Extends,
-                                )
-                                .with_confidence(0.5),
-                            );
-                        }
+                    if let Some(heritage) = child.child_by_field_name("heritage")
+                        && let Ok(text) = heritage.utf8_text(source.as_bytes())
+                    {
+                        extraction.edges.push(
+                            CodeEdge::new(
+                                &id,
+                                format!("unresolved:trait:{}", text.trim()),
+                                EdgeType::Extends,
+                            )
+                            .with_confidence(0.5),
+                        );
                     }
                 }
             }
@@ -180,7 +180,7 @@ fn extract_ts_items(
                                             extraction.edges.push(
                                                 CodeEdge::new(
                                                     parent_id,
-                                                    &format!("unresolved:import:{name}"),
+                                                    format!("unresolved:import:{name}"),
                                                     EdgeType::Imports,
                                                 )
                                                 .with_confidence(0.5),
@@ -194,7 +194,7 @@ fn extract_ts_items(
                                     extraction.edges.push(
                                         CodeEdge::new(
                                             parent_id,
-                                            &format!("unresolved:import:{name}"),
+                                            format!("unresolved:import:{name}"),
                                             EdgeType::Imports,
                                         )
                                         .with_confidence(0.5),
@@ -258,8 +258,14 @@ fn extract_ts_variable_decls(
                 if is_func {
                     let start = node.start_position().row as u32 + 1;
                     let end = node.end_position().row as u32 + 1;
-                    let code_node =
-                        CodeNode::new(NodeLabel::Function, name, file_path, start, end, "typescript");
+                    let code_node = CodeNode::new(
+                        NodeLabel::Function,
+                        name,
+                        file_path,
+                        start,
+                        end,
+                        "typescript",
+                    );
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -269,8 +275,14 @@ fn extract_ts_variable_decls(
                 } else {
                     let start = node.start_position().row as u32 + 1;
                     let end = node.end_position().row as u32 + 1;
-                    let code_node =
-                        CodeNode::new(NodeLabel::Variable, name, file_path, start, end, "typescript");
+                    let code_node = CodeNode::new(
+                        NodeLabel::Variable,
+                        name,
+                        file_path,
+                        start,
+                        end,
+                        "typescript",
+                    );
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -294,30 +306,30 @@ fn extract_ts_class_body(
         for child in body.children(&mut cursor) {
             match child.kind() {
                 "method_definition" | "public_field_definition" => {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
-                            let start = child.start_position().row as u32 + 1;
-                            let end = child.end_position().row as u32 + 1;
-                            let label = if child.kind() == "method_definition" {
-                                NodeLabel::Method
-                            } else {
-                                NodeLabel::Property
-                            };
-                            let method =
-                                CodeNode::new(label, name, file_path, start, end, "typescript");
-                            let mid = method.id.clone();
-                            let edge_type = if label == NodeLabel::Method {
-                                EdgeType::HasMethod
-                            } else {
-                                EdgeType::HasProperty
-                            };
-                            extraction
-                                .edges
-                                .push(CodeEdge::new(class_id, &mid, edge_type));
-                            extraction.nodes.push(method);
-                            if label == NodeLabel::Method {
-                                extract_ts_calls(&child, source, file_path, &mid, extraction);
-                            }
+                    if let Some(name_node) = child.child_by_field_name("name")
+                        && let Ok(name) = name_node.utf8_text(source.as_bytes())
+                    {
+                        let start = child.start_position().row as u32 + 1;
+                        let end = child.end_position().row as u32 + 1;
+                        let label = if child.kind() == "method_definition" {
+                            NodeLabel::Method
+                        } else {
+                            NodeLabel::Property
+                        };
+                        let method =
+                            CodeNode::new(label, name, file_path, start, end, "typescript");
+                        let mid = method.id.clone();
+                        let edge_type = if label == NodeLabel::Method {
+                            EdgeType::HasMethod
+                        } else {
+                            EdgeType::HasProperty
+                        };
+                        extraction
+                            .edges
+                            .push(CodeEdge::new(class_id, &mid, edge_type));
+                        extraction.nodes.push(method);
+                        if label == NodeLabel::Method {
+                            extract_ts_calls(&child, source, file_path, &mid, extraction);
                         }
                     }
                 }
@@ -337,6 +349,7 @@ fn extract_ts_calls(
     extract_ts_calls_recursive(*node, source, file_path, caller_id, extraction);
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn extract_ts_calls_recursive(
     node: tree_sitter::Node,
     source: &str,
@@ -344,20 +357,20 @@ fn extract_ts_calls_recursive(
     caller_id: &str,
     extraction: &mut FileExtraction,
 ) {
-    if node.kind() == "call_expression" {
-        if let Some(func) = node.child_by_field_name("function") {
-            let call_text = func.utf8_text(source.as_bytes()).unwrap_or("");
-            let call_name = call_text.rsplit('.').next().unwrap_or(call_text);
-            if !call_name.is_empty() && call_name.len() < 100 {
-                extraction.edges.push(
-                    CodeEdge::new(
-                        caller_id,
-                        &format!("unresolved:call:{call_name}"),
-                        EdgeType::Calls,
-                    )
-                    .with_confidence(0.5),
-                );
-            }
+    if node.kind() == "call_expression"
+        && let Some(func) = node.child_by_field_name("function")
+    {
+        let call_text = func.utf8_text(source.as_bytes()).unwrap_or("");
+        let call_name = call_text.rsplit('.').next().unwrap_or(call_text);
+        if !call_name.is_empty() && call_name.len() < 100 {
+            extraction.edges.push(
+                CodeEdge::new(
+                    caller_id,
+                    format!("unresolved:call:{call_name}"),
+                    EdgeType::Calls,
+                )
+                .with_confidence(0.5),
+            );
         }
     }
 
@@ -374,10 +387,7 @@ fn collect_ts_doc(node: &tree_sitter::Node, source: &str) -> Option<String> {
             "comment" => {
                 let text = sib.utf8_text(source.as_bytes()).ok()?;
                 if text.starts_with("/**") {
-                    let content = text
-                        .trim_start_matches("/**")
-                        .trim_end_matches("*/")
-                        .trim();
+                    let content = text.trim_start_matches("/**").trim_end_matches("*/").trim();
                     return Some(content.to_string());
                 }
                 if text.starts_with("//") {
@@ -430,18 +440,46 @@ export type UserId = string;
 "#;
         let result = provider.extract(source, "src/users.ts").unwrap();
 
-        assert!(result.nodes.iter().any(|n| n.name == "fetchUser" && n.label == NodeLabel::Function));
-        assert!(result.nodes.iter().any(|n| n.name == "UserService" && n.label == NodeLabel::Class));
-        assert!(result.nodes.iter().any(|n| n.name == "User" && n.label == NodeLabel::Interface));
-        assert!(result.nodes.iter().any(|n| n.name == "UserId" && n.label == NodeLabel::TypeAlias));
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "fetchUser" && n.label == NodeLabel::Function)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "UserService" && n.label == NodeLabel::Class)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "User" && n.label == NodeLabel::Interface)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "UserId" && n.label == NodeLabel::TypeAlias)
+        );
 
-        let methods: Vec<_> = result.nodes.iter().filter(|n| n.label == NodeLabel::Method).collect();
+        let methods: Vec<_> = result
+            .nodes
+            .iter()
+            .filter(|n| n.label == NodeLabel::Method)
+            .collect();
         assert_eq!(methods.len(), 2, "should have getUser and deleteUser");
 
         let fetch_user = result.nodes.iter().find(|n| n.name == "fetchUser").unwrap();
         assert!(fetch_user.is_exported);
 
-        let calls: Vec<_> = result.edges.iter().filter(|e| e.edge_type == EdgeType::Calls).collect();
+        let calls: Vec<_> = result
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == EdgeType::Calls)
+            .collect();
         assert!(!calls.is_empty(), "should have call edges");
     }
 
@@ -459,11 +497,17 @@ const CONSTANT = 42;
         let result = provider.extract(source, "src/api.ts").unwrap();
 
         assert!(
-            result.nodes.iter().any(|n| n.name == "handler" && n.label == NodeLabel::Function),
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "handler" && n.label == NodeLabel::Function),
             "arrow function should be extracted as Function"
         );
         assert!(
-            result.nodes.iter().any(|n| n.name == "CONSTANT" && n.label == NodeLabel::Variable),
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "CONSTANT" && n.label == NodeLabel::Variable),
             "const should be extracted as Variable"
         );
     }
@@ -477,6 +521,11 @@ export function App() {
 }
 "#;
         let result = provider.extract(source, "src/App.tsx").unwrap();
-        assert!(result.nodes.iter().any(|n| n.name == "App" && n.label == NodeLabel::Function));
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "App" && n.label == NodeLabel::Function)
+        );
     }
 }

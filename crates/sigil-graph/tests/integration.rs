@@ -52,7 +52,8 @@ fn full_pipeline_parse_resolve_query() {
     all_edges.extend(ext2.edges);
 
     // Phase 2: Resolve
-    let (resolved_edges, unresolved) = resolve_graph(&all_nodes, all_edges, &std::collections::HashMap::new());
+    let (resolved_edges, unresolved) =
+        resolve_graph(&all_nodes, all_edges, &std::collections::HashMap::new());
 
     // Some unresolved is expected (Event, Box, etc. are external)
     assert!(
@@ -67,8 +68,14 @@ fn full_pipeline_parse_resolve_query() {
     store.batch_insert(&all_nodes, &resolved_edges).unwrap();
 
     let stats = store.stats().unwrap();
-    assert!(stats.node_count >= 6, "should have traits, struct, impl, methods, file nodes");
-    assert!(stats.edge_count >= 4, "should have contains, has_method, implements, calls edges");
+    assert!(
+        stats.node_count >= 6,
+        "should have traits, struct, impl, methods, file nodes"
+    );
+    assert!(
+        stats.edge_count >= 4,
+        "should have contains, has_method, implements, calls edges"
+    );
 
     // Search for Observer
     let results = store.search_nodes("Observer", 5).unwrap();

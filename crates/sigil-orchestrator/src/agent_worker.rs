@@ -43,10 +43,7 @@ pub enum WorkerExecution {
         model: String,
     },
     /// Delegate to Claude Code CLI.
-    ClaudeCode {
-        cwd: PathBuf,
-        max_budget_usd: f64,
-    },
+    ClaudeCode { cwd: PathBuf, max_budget_usd: f64 },
 }
 
 /// An AgentWorker is an ephemeral task executor. Each worker runs as a tokio task
@@ -1289,7 +1286,10 @@ impl AgentWorker {
     ) -> Result<sigil_core::AgentResult> {
         let observer: Arc<dyn Observer> = if let Some(ref chain) = self.middleware_chain {
             let mut worker_ctx = crate::middleware::WorkerContext::new(
-                self.hook.as_ref().map(|h| h.task_id.0.as_str()).unwrap_or("unknown"),
+                self.hook
+                    .as_ref()
+                    .map(|h| h.task_id.0.as_str())
+                    .unwrap_or("unknown"),
                 task_context.chars().take(500).collect::<String>(),
                 &self.agent_name,
                 &self.project_name,
@@ -1567,8 +1567,8 @@ impl AgentWorker {
                     }
 
                     // Infer additional edges: search scoped to same scope/entity
-                    let mut edge_query = sigil_core::traits::MemoryQuery::new(content, 3)
-                        .with_scope(scope);
+                    let mut edge_query =
+                        sigil_core::traits::MemoryQuery::new(content, 3).with_scope(scope);
                     if let Some(eid) = entity_id {
                         edge_query = edge_query.with_entity(eid.to_string());
                     }
@@ -1578,9 +1578,8 @@ impl AgentWorker {
                                 continue;
                             }
                             if sigil_memory::dedup::is_support(content, &entry.content) {
-                                let _ = mem
-                                    .store_memory_edge(&id, &entry.id, "supports", 0.7)
-                                    .await;
+                                let _ =
+                                    mem.store_memory_edge(&id, &entry.id, "supports", 0.7).await;
                                 debug!(
                                     worker = %worker_name,
                                     source = %id, target = %entry.id,
@@ -1676,11 +1675,7 @@ struct MiddlewareObserver {
 }
 
 impl MiddlewareObserver {
-    fn from_arc(
-        chain: Arc<MiddlewareChain>,
-        ctx: WorkerContext,
-        inner: Arc<dyn Observer>,
-    ) -> Self {
+    fn from_arc(chain: Arc<MiddlewareChain>, ctx: WorkerContext, inner: Arc<dyn Observer>) -> Self {
         Self {
             chain,
             ctx: tokio::sync::Mutex::new(ctx),
@@ -1759,7 +1754,11 @@ impl Observer for MiddlewareObserver {
         stop_reason: &str,
     ) -> LoopAction {
         let mut ctx = self.ctx.lock().await;
-        Self::map_action(self.chain.run_after_turn(&mut ctx, response_text, stop_reason).await)
+        Self::map_action(
+            self.chain
+                .run_after_turn(&mut ctx, response_text, stop_reason)
+                .await,
+        )
     }
 
     async fn collect_attachments(

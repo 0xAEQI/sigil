@@ -248,7 +248,10 @@ impl TaskBoard {
                 b.status = TaskStatus::Done;
                 b.closed_at = Some(chrono::Utc::now());
                 b.closed_reason = Some(reason.clone());
-                b.set_task_outcome(&TaskOutcomeRecord::new(TaskOutcomeKind::Done, reason.clone()));
+                b.set_task_outcome(&TaskOutcomeRecord::new(
+                    TaskOutcomeKind::Done,
+                    reason.clone(),
+                ));
             }) {
                 debug!(parent = %parent_id, error = %e, "failed to auto-close parent task");
                 return;

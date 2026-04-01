@@ -194,7 +194,7 @@ impl CodeNode {
             file_path,
             start_line,
             end_line,
-            language: language.into(),
+            language,
             is_exported: false,
             signature: None,
             doc_comment: None,

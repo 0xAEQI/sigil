@@ -63,7 +63,11 @@ pub fn detect_processes(
     for node in nodes {
         if matches!(
             node.label,
-            NodeLabel::File | NodeLabel::Module | NodeLabel::Community | NodeLabel::Process | NodeLabel::Impl
+            NodeLabel::File
+                | NodeLabel::Module
+                | NodeLabel::Community
+                | NodeLabel::Process
+                | NodeLabel::Impl
         ) {
             continue;
         }
@@ -234,14 +238,12 @@ fn bfs_traces(
     }
 
     // Keep only the longest traces, dedup subsets
-    results.sort_by(|a, b| b.len().cmp(&a.len()));
+    results.sort_by_key(|a| std::cmp::Reverse(a.len()));
     let mut kept: Vec<Vec<String>> = Vec::new();
     'outer: for trace in results {
         for existing in &kept {
             // Skip if trace is a prefix of an existing longer trace
-            if existing.len() >= trace.len()
-                && existing[..trace.len()] == trace[..]
-            {
+            if existing.len() >= trace.len() && existing[..trace.len()] == trace[..] {
                 continue 'outer;
             }
         }
@@ -259,9 +261,23 @@ mod tests {
     #[test]
     fn detects_linear_process() {
         let nodes = vec![
-            CodeNode::new(NodeLabel::Function, "handle_request", "src/api.rs", 1, 10, "rust")
-                .with_exported(true),
-            CodeNode::new(NodeLabel::Function, "validate", "src/api.rs", 11, 20, "rust"),
+            CodeNode::new(
+                NodeLabel::Function,
+                "handle_request",
+                "src/api.rs",
+                1,
+                10,
+                "rust",
+            )
+            .with_exported(true),
+            CodeNode::new(
+                NodeLabel::Function,
+                "validate",
+                "src/api.rs",
+                11,
+                20,
+                "rust",
+            ),
             CodeNode::new(NodeLabel::Function, "process", "src/api.rs", 21, 30, "rust"),
             CodeNode::new(NodeLabel::Function, "respond", "src/api.rs", 31, 40, "rust"),
         ];
@@ -292,9 +308,8 @@ mod tests {
             CodeNode::new(NodeLabel::Function, "helper", "src/lib.rs", 1, 10, "rust"),
         ];
 
-        let edges = vec![
-            CodeEdge::new(&nodes[0].id, &nodes[1].id, EdgeType::Calls).with_confidence(0.9),
-        ];
+        let edges =
+            vec![CodeEdge::new(&nodes[0].id, &nodes[1].id, EdgeType::Calls).with_confidence(0.9)];
 
         let processes = detect_processes(&nodes, &edges, 10, 50);
         assert!(!processes.is_empty());
@@ -310,10 +325,12 @@ mod tests {
             CodeNode::new(NodeLabel::Function, "a", "src/lib.rs", 1, 5, "rust"),
             CodeNode::new(NodeLabel::Function, "b", "src/lib.rs", 6, 10, "rust"),
         ];
-        let edges = vec![
-            CodeEdge::new(&nodes[0].id, &nodes[1].id, EdgeType::Calls).with_confidence(0.3),
-        ];
+        let edges =
+            vec![CodeEdge::new(&nodes[0].id, &nodes[1].id, EdgeType::Calls).with_confidence(0.3)];
         let processes = detect_processes(&nodes, &edges, 10, 50);
-        assert!(processes.is_empty(), "low confidence calls should be ignored");
+        assert!(
+            processes.is_empty(),
+            "low confidence calls should be ignored"
+        );
     }
 }

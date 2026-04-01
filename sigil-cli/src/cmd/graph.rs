@@ -66,7 +66,9 @@ fn cmd_graph_stats(config_path: &Option<PathBuf>, project: &str) -> Result<()> {
 
     let db_path = data_dir.join("codegraph").join(format!("{project}.db"));
     if !db_path.exists() {
-        eprintln!("No graph DB for project '{project}'. Run `sigil graph index -r {project}` first.");
+        eprintln!(
+            "No graph DB for project '{project}'. Run `sigil graph index -r {project}` first."
+        );
         return Ok(());
     }
 
@@ -79,8 +81,22 @@ fn cmd_graph_stats(config_path: &Option<PathBuf>, project: &str) -> Result<()> {
     println!("  Nodes:       {}", stats.node_count);
     println!("  Edges:       {}", stats.edge_count);
     println!("  Files:       {}", stats.file_count);
-    println!("  Indexed at:  {}", if indexed_at.is_empty() { "never" } else { &indexed_at });
-    println!("  Last commit: {}", if last_commit.is_empty() { "unknown" } else { &last_commit });
+    println!(
+        "  Indexed at:  {}",
+        if indexed_at.is_empty() {
+            "never"
+        } else {
+            &indexed_at
+        }
+    );
+    println!(
+        "  Last commit: {}",
+        if last_commit.is_empty() {
+            "unknown"
+        } else {
+            &last_commit
+        }
+    );
 
     Ok(())
 }

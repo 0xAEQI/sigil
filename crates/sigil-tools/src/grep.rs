@@ -22,10 +22,7 @@ impl sigil_core::traits::Tool for GrepTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing 'pattern' argument"))?;
 
-        let path = args
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let glob_filter = args.get("glob").and_then(|v| v.as_str());
 
@@ -35,10 +32,14 @@ impl sigil_core::traits::Tool for GrepTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let output_mode = args
-            .get("output_mode")
-            .and_then(|v| v.as_str())
-            .unwrap_or(if include_lines { "content" } else { "files_with_matches" });
+        let output_mode =
+            args.get("output_mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or(if include_lines {
+                    "content"
+                } else {
+                    "files_with_matches"
+                });
 
         let context = args
             .get("context")
@@ -46,13 +47,9 @@ impl sigil_core::traits::Tool for GrepTool {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let after_context = args
-            .get("-A")
-            .and_then(|v| v.as_u64());
+        let after_context = args.get("-A").and_then(|v| v.as_u64());
 
-        let before_context = args
-            .get("-B")
-            .and_then(|v| v.as_u64());
+        let before_context = args.get("-B").and_then(|v| v.as_u64());
 
         let multiline = args
             .get("multiline")
@@ -101,15 +98,15 @@ impl sigil_core::traits::Tool for GrepTool {
         if context > 0 && output_mode == "content" {
             cmd.arg(format!("-C{context}"));
         }
-        if let Some(a) = after_context {
-            if output_mode == "content" {
-                cmd.arg(format!("-A{a}"));
-            }
+        if let Some(a) = after_context
+            && output_mode == "content"
+        {
+            cmd.arg(format!("-A{a}"));
         }
-        if let Some(b) = before_context {
-            if output_mode == "content" {
-                cmd.arg(format!("-B{b}"));
-            }
+        if let Some(b) = before_context
+            && output_mode == "content"
+        {
+            cmd.arg(format!("-B{b}"));
         }
 
         if multiline {
@@ -126,22 +123,18 @@ impl sigil_core::traits::Tool for GrepTool {
 
         cmd.arg("--").arg(pattern).arg(&search_path);
 
-        let output = match tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            cmd.output(),
-        )
-        .await
-        {
-            Ok(Ok(o)) => o,
-            Ok(Err(e)) => {
-                return Ok(ToolResult::error(format!(
-                    "failed to run rg: {e}. Is ripgrep installed?"
-                )));
-            }
-            Err(_) => {
-                return Ok(ToolResult::error("grep timed out after 30s"));
-            }
-        };
+        let output =
+            match tokio::time::timeout(std::time::Duration::from_secs(30), cmd.output()).await {
+                Ok(Ok(o)) => o,
+                Ok(Err(e)) => {
+                    return Ok(ToolResult::error(format!(
+                        "failed to run rg: {e}. Is ripgrep installed?"
+                    )));
+                }
+                Err(_) => {
+                    return Ok(ToolResult::error("grep timed out after 30s"));
+                }
+            };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -244,12 +237,18 @@ mod tests {
 
     async fn setup() -> (GrepTool, TempDir) {
         let dir = TempDir::new().unwrap();
-        tokio::fs::write(dir.path().join("hello.rs"), "fn main() {\n    println!(\"hello\");\n}\n")
-            .await
-            .unwrap();
-        tokio::fs::write(dir.path().join("world.rs"), "fn world() {\n    println!(\"world\");\n}\n")
-            .await
-            .unwrap();
+        tokio::fs::write(
+            dir.path().join("hello.rs"),
+            "fn main() {\n    println!(\"hello\");\n}\n",
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            dir.path().join("world.rs"),
+            "fn world() {\n    println!(\"world\");\n}\n",
+        )
+        .await
+        .unwrap();
         let tool = GrepTool::new(dir.path().to_path_buf());
         (tool, dir)
     }

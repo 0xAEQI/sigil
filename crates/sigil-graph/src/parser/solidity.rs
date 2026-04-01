@@ -89,7 +89,7 @@ fn extract_sol_items(
                                     extraction.edges.push(
                                         CodeEdge::new(
                                             &id,
-                                            &format!("unresolved:trait:{name}"),
+                                            format!("unresolved:trait:{name}"),
                                             EdgeType::Extends,
                                         )
                                         .with_confidence(0.5),
@@ -164,7 +164,7 @@ fn extract_sol_items(
                     extraction.edges.push(
                         CodeEdge::new(
                             parent_id,
-                            &format!("unresolved:import:{}", text.trim()),
+                            format!("unresolved:import:{}", text.trim()),
                             EdgeType::Imports,
                         )
                         .with_confidence(0.5),
@@ -202,25 +202,27 @@ fn extract_sol_contract_body(
         for child in body.children(&mut cursor) {
             match child.kind() {
                 "function_definition" => {
-                    if let Some(name_node) = child.child_by_field_name("name") {
-                        if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
-                            let start = child.start_position().row as u32 + 1;
-                            let end = child.end_position().row as u32 + 1;
-                            let func = CodeNode::new(
-                                NodeLabel::Function,
-                                name,
-                                file_path,
-                                start,
-                                end,
-                                "solidity",
-                            )
-                            .with_exported(true);
-                            let fid = func.id.clone();
-                            extraction
-                                .edges
-                                .push(CodeEdge::new(contract_id, &fid, EdgeType::HasMethod));
-                            extraction.nodes.push(func);
-                        }
+                    if let Some(name_node) = child.child_by_field_name("name")
+                        && let Ok(name) = name_node.utf8_text(source.as_bytes())
+                    {
+                        let start = child.start_position().row as u32 + 1;
+                        let end = child.end_position().row as u32 + 1;
+                        let func = CodeNode::new(
+                            NodeLabel::Function,
+                            name,
+                            file_path,
+                            start,
+                            end,
+                            "solidity",
+                        )
+                        .with_exported(true);
+                        let fid = func.id.clone();
+                        extraction.edges.push(CodeEdge::new(
+                            contract_id,
+                            &fid,
+                            EdgeType::HasMethod,
+                        ));
+                        extraction.nodes.push(func);
                     }
                 }
                 "modifier_definition" => {
@@ -238,25 +240,27 @@ fn extract_sol_contract_body(
                     // Extract variable name from the declaration
                     let mut vcursor = child.walk();
                     for vchild in child.children(&mut vcursor) {
-                        if vchild.kind() == "identifier" {
-                            if let Ok(name) = vchild.utf8_text(source.as_bytes()) {
-                                let start = child.start_position().row as u32 + 1;
-                                let end = child.end_position().row as u32 + 1;
-                                let prop = CodeNode::new(
-                                    NodeLabel::Property,
-                                    name,
-                                    file_path,
-                                    start,
-                                    end,
-                                    "solidity",
-                                );
-                                let pid = prop.id.clone();
-                                extraction
-                                    .edges
-                                    .push(CodeEdge::new(contract_id, &pid, EdgeType::HasProperty));
-                                extraction.nodes.push(prop);
-                                break;
-                            }
+                        if vchild.kind() == "identifier"
+                            && let Ok(name) = vchild.utf8_text(source.as_bytes())
+                        {
+                            let start = child.start_position().row as u32 + 1;
+                            let end = child.end_position().row as u32 + 1;
+                            let prop = CodeNode::new(
+                                NodeLabel::Property,
+                                name,
+                                file_path,
+                                start,
+                                end,
+                                "solidity",
+                            );
+                            let pid = prop.id.clone();
+                            extraction.edges.push(CodeEdge::new(
+                                contract_id,
+                                &pid,
+                                EdgeType::HasProperty,
+                            ));
+                            extraction.nodes.push(prop);
+                            break;
                         }
                     }
                 }
@@ -320,10 +324,30 @@ contract Vault is ERC20, IVault {
 "#;
         let result = provider.extract(source, "src/Vault.sol").unwrap();
 
-        assert!(result.nodes.iter().any(|n| n.name == "Vault" && n.label == NodeLabel::Contract));
-        assert!(result.nodes.iter().any(|n| n.name == "IVault" && n.label == NodeLabel::Interface));
-        assert!(result.nodes.iter().any(|n| n.name == "Deposited" && n.label == NodeLabel::Event));
-        assert!(result.nodes.iter().any(|n| n.name == "onlyPositive" && n.label == NodeLabel::Modifier));
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "Vault" && n.label == NodeLabel::Contract)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "IVault" && n.label == NodeLabel::Interface)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "Deposited" && n.label == NodeLabel::Event)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "onlyPositive" && n.label == NodeLabel::Modifier)
+        );
 
         let funcs: Vec<_> = result
             .nodes

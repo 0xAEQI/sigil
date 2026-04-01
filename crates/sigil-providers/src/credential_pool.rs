@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
 /// Rotation strategy for selecting credentials.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum RotationStrategy {
     /// Use keys in order, cycling through the list.
+    #[default]
     RoundRobin,
     /// Use the key with the fewest total uses.
     LeastUsed,
@@ -19,12 +20,6 @@ pub enum RotationStrategy {
     Random,
     /// Use the first key until it's exhausted, then move to the next.
     FillFirst,
-}
-
-impl Default for RotationStrategy {
-    fn default() -> Self {
-        Self::RoundRobin
-    }
 }
 
 /// A single credential with usage tracking and cooldown state.
@@ -236,10 +231,7 @@ mod tests {
 
     #[test]
     fn test_all_exhausted() {
-        let mut pool = CredentialPool::new(
-            vec!["key1".into()],
-            RotationStrategy::RoundRobin,
-        );
+        let mut pool = CredentialPool::new(vec!["key1".into()], RotationStrategy::RoundRobin);
         pool.mark_rate_limited("key1");
         assert_eq!(pool.next_key(), None);
         assert_eq!(pool.available_count(), 0);

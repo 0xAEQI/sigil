@@ -22,10 +22,7 @@ impl sigil_core::traits::Tool for GlobTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing 'pattern' argument"))?;
 
-        let path = args
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
 
         let max_results = args
             .get("max_results")
@@ -48,22 +45,18 @@ impl sigil_core::traits::Tool for GlobTool {
             .arg("--sort=modified")
             .arg(&search_path);
 
-        let output = match tokio::time::timeout(
-            std::time::Duration::from_secs(15),
-            cmd.output(),
-        )
-        .await
-        {
-            Ok(Ok(o)) => o,
-            Ok(Err(e)) => {
-                return Ok(ToolResult::error(format!(
-                    "failed to run rg --files: {e}. Is ripgrep installed?"
-                )));
-            }
-            Err(_) => {
-                return Ok(ToolResult::error("glob timed out after 15s"));
-            }
-        };
+        let output =
+            match tokio::time::timeout(std::time::Duration::from_secs(15), cmd.output()).await {
+                Ok(Ok(o)) => o,
+                Ok(Err(e)) => {
+                    return Ok(ToolResult::error(format!(
+                        "failed to run rg --files: {e}. Is ripgrep installed?"
+                    )));
+                }
+                Err(_) => {
+                    return Ok(ToolResult::error("glob timed out after 15s"));
+                }
+            };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -126,9 +119,15 @@ mod tests {
 
     async fn setup() -> (GlobTool, TempDir) {
         let dir = TempDir::new().unwrap();
-        tokio::fs::write(dir.path().join("main.rs"), "fn main() {}").await.unwrap();
-        tokio::fs::write(dir.path().join("lib.rs"), "pub mod lib;").await.unwrap();
-        tokio::fs::write(dir.path().join("readme.md"), "# Readme").await.unwrap();
+        tokio::fs::write(dir.path().join("main.rs"), "fn main() {}")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("lib.rs"), "pub mod lib;")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("readme.md"), "# Readme")
+            .await
+            .unwrap();
         let tool = GlobTool::new(dir.path().to_path_buf());
         (tool, dir)
     }

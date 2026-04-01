@@ -9,8 +9,7 @@ pub(crate) async fn cmd_trigger(
     action: TriggerAction,
 ) -> Result<()> {
     let (config, _) = load_config(config_path)?;
-    let registry =
-        sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
+    let registry = sigil_orchestrator::agent_registry::AgentRegistry::open(&config.data_dir())?;
     let trigger_store = registry.trigger_store();
 
     match action {

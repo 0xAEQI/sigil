@@ -76,20 +76,18 @@ pub(crate) async fn cmd_blackboard(
                 println!("{}: {} (by {})", entry.key, entry.content, entry.agent);
             }
         }
-        BlackboardAction::Get { project, key } => {
-            match bb.get_by_key(&project, &key)? {
-                Some(entry) => {
-                    println!(
-                        "{}: {} (by {}, expires {})",
-                        entry.key,
-                        entry.content,
-                        entry.agent,
-                        entry.expires_at.format("%Y-%m-%d %H:%M"),
-                    );
-                }
-                None => println!("No entry found for key '{key}'."),
+        BlackboardAction::Get { project, key } => match bb.get_by_key(&project, &key)? {
+            Some(entry) => {
+                println!(
+                    "{}: {} (by {}, expires {})",
+                    entry.key,
+                    entry.content,
+                    entry.agent,
+                    entry.expires_at.format("%Y-%m-%d %H:%M"),
+                );
             }
-        }
+            None => println!("No entry found for key '{key}'."),
+        },
         BlackboardAction::Claim {
             project,
             resource,

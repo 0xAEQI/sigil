@@ -86,13 +86,24 @@ fn scan_dir(dir: &std::path::Path, source: &str) -> Vec<serde_json::Value> {
         if ext != "toml" && ext != "md" {
             continue;
         }
-        let name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let name = path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
         let content = std::fs::read_to_string(&path).unwrap_or_default();
         let description = extract_frontmatter_field(&content, "description").unwrap_or_default();
         let phase = extract_frontmatter_field(&content, "phase").unwrap_or_default();
         let model = extract_frontmatter_field(&content, "model").unwrap_or_default();
         let preview: String = if description.is_empty() {
-            content.lines().take(3).collect::<Vec<_>>().join(" ").chars().take(120).collect()
+            content
+                .lines()
+                .take(3)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .chars()
+                .take(120)
+                .collect()
         } else {
             description.chars().take(120).collect()
         };
@@ -112,7 +123,10 @@ fn scan_dir(dir: &std::path::Path, source: &str) -> Vec<serde_json::Value> {
 pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
     let (config, config_file) = load_config(config_path)?;
     let data_dir = config.data_dir();
-    let base_dir = config_file.parent().and_then(|p| p.parent()).map(PathBuf::from)
+    let base_dir = config_file
+        .parent()
+        .and_then(|p| p.parent())
+        .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
     let tools = vec![
@@ -324,7 +338,11 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                 error: None,
             },
             "tools/call" => {
-                let tool_name = request.params.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                let tool_name = request
+                    .params
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
                 let args = request.params.get("arguments").cloned().unwrap_or_default();
 
                 let result = match tool_name {
@@ -369,12 +387,18 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                             parts.join("\n\n---\n\n")
                         };
                         if content.is_empty() {
-                            Ok(serde_json::json!({"ok": false, "error": format!("no primer found for project '{project}'")}))
+                            Ok(
+                                serde_json::json!({"ok": false, "error": format!("no primer found for project '{project}'")}),
+                            )
                         } else {
                             let shared = if project != "shared" {
-                                let shared_sigil = base_dir.join("projects").join("shared").join("SIGIL.md");
+                                let shared_sigil =
+                                    base_dir.join("projects").join("shared").join("SIGIL.md");
                                 if shared_sigil.exists() {
-                                    format!("\n\n---\n\n{}", std::fs::read_to_string(&shared_sigil).unwrap_or_default())
+                                    format!(
+                                        "\n\n---\n\n{}",
+                                        std::fs::read_to_string(&shared_sigil).unwrap_or_default()
+                                    )
                                 } else {
                                     String::new()
                                 }
@@ -391,86 +415,134 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
 
                     // ── Skills (knowledge, procedures, checklists) ──
                     "sigil_skills" => {
-                        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("list");
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("list");
                         let project_filter = args.get("project").and_then(|v| v.as_str());
                         let phase_filter = args.get("phase").and_then(|v| v.as_str());
                         let name_filter = args.get("name").and_then(|v| v.as_str());
 
                         let mut all_skills = Vec::new();
-                        all_skills.extend(scan_dir(&base_dir.join("projects/shared/skills"), "shared"));
-                        for entry in std::fs::read_dir(base_dir.join("projects")).into_iter().flatten().flatten() {
+                        all_skills
+                            .extend(scan_dir(&base_dir.join("projects/shared/skills"), "shared"));
+                        for entry in std::fs::read_dir(base_dir.join("projects"))
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                        {
                             let p = entry.file_name().to_string_lossy().to_string();
-                            if p == "shared" { continue; }
+                            if p == "shared" {
+                                continue;
+                            }
                             all_skills.extend(scan_dir(&entry.path().join("skills"), &p));
                         }
 
                         if action == "get" {
                             let name = name_filter.unwrap_or("");
-                            match all_skills.into_iter().find(|s| s.get("name").and_then(|n| n.as_str()).is_some_and(|n| n == name)) {
+                            match all_skills.into_iter().find(|s| {
+                                s.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .is_some_and(|n| n == name)
+                            }) {
                                 Some(s) => Ok(s),
-                                None => Ok(serde_json::json!({"ok": false, "error": format!("skill '{name}' not found")})),
+                                None => Ok(
+                                    serde_json::json!({"ok": false, "error": format!("skill '{name}' not found")}),
+                                ),
                             }
                         } else {
-                            let filtered: Vec<serde_json::Value> = all_skills.into_iter()
+                            let filtered: Vec<serde_json::Value> = all_skills
+                                .into_iter()
                                 .filter(|s| {
                                     let project_ok = project_filter.is_none_or(|pf| {
-                                        let src = s.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                                        let src =
+                                            s.get("source").and_then(|v| v.as_str()).unwrap_or("");
                                         src == pf || src == "shared"
                                     });
                                     let phase_ok = phase_filter.is_none_or(|pf| {
-                                        s.get("phase").and_then(|v| v.as_str()).is_some_and(|p| p == pf)
+                                        s.get("phase")
+                                            .and_then(|v| v.as_str())
+                                            .is_some_and(|p| p == pf)
                                     });
                                     project_ok && phase_ok
                                 })
-                                .map(|s| serde_json::json!({
-                                    "name": s["name"], "source": s["source"],
-                                    "phase": s["phase"], "preview": s["preview"],
-                                }))
+                                .map(|s| {
+                                    serde_json::json!({
+                                        "name": s["name"], "source": s["source"],
+                                        "phase": s["phase"], "preview": s["preview"],
+                                    })
+                                })
                                 .collect();
-                            Ok(serde_json::json!({"ok": true, "count": filtered.len(), "skills": filtered}))
+                            Ok(
+                                serde_json::json!({"ok": true, "count": filtered.len(), "skills": filtered}),
+                            )
                         }
                     }
 
                     // ── Agents (autonomous actor templates) ──
                     "sigil_agents" => {
-                        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("list");
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("list");
                         let project_filter = args.get("project").and_then(|v| v.as_str());
                         let phase_filter = args.get("phase").and_then(|v| v.as_str());
                         let name_filter = args.get("name").and_then(|v| v.as_str());
 
                         let mut all_agents = Vec::new();
-                        all_agents.extend(scan_dir(&base_dir.join("projects/shared/agents"), "shared"));
-                        for entry in std::fs::read_dir(base_dir.join("projects")).into_iter().flatten().flatten() {
+                        all_agents
+                            .extend(scan_dir(&base_dir.join("projects/shared/agents"), "shared"));
+                        for entry in std::fs::read_dir(base_dir.join("projects"))
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                        {
                             let p = entry.file_name().to_string_lossy().to_string();
-                            if p == "shared" { continue; }
+                            if p == "shared" {
+                                continue;
+                            }
                             all_agents.extend(scan_dir(&entry.path().join("agents"), &p));
                         }
 
                         if action == "get" {
                             let name = name_filter.unwrap_or("");
-                            match all_agents.into_iter().find(|a| a.get("name").and_then(|n| n.as_str()).is_some_and(|n| n == name)) {
+                            match all_agents.into_iter().find(|a| {
+                                a.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .is_some_and(|n| n == name)
+                            }) {
                                 Some(a) => Ok(a),
-                                None => Ok(serde_json::json!({"ok": false, "error": format!("agent '{name}' not found")})),
+                                None => Ok(
+                                    serde_json::json!({"ok": false, "error": format!("agent '{name}' not found")}),
+                                ),
                             }
                         } else {
-                            let filtered: Vec<serde_json::Value> = all_agents.into_iter()
+                            let filtered: Vec<serde_json::Value> = all_agents
+                                .into_iter()
                                 .filter(|a| {
                                     let project_ok = project_filter.is_none_or(|pf| {
-                                        let src = a.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                                        let src =
+                                            a.get("source").and_then(|v| v.as_str()).unwrap_or("");
                                         src == pf || src == "shared"
                                     });
                                     let phase_ok = phase_filter.is_none_or(|pf| {
-                                        a.get("phase").and_then(|v| v.as_str()).is_some_and(|p| p == pf)
+                                        a.get("phase")
+                                            .and_then(|v| v.as_str())
+                                            .is_some_and(|p| p == pf)
                                     });
                                     project_ok && phase_ok
                                 })
-                                .map(|a| serde_json::json!({
-                                    "name": a["name"], "source": a["source"],
-                                    "phase": a["phase"], "model": a["model"],
-                                    "preview": a["preview"],
-                                }))
+                                .map(|a| {
+                                    serde_json::json!({
+                                        "name": a["name"], "source": a["source"],
+                                        "phase": a["phase"], "model": a["model"],
+                                        "preview": a["preview"],
+                                    })
+                                })
                                 .collect();
-                            Ok(serde_json::json!({"ok": true, "count": filtered.len(), "agents": filtered}))
+                            Ok(
+                                serde_json::json!({"ok": true, "count": filtered.len(), "agents": filtered}),
+                            )
                         }
                     }
 
@@ -478,7 +550,10 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                     "sigil_recall" => {
                         let project = args.get("project").and_then(|v| v.as_str()).unwrap_or("");
                         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                        let scope = args.get("scope").and_then(|v| v.as_str()).unwrap_or("domain");
+                        let scope = args
+                            .get("scope")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("domain");
                         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5);
 
                         let cache_key = format!("{project}\0{query}\0{scope}\0{limit}");
@@ -491,7 +566,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                             }
                         });
 
-                        let result = if let Some(val) = cached_hit {
+                        if let Some(val) = cached_hit {
                             Ok(val)
                         } else {
                             recall_cache.remove(&cache_key);
@@ -507,14 +582,16 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 recall_cache.insert(cache_key, (Instant::now(), val.clone()));
                             }
                             r
-                        };
-
-                        result
+                        }
                     }
                     "sigil_remember" => {
                         let mut ipc = args.clone();
                         ipc["cmd"] = serde_json::json!("knowledge_store");
-                        if !ipc.get("scope").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty()) {
+                        if ipc
+                            .get("scope")
+                            .and_then(|v| v.as_str())
+                            .is_none_or(|s| s.is_empty())
+                        {
                             ipc["scope"] = serde_json::json!("domain");
                         }
                         // Invalidate recall cache for this project — new memories change results.
@@ -534,7 +611,10 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         ipc_request_sync(&data_dir, &ipc)
                     }
                     "sigil_blackboard" => {
-                        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("read");
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("read");
                         match action {
                             "post" => {
                                 let mut ipc = args.clone();
@@ -602,9 +682,13 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 let result = ipc_request_sync(&data_dir, &ipc);
                                 if let Some(pf) = prefix_filter {
                                     result.map(|mut v| {
-                                        if let Some(entries) = v.get_mut("entries").and_then(|e| e.as_array_mut()) {
+                                        if let Some(entries) =
+                                            v.get_mut("entries").and_then(|e| e.as_array_mut())
+                                        {
                                             entries.retain(|e| {
-                                                e.get("key").and_then(|k| k.as_str()).is_some_and(|k| k.starts_with(pf))
+                                                e.get("key")
+                                                    .and_then(|k| k.as_str())
+                                                    .is_some_and(|k| k.starts_with(pf))
                                             });
                                         }
                                         v
@@ -619,7 +703,8 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         let agent_name = args.get("agent").and_then(|v| v.as_str()).unwrap_or("");
                         let project = args.get("project").and_then(|v| v.as_str()).unwrap_or("");
                         let task_id = args.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
-                        let extra_prompt = args.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                        let extra_prompt =
+                            args.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
 
                         // 1. Load agent template
                         let agent_template = {
@@ -629,11 +714,11 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 base_dir.join("projects/shared/agents"),
                             ] {
                                 let path = dir.join(format!("{agent_name}.md"));
-                                if path.exists() {
-                                    if let Ok(content) = std::fs::read_to_string(&path) {
-                                        found = content;
-                                        break;
-                                    }
+                                if path.exists()
+                                    && let Ok(content) = std::fs::read_to_string(&path)
+                                {
+                                    found = content;
+                                    break;
                                 }
                             }
                             if found.is_empty() {
@@ -651,14 +736,17 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 "prefix": format!("task:{task_id}"),
                                 "limit": 10
                             });
-                            if let Ok(bb_resp) = ipc_request_sync(&data_dir, &bb_req) {
-                                if let Some(entries) = bb_resp.get("entries").and_then(|e| e.as_array()) {
-                                    for entry in entries {
-                                        let key = entry.get("key").and_then(|k| k.as_str()).unwrap_or("");
-                                        let content = entry.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                                        if !content.is_empty() {
-                                            bb_context.push_str(&format!("\n## {key}\n{content}\n"));
-                                        }
+                            if let Ok(bb_resp) = ipc_request_sync(&data_dir, &bb_req)
+                                && let Some(entries) =
+                                    bb_resp.get("entries").and_then(|e| e.as_array())
+                            {
+                                for entry in entries {
+                                    let key =
+                                        entry.get("key").and_then(|k| k.as_str()).unwrap_or("");
+                                    let content =
+                                        entry.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                                    if !content.is_empty() {
+                                        bb_context.push_str(&format!("\n## {key}\n{content}\n"));
                                     }
                                 }
                             }
@@ -699,8 +787,14 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         ipc_request_sync(&data_dir, &ipc)
                     }
                     "sigil_close_task" => {
-                        let project = args.get("project").and_then(|v| v.as_str())
-                            .or_else(|| args.get("task_id").and_then(|v| v.as_str()).and_then(|id| id.split('-').next()))
+                        let project = args
+                            .get("project")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| {
+                                args.get("task_id")
+                                    .and_then(|v| v.as_str())
+                                    .and_then(|id| id.split('-').next())
+                            })
                             .unwrap_or("");
                         let task_id = args.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
                         let mut ipc = args.clone();
@@ -708,25 +802,25 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         let mut result = ipc_request_sync(&data_dir, &ipc);
 
                         // Enrich: check if review was posted for this task
-                        if let Ok(ref mut val) = result {
-                            if !task_id.is_empty() {
-                                let review_key = format!("task:{task_id}:review");
-                                let bb_req = serde_json::json!({
-                                    "cmd": "blackboard",
-                                    "project": project,
-                                    "prefix": &review_key,
-                                    "limit": 1
-                                });
-                                let has_review = ipc_request_sync(&data_dir, &bb_req)
-                                    .ok()
-                                    .and_then(|r| r.get("entries")?.as_array().map(|a| !a.is_empty()))
-                                    .unwrap_or(false);
+                        if let Ok(ref mut val) = result
+                            && !task_id.is_empty()
+                        {
+                            let review_key = format!("task:{task_id}:review");
+                            let bb_req = serde_json::json!({
+                                "cmd": "blackboard",
+                                "project": project,
+                                "prefix": &review_key,
+                                "limit": 1
+                            });
+                            let has_review = ipc_request_sync(&data_dir, &bb_req)
+                                .ok()
+                                .and_then(|r| r.get("entries")?.as_array().map(|a| !a.is_empty()))
+                                .unwrap_or(false);
 
-                                if !has_review {
-                                    val["review_warning"] = serde_json::json!(
-                                        format!("No review posted for {task_id}. For significant changes, delegate: sigil_delegate(agent='reviewer', project='{project}', task_id='{task_id}')")
-                                    );
-                                }
+                            if !has_review {
+                                val["review_warning"] = serde_json::json!(format!(
+                                    "No review posted for {task_id}. For significant changes, delegate: sigil_delegate(agent='reviewer', project='{project}', task_id='{task_id}')"
+                                ));
                             }
                         }
 
@@ -735,13 +829,18 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
 
                     "sigil_graph" => {
                         let project = args.get("project").and_then(|v| v.as_str()).unwrap_or("");
-                        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("stats");
+                        let action = args
+                            .get("action")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("stats");
 
                         // Find project repo path from config
-                        let repo_path = config.projects.iter()
-                            .find(|p| p.name == project)
-                            .map(|p| {
-                                let r = p.repo.replace('~', &dirs::home_dir().unwrap_or_default().to_string_lossy());
+                        let repo_path =
+                            config.projects.iter().find(|p| p.name == project).map(|p| {
+                                let r = p.repo.replace(
+                                    '~',
+                                    &dirs::home_dir().unwrap_or_default().to_string_lossy(),
+                                );
                                 std::path::PathBuf::from(r)
                             });
 
@@ -751,7 +850,9 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
 
                         match action {
                             "index" => {
-                                let repo = repo_path.ok_or_else(|| anyhow::anyhow!("project '{project}' not found in config"))?;
+                                let repo = repo_path.ok_or_else(|| {
+                                    anyhow::anyhow!("project '{project}' not found in config")
+                                })?;
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let indexer = sigil_graph::Indexer::new();
                                 let result = indexer.index(&repo, &store)?;
@@ -768,8 +869,10 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "search" => {
-                                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
-                                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                                let query =
+                                    args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10)
+                                    as usize;
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let results = store.search_nodes(query, limit)?;
                                 Ok(serde_json::json!({
@@ -779,7 +882,8 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "context" => {
-                                let node_id = args.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let node_id =
+                                    args.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let ctx = store.context(node_id)?;
                                 Ok(serde_json::json!({
@@ -793,16 +897,21 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "impact" => {
-                                let node_id = args.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
-                                let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
+                                let node_id =
+                                    args.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let depth =
+                                    args.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let entries = store.impact(&[node_id], depth)?;
-                                let affected: Vec<serde_json::Value> = entries.iter().map(|e| {
-                                    serde_json::json!({
-                                        "node": e.node,
-                                        "depth": e.depth,
+                                let affected: Vec<serde_json::Value> = entries
+                                    .iter()
+                                    .map(|e| {
+                                        serde_json::json!({
+                                            "node": e.node,
+                                            "depth": e.depth,
+                                        })
                                     })
-                                }).collect();
+                                    .collect();
                                 Ok(serde_json::json!({
                                     "ok": true,
                                     "source": node_id,
@@ -811,7 +920,8 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "file" => {
-                                let file_path = args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+                                let file_path =
+                                    args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let nodes = store.nodes_in_file(file_path)?;
                                 Ok(serde_json::json!({
@@ -835,8 +945,11 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "diff_impact" => {
-                                let repo = repo_path.ok_or_else(|| anyhow::anyhow!("project '{project}' not found"))?;
-                                let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
+                                let repo = repo_path.ok_or_else(|| {
+                                    anyhow::anyhow!("project '{project}' not found")
+                                })?;
+                                let depth =
+                                    args.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let indexer = sigil_graph::Indexer::new();
                                 let impact = indexer.diff_impact(&repo, &store, depth)?;
@@ -855,7 +968,8 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "file_summary" => {
-                                let file_path = args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+                                let file_path =
+                                    args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let summary = store.file_summary(file_path)?;
                                 Ok(serde_json::json!({
@@ -865,7 +979,9 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "incremental" => {
-                                let repo = repo_path.ok_or_else(|| anyhow::anyhow!("project '{project}' not found"))?;
+                                let repo = repo_path.ok_or_else(|| {
+                                    anyhow::anyhow!("project '{project}' not found")
+                                })?;
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
                                 let indexer = sigil_graph::Indexer::new();
                                 let result = indexer.index_incremental(&repo, &store)?;
@@ -879,7 +995,10 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                 }))
                             }
                             "synthesize" => {
-                                let community_id = args.get("community_id").and_then(|v| v.as_str()).unwrap_or("");
+                                let community_id = args
+                                    .get("community_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
                                 let store = sigil_graph::GraphStore::open(&db_path)?;
 
                                 // Read existing nodes and edges from the graph DB (no re-index)
@@ -890,7 +1009,11 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                     stmt.query_map([], |row| {
                                         Ok(sigil_graph::CodeNode {
                                             id: row.get(0)?,
-                                            label: serde_json::from_str(&format!("\"{}\"", row.get::<_,String>(1)?)).unwrap_or(sigil_graph::NodeLabel::Function),
+                                            label: serde_json::from_str(&format!(
+                                                "\"{}\"",
+                                                row.get::<_, String>(1)?
+                                            ))
+                                            .unwrap_or(sigil_graph::NodeLabel::Function),
                                             name: row.get(2)?,
                                             file_path: row.get(3)?,
                                             start_line: row.get(4)?,
@@ -901,7 +1024,9 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                             doc_comment: row.get(9)?,
                                             community_id: row.get(10)?,
                                         })
-                                    })?.filter_map(|r| r.ok()).collect()
+                                    })?
+                                    .filter_map(|r| r.ok())
+                                    .collect()
                                 };
 
                                 let all_edges: Vec<sigil_graph::CodeEdge> = {
@@ -912,16 +1037,23 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                         Ok(sigil_graph::CodeEdge {
                                             source_id: row.get(0)?,
                                             target_id: row.get(1)?,
-                                            edge_type: serde_json::from_str(&format!("\"{}\"", row.get::<_,String>(2)?)).unwrap_or(sigil_graph::EdgeType::Uses),
+                                            edge_type: serde_json::from_str(&format!(
+                                                "\"{}\"",
+                                                row.get::<_, String>(2)?
+                                            ))
+                                            .unwrap_or(sigil_graph::EdgeType::Uses),
                                             confidence: row.get(3)?,
                                             tier: row.get(4)?,
                                             step: row.get(5)?,
                                         })
-                                    })?.filter_map(|r| r.ok()).collect()
+                                    })?
+                                    .filter_map(|r| r.ok())
+                                    .collect()
                                 };
 
                                 // Find the community
-                                let communities = sigil_graph::detect_communities(&all_nodes, &all_edges, 3);
+                                let communities =
+                                    sigil_graph::detect_communities(&all_nodes, &all_edges, 3);
                                 let community = if community_id.is_empty() {
                                     communities.first()
                                 } else {
@@ -930,7 +1062,9 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
 
                                 match community {
                                     Some(comm) => {
-                                        let skill = sigil_graph::synthesize_skill(comm, &all_nodes, &all_edges);
+                                        let skill = sigil_graph::synthesize_skill(
+                                            comm, &all_nodes, &all_edges,
+                                        );
                                         Ok(serde_json::json!({
                                             "ok": true,
                                             "skill_name": skill.name,
@@ -938,7 +1072,9 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                             "content": skill.content,
                                         }))
                                     }
-                                    None => Err(anyhow::anyhow!("community '{community_id}' not found")),
+                                    None => {
+                                        Err(anyhow::anyhow!("community '{community_id}' not found"))
+                                    }
                                 }
                             }
                             _ => Err(anyhow::anyhow!("unknown sigil_graph action: {action}")),

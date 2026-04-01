@@ -315,9 +315,7 @@ impl Task {
                 outcome
                     .reason
                     .filter(|reason| !reason.trim().is_empty())
-                    .or_else(|| {
-                        (!outcome.summary.trim().is_empty()).then_some(outcome.summary)
-                    })
+                    .or_else(|| (!outcome.summary.trim().is_empty()).then_some(outcome.summary))
             })
             .or_else(|| self.closed_reason.clone())
     }
@@ -350,7 +348,9 @@ mod tests {
         task.set_sigil_metadata("runtime", serde_json::json!({"phase": "act"}));
 
         assert_eq!(
-            task.metadata.pointer("/_legacy").and_then(|value| value.as_str()),
+            task.metadata
+                .pointer("/_legacy")
+                .and_then(|value| value.as_str()),
             Some("legacy")
         );
         assert_eq!(

@@ -765,8 +765,7 @@ mod tests {
 
         let (project, _project_dir) = temp_project("demo", "dm").unwrap();
         let provider: Arc<dyn Provider> = Arc::new(DoneProvider);
-        let mut supervisor =
-            Supervisor::new(&project, provider, Vec::new(), dispatch_bus.clone());
+        let mut supervisor = Supervisor::new(&project, provider, Vec::new(), dispatch_bus.clone());
         supervisor.execution_mode = sigil_core::ExecutionMode::Agent;
         registry.register_project(project.clone(), supervisor).await;
 

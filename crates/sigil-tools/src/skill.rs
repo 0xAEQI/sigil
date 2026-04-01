@@ -199,10 +199,7 @@ impl Skill {
 
     /// Whether this skill should run as a forked subagent (separate context).
     pub fn is_fork_context(&self) -> bool {
-        self.skill
-            .context
-            .as_deref()
-            .is_some_and(|c| c == "fork")
+        self.skill.context.as_deref().is_some_and(|c| c == "fork")
     }
 
     /// Whether this skill has auto-invocation criteria.
@@ -269,7 +266,10 @@ max_budget_usd = 1.50
         assert!(skill.is_fork_context());
         assert!(skill.has_auto_trigger());
         assert_eq!(skill.skill.arguments, vec!["service", "env"]);
-        assert_eq!(skill.skill.argument_hint.as_deref(), Some("<service> <env>"));
+        assert_eq!(
+            skill.skill.argument_hint.as_deref(),
+            Some("<service> <env>")
+        );
 
         let exec = skill.execution.unwrap();
         assert_eq!(exec.mode, "parallel");

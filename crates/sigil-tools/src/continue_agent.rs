@@ -33,10 +33,7 @@ impl Tool for ContinueAgentTool {
             .get("to")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing 'to' (agent ID)"))?;
-        let message = args
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let message = args.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
         let reg = self.registry.lock().await;
 

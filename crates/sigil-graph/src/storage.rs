@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -203,9 +203,7 @@ impl GraphStore {
 
     pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
-        let result = stmt
-            .query_row(params![key], |row| row.get(0))
-            .ok();
+        let result = stmt.query_row(params![key], |row| row.get(0)).ok();
         Ok(result)
     }
 
@@ -245,9 +243,7 @@ impl GraphStore {
             "SELECT id, label, name, file_path, start_line, end_line, language, is_exported, signature, doc_comment, community_id
              FROM code_nodes WHERE id = ?1",
         )?;
-        let result = stmt
-            .query_row(params![id], |row| Ok(row_to_node(row)))
-            .ok();
+        let result = stmt.query_row(params![id], |row| Ok(row_to_node(row))).ok();
         Ok(result)
     }
 
@@ -327,9 +323,7 @@ impl GraphStore {
 
     /// 360° context: outgoing + incoming edges for a node.
     pub fn context(&self, node_id: &str) -> Result<NodeContext> {
-        let node = self
-            .node_by_id(node_id)?
-            .context("node not found")?;
+        let node = self.node_by_id(node_id)?.context("node not found")?;
         let outgoing = self.outgoing_edges(node_id)?;
         let incoming = self.incoming_edges(node_id)?;
 
@@ -371,10 +365,10 @@ impl GraphStore {
         }
 
         while let Some((node_id, depth)) = queue.pop_front() {
-            if depth > 0 {
-                if let Some(node) = self.node_by_id(&node_id)? {
-                    results.push(ImpactEntry { node, depth });
-                }
+            if depth > 0
+                && let Some(node) = self.node_by_id(&node_id)?
+            {
+                results.push(ImpactEntry { node, depth });
             }
             if depth >= max_depth {
                 continue;
@@ -419,7 +413,8 @@ impl GraphStore {
         }
 
         // Count by type
-        let mut type_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut type_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
         for s in &symbols {
             *type_counts.entry(s.label.as_str()).or_default() += 1;
         }
@@ -546,8 +541,7 @@ fn row_to_node_offset(row: &rusqlite::Row, offset: usize) -> CodeNode {
     let label_str: String = row.get(offset + 1).unwrap_or_default();
     CodeNode {
         id: row.get(offset).unwrap_or_default(),
-        label: serde_json::from_str(&format!("\"{}\"", label_str))
-            .unwrap_or(NodeLabel::Function),
+        label: serde_json::from_str(&format!("\"{}\"", label_str)).unwrap_or(NodeLabel::Function),
         name: row.get(offset + 2).unwrap_or_default(),
         file_path: row.get(offset + 3).unwrap_or_default(),
         start_line: row.get(offset + 4).unwrap_or(0),
@@ -631,9 +625,14 @@ mod tests {
             )
             .unwrap();
         store
-            .upsert_node(
-                &CodeNode::new(NodeLabel::Function, "observe_metrics", "src/lib.rs", 10, 20, "rust"),
-            )
+            .upsert_node(&CodeNode::new(
+                NodeLabel::Function,
+                "observe_metrics",
+                "src/lib.rs",
+                10,
+                20,
+                "rust",
+            ))
             .unwrap();
 
         let results = store.search_nodes("Observer", 10).unwrap();
@@ -647,7 +646,14 @@ mod tests {
 
         let a = CodeNode::new(NodeLabel::Trait, "Observer", "core.rs", 1, 10, "rust");
         let b = CodeNode::new(NodeLabel::Struct, "LogObserver", "log.rs", 1, 10, "rust");
-        let c = CodeNode::new(NodeLabel::Function, "setup_logging", "setup.rs", 1, 10, "rust");
+        let c = CodeNode::new(
+            NodeLabel::Function,
+            "setup_logging",
+            "setup.rs",
+            1,
+            10,
+            "rust",
+        );
 
         store.upsert_node(&a).unwrap();
         store.upsert_node(&b).unwrap();

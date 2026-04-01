@@ -202,23 +202,19 @@ impl Blackboard {
                  WHERE project = ?1 AND key = ?2 AND expires_at > ?3
                  ORDER BY created_at DESC LIMIT 1",
             )?
-            .query_row(
-                rusqlite::params![project, &claim_key, &now_str],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .query_row(rusqlite::params![project, &claim_key, &now_str], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .ok();
 
         match existing {
-            Some((holder, held_content)) if holder != agent => {
-                Ok(ClaimResult::Held {
-                    holder,
-                    content: held_content,
-                })
-            }
+            Some((holder, held_content)) if holder != agent => Ok(ClaimResult::Held {
+                holder,
+                content: held_content,
+            }),
             Some(_) => {
                 // Same agent — renew the claim
-                let expires_at =
-                    now + chrono::Duration::hours(self.claim_ttl_hours as i64);
+                let expires_at = now + chrono::Duration::hours(self.claim_ttl_hours as i64);
                 let id = uuid::Uuid::new_v4().to_string();
                 let tags_json = serde_json::to_string(&vec!["claim"])?;
 
@@ -238,8 +234,7 @@ impl Blackboard {
             }
             None => {
                 // No claim — acquire it
-                let expires_at =
-                    now + chrono::Duration::hours(self.claim_ttl_hours as i64);
+                let expires_at = now + chrono::Duration::hours(self.claim_ttl_hours as i64);
                 let id = uuid::Uuid::new_v4().to_string();
                 let tags_json = serde_json::to_string(&vec!["claim"])?;
 
@@ -257,13 +252,7 @@ impl Blackboard {
     }
 
     /// Release a claim. Only the holding agent (or any agent if `force` is true) can release.
-    pub fn release(
-        &self,
-        resource: &str,
-        agent: &str,
-        project: &str,
-        force: bool,
-    ) -> Result<bool> {
+    pub fn release(&self, resource: &str, agent: &str, project: &str, force: bool) -> Result<bool> {
         let claim_key = format!("claim:{resource}");
         let conn = self
             .conn
@@ -403,9 +392,12 @@ impl Blackboard {
                  FROM sigil_blackboard WHERE expires_at > ?1 AND created_at > ?2
                  ORDER BY created_at DESC LIMIT ?3",
             )?;
-            stmt.query_map(rusqlite::params![now, since_str, 1000u32], Self::row_to_entry)?
-                .filter_map(|r| r.ok())
-                .collect::<Vec<_>>()
+            stmt.query_map(
+                rusqlite::params![now, since_str, 1000u32],
+                Self::row_to_entry,
+            )?
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>()
         } else {
             let mut stmt = conn.prepare(
                 "SELECT id, key, content, agent, project, tags_json, durability, created_at, expires_at
@@ -446,10 +438,9 @@ impl Blackboard {
                  WHERE project = ?1 AND key = ?2 AND expires_at > ?3
                  ORDER BY created_at DESC LIMIT 1",
             )?
-            .query_row(
-                rusqlite::params![project, &claim_key, &now],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .query_row(rusqlite::params![project, &claim_key, &now], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .ok();
 
         Ok(result)
@@ -726,7 +717,9 @@ mod tests {
     fn test_claim_acquire() {
         let (bb, _dir) = temp_bb();
 
-        let result = bb.claim("src/main.rs", "worker-1", "proj", "refactoring main").unwrap();
+        let result = bb
+            .claim("src/main.rs", "worker-1", "proj", "refactoring main")
+            .unwrap();
         assert_eq!(result, ClaimResult::Acquired);
 
         // Verify the claim entry exists
@@ -743,11 +736,15 @@ mod tests {
         let (bb, _dir) = temp_bb();
 
         // First agent claims
-        let r1 = bb.claim("src/api.rs", "worker-1", "proj", "adding endpoint").unwrap();
+        let r1 = bb
+            .claim("src/api.rs", "worker-1", "proj", "adding endpoint")
+            .unwrap();
         assert_eq!(r1, ClaimResult::Acquired);
 
         // Second agent tries to claim same resource
-        let r2 = bb.claim("src/api.rs", "worker-2", "proj", "fixing bug").unwrap();
+        let r2 = bb
+            .claim("src/api.rs", "worker-2", "proj", "fixing bug")
+            .unwrap();
         assert_eq!(
             r2,
             ClaimResult::Held {
@@ -761,11 +758,15 @@ mod tests {
     fn test_claim_renew() {
         let (bb, _dir) = temp_bb();
 
-        let r1 = bb.claim("src/lib.rs", "worker-1", "proj", "initial work").unwrap();
+        let r1 = bb
+            .claim("src/lib.rs", "worker-1", "proj", "initial work")
+            .unwrap();
         assert_eq!(r1, ClaimResult::Acquired);
 
         // Same agent re-claims (renew)
-        let r2 = bb.claim("src/lib.rs", "worker-1", "proj", "still working").unwrap();
+        let r2 = bb
+            .claim("src/lib.rs", "worker-1", "proj", "still working")
+            .unwrap();
         assert_eq!(r2, ClaimResult::Renewed);
 
         // Content should be updated
@@ -777,7 +778,8 @@ mod tests {
     fn test_release() {
         let (bb, _dir) = temp_bb();
 
-        bb.claim("src/mod.rs", "worker-1", "proj", "editing").unwrap();
+        bb.claim("src/mod.rs", "worker-1", "proj", "editing")
+            .unwrap();
 
         // Wrong agent can't release
         let released = bb.release("src/mod.rs", "worker-2", "proj", false).unwrap();
@@ -796,7 +798,8 @@ mod tests {
     fn test_release_force() {
         let (bb, _dir) = temp_bb();
 
-        bb.claim("src/mod.rs", "worker-1", "proj", "editing").unwrap();
+        bb.claim("src/mod.rs", "worker-1", "proj", "editing")
+            .unwrap();
 
         // Force release by different agent
         let released = bb.release("src/mod.rs", "worker-2", "proj", true).unwrap();
@@ -810,7 +813,15 @@ mod tests {
     fn test_delete_by_key() {
         let (bb, _dir) = temp_bb();
 
-        bb.post("signal:build-broken", "compile error in handler.rs", "ci", "proj", &["signal".to_string()], EntryDurability::Transient).unwrap();
+        bb.post(
+            "signal:build-broken",
+            "compile error in handler.rs",
+            "ci",
+            "proj",
+            &["signal".to_string()],
+            EntryDurability::Transient,
+        )
+        .unwrap();
 
         let deleted = bb.delete_by_key("proj", "signal:build-broken").unwrap();
         assert!(deleted);
@@ -830,13 +841,15 @@ mod tests {
         let before = Utc::now();
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        bb.post("k1", "old", "a", "p", &[], EntryDurability::Transient).unwrap();
+        bb.post("k1", "old", "a", "p", &[], EntryDurability::Transient)
+            .unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(10));
         let mid = Utc::now();
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        bb.post("k2", "new", "a", "p", &[], EntryDurability::Transient).unwrap();
+        bb.post("k2", "new", "a", "p", &[], EntryDurability::Transient)
+            .unwrap();
 
         // Query since before — should get both
         let all = bb.query_since("p", &[], before, 10).unwrap();
@@ -852,17 +865,33 @@ mod tests {
     fn test_cross_project_query() {
         let (bb, _dir) = temp_bb();
 
-        bb.post("signal:api-changed", "POST /users now returns 201", "w1", "backend",
-            &["signal".to_string()], EntryDurability::Durable).unwrap();
-        bb.post("finding:css-bug", "overflow in sidebar", "w2", "frontend",
-            &["finding".to_string()], EntryDurability::Transient).unwrap();
+        bb.post(
+            "signal:api-changed",
+            "POST /users now returns 201",
+            "w1",
+            "backend",
+            &["signal".to_string()],
+            EntryDurability::Durable,
+        )
+        .unwrap();
+        bb.post(
+            "finding:css-bug",
+            "overflow in sidebar",
+            "w2",
+            "frontend",
+            &["finding".to_string()],
+            EntryDurability::Transient,
+        )
+        .unwrap();
 
         // Cross-project query — gets both
         let all = bb.query_cross_project(&[], None, 10).unwrap();
         assert_eq!(all.len(), 2);
 
         // Filter by tag
-        let signals = bb.query_cross_project(&["signal".to_string()], None, 10).unwrap();
+        let signals = bb
+            .query_cross_project(&["signal".to_string()], None, 10)
+            .unwrap();
         assert_eq!(signals.len(), 1);
         assert_eq!(signals[0].project, "backend");
     }
@@ -876,7 +905,8 @@ mod tests {
         assert!(result.is_none());
 
         // After claiming
-        bb.claim("src/main.rs", "worker-1", "proj", "working on it").unwrap();
+        bb.claim("src/main.rs", "worker-1", "proj", "working on it")
+            .unwrap();
         let result = bb.check_claim("src/main.rs", "proj").unwrap();
         assert!(result.is_some());
         let (agent, content) = result.unwrap();
@@ -888,7 +918,8 @@ mod tests {
     fn test_claim_expired_allows_new_claim() {
         let (bb, _dir) = temp_bb();
 
-        bb.claim("src/main.rs", "worker-1", "proj", "working").unwrap();
+        bb.claim("src/main.rs", "worker-1", "proj", "working")
+            .unwrap();
 
         // Manually expire the claim
         {
@@ -902,7 +933,9 @@ mod tests {
         }
 
         // Different agent can now claim
-        let result = bb.claim("src/main.rs", "worker-2", "proj", "taking over").unwrap();
+        let result = bb
+            .claim("src/main.rs", "worker-2", "proj", "taking over")
+            .unwrap();
         assert_eq!(result, ClaimResult::Acquired);
     }
 
@@ -957,15 +990,87 @@ mod tests {
         let proj = "proj";
 
         // Post entries with various scoped keys
-        bb.post("system:config", "global cfg", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("project:proj:schema", "table def", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("project:other:schema", "other table", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("dept:eng:oncall", "alice", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("dept:sales:quota", "100", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("agent:a1:scratch", "private", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("agent:a2:scratch", "other private", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("session:s1:step", "step data", "w", proj, &[], EntryDurability::Transient).unwrap();
-        bb.post("plain-finding", "no prefix", "w", proj, &[], EntryDurability::Transient).unwrap();
+        bb.post(
+            "system:config",
+            "global cfg",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "project:proj:schema",
+            "table def",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "project:other:schema",
+            "other table",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "dept:eng:oncall",
+            "alice",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "dept:sales:quota",
+            "100",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "agent:a1:scratch",
+            "private",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "agent:a2:scratch",
+            "other private",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "session:s1:step",
+            "step data",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
+        bb.post(
+            "plain-finding",
+            "no prefix",
+            "w",
+            proj,
+            &[],
+            EntryDurability::Transient,
+        )
+        .unwrap();
 
         // Agent in project "proj", dept "eng", id "a1"
         let vis = AgentVisibility {

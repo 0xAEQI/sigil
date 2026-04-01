@@ -1117,12 +1117,12 @@ impl Tool for BlackboardTool {
                     .get("resource")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("missing resource"))?;
-                let content = args
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
-                match self.blackboard.claim(resource, &self.agent_name, &self.project_name, content) {
+                match self
+                    .blackboard
+                    .claim(resource, &self.agent_name, &self.project_name, content)
+                {
                     Ok(crate::blackboard::ClaimResult::Acquired) => {
                         Ok(ToolResult::success(format!("Claimed: {resource}")))
                     }
@@ -1144,7 +1144,10 @@ impl Tool for BlackboardTool {
                     .ok_or_else(|| anyhow::anyhow!("missing resource"))?;
                 let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
-                match self.blackboard.release(resource, &self.agent_name, &self.project_name, force) {
+                match self
+                    .blackboard
+                    .release(resource, &self.agent_name, &self.project_name, force)
+                {
                     Ok(true) => Ok(ToolResult::success(format!("Released: {resource}"))),
                     Ok(false) => Ok(ToolResult::success(format!(
                         "No active claim found for: {resource}"
@@ -1280,7 +1283,9 @@ impl Tool for TriggerManageTool {
                 let max_budget_usd = args.get("max_budget_usd").and_then(|v| v.as_f64());
 
                 // Determine trigger type from args.
-                let trigger_type = if let Some(schedule) = args.get("schedule").and_then(|v| v.as_str()) {
+                let trigger_type = if let Some(schedule) =
+                    args.get("schedule").and_then(|v| v.as_str())
+                {
                     crate::trigger::TriggerType::Schedule {
                         expr: schedule.to_string(),
                     }
@@ -1297,13 +1302,22 @@ impl Tool for TriggerManageTool {
                     }
                     let pattern = match event {
                         "task_completed" => crate::trigger::EventPattern::TaskCompleted {
-                            project: args.get("project_filter").and_then(|v| v.as_str()).map(String::from),
+                            project: args
+                                .get("project_filter")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
                         },
                         "task_failed" => crate::trigger::EventPattern::TaskFailed {
-                            project: args.get("project_filter").and_then(|v| v.as_str()).map(String::from),
+                            project: args
+                                .get("project_filter")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
                         },
                         "tool_call_completed" => crate::trigger::EventPattern::ToolCallCompleted {
-                            tool: args.get("tool_filter").and_then(|v| v.as_str()).map(String::from),
+                            tool: args
+                                .get("tool_filter")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
                         },
                         other => {
                             return Ok(ToolResult {
@@ -1389,7 +1403,10 @@ impl Tool for TriggerManageTool {
                 let enabled = action == "enable";
                 match self.trigger_store.update_enabled(id, enabled).await {
                     Ok(()) => Ok(ToolResult {
-                        output: format!("Trigger {id} {}.", if enabled { "enabled" } else { "disabled" }),
+                        output: format!(
+                            "Trigger {id} {}.",
+                            if enabled { "enabled" } else { "disabled" }
+                        ),
                         is_error: false,
                     }),
                     Err(e) => Ok(ToolResult {
@@ -1417,7 +1434,9 @@ impl Tool for TriggerManageTool {
             }
 
             other => Ok(ToolResult {
-                output: format!("Unknown action: {other}. Use: create, list, enable, disable, delete"),
+                output: format!(
+                    "Unknown action: {other}. Use: create, list, enable, disable, delete"
+                ),
                 is_error: true,
             }),
         }
@@ -1544,12 +1563,14 @@ impl Tool for ChannelPostTool {
         };
 
         // Ensure channel exists in conversation store.
-        let _ = self.conversation_store
+        let _ = self
+            .conversation_store
             .ensure_channel(chat_id, "agent", &channel_name)
             .await;
 
         // Record the message.
-        let _ = self.conversation_store
+        let _ = self
+            .conversation_store
             .record_with_source(chat_id, &self.agent_name, message, Some("agent"))
             .await;
 

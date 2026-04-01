@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Timelike, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -92,10 +92,7 @@ pub enum EventPattern {
     },
     /// Fire when project cost exceeds a threshold (USD).
     #[serde(rename = "budget_exceeded")]
-    BudgetExceeded {
-        project: String,
-        threshold_usd: f64,
-    },
+    BudgetExceeded { project: String, threshold_usd: f64 },
     /// Fire when a persistent agent has been idle for N seconds.
     #[serde(rename = "agent_idle")]
     AgentIdle {
@@ -159,15 +156,15 @@ impl TriggerType {
             "once" => {
                 let v: serde_json::Value = serde_json::from_str(config_json).ok()?;
                 let at_str = v.get("at")?.as_str()?;
-                let at = DateTime::parse_from_rfc3339(at_str).ok()?.with_timezone(&Utc);
+                let at = DateTime::parse_from_rfc3339(at_str)
+                    .ok()?
+                    .with_timezone(&Utc);
                 Some(TriggerType::Once { at })
             }
             "event" => {
                 let v: serde_json::Value = serde_json::from_str(config_json).ok()?;
-                let pattern: EventPattern = serde_json::from_value(
-                    v.get("pattern")?.clone(),
-                )
-                .ok()?;
+                let pattern: EventPattern =
+                    serde_json::from_value(v.get("pattern")?.clone()).ok()?;
                 let cooldown_secs = v.get("cooldown_secs")?.as_u64()?;
                 Some(TriggerType::Event {
                     pattern,
@@ -186,12 +183,8 @@ impl Trigger {
             return false;
         }
         match &self.trigger_type {
-            TriggerType::Schedule { expr } => {
-                is_schedule_due(expr, self.last_fired.as_ref())
-            }
-            TriggerType::Once { at } => {
-                self.last_fired.is_none() && Utc::now() >= *at
-            }
+            TriggerType::Schedule { expr } => is_schedule_due(expr, self.last_fired.as_ref()),
+            TriggerType::Once { at } => self.last_fired.is_none() && Utc::now() >= *at,
             TriggerType::Event { .. } => false, // Events are checked separately
         }
     }
@@ -346,13 +339,12 @@ impl EventPattern {
                 Some(p) => task_id.starts_with(&format!("{p}:")),
                 None => true,
             },
-            (
-                EventPattern::TaskFailed { project },
-                ExecutionEvent::TaskFailed { task_id, .. },
-            ) => match project {
-                Some(p) => task_id.starts_with(&format!("{p}:")),
-                None => true,
-            },
+            (EventPattern::TaskFailed { project }, ExecutionEvent::TaskFailed { task_id, .. }) => {
+                match project {
+                    Some(p) => task_id.starts_with(&format!("{p}:")),
+                    None => true,
+                }
+            }
             (
                 EventPattern::ToolCallCompleted { tool },
                 ExecutionEvent::ToolCallCompleted { tool_name, .. },
@@ -369,10 +361,10 @@ impl EventPattern {
             ) => {
                 let key_match = key_pattern
                     .as_ref()
-                    .map_or(true, |p| key.contains(p.as_str()));
+                    .is_none_or(|p| key.contains(p.as_str()));
                 let scope_match = pattern_scope
                     .as_ref()
-                    .map_or(true, |s| scope.eq_ignore_ascii_case(s));
+                    .is_none_or(|s| scope.eq_ignore_ascii_case(s));
                 key_match && scope_match
             }
             (
@@ -384,10 +376,8 @@ impl EventPattern {
             ) => {
                 let key_match = key_pattern
                     .as_ref()
-                    .map_or(true, |p| key.contains(p.as_str()));
-                let proj_match = pattern_project
-                    .as_ref()
-                    .map_or(true, |p| project == p);
+                    .is_none_or(|p| key.contains(p.as_str()));
+                let proj_match = pattern_project.as_ref().is_none_or(|p| project == p);
                 key_match && proj_match
             }
             (
@@ -411,9 +401,7 @@ impl EventPattern {
                     idle_secs,
                 },
             ) => {
-                let agent_match = pattern_agent
-                    .as_ref()
-                    .map_or(true, |p| agent_id == p);
+                let agent_match = pattern_agent.as_ref().is_none_or(|p| agent_id == p);
                 agent_match && idle_secs >= threshold
             }
             (
@@ -425,12 +413,8 @@ impl EventPattern {
                     from_agent, kind, ..
                 },
             ) => {
-                let from_match = pattern_from
-                    .as_ref()
-                    .map_or(true, |p| from_agent == p);
-                let kind_match = pattern_kind
-                    .as_ref()
-                    .map_or(true, |k| kind == k);
+                let from_match = pattern_from.as_ref().is_none_or(|p| from_agent == p);
+                let kind_match = pattern_kind.as_ref().is_none_or(|k| kind == k);
                 from_match && kind_match
             }
             (
@@ -444,12 +428,8 @@ impl EventPattern {
                     ..
                 },
             ) => {
-                let channel_match = pattern_channel
-                    .as_ref()
-                    .map_or(true, |c| channel_name == c);
-                let from_match = pattern_from
-                    .as_ref()
-                    .map_or(true, |f| from_agent == f);
+                let channel_match = pattern_channel.as_ref().is_none_or(|c| channel_name == c);
+                let from_match = pattern_from.as_ref().is_none_or(|f| from_agent == f);
                 channel_match && from_match
             }
             _ => false,
@@ -517,11 +497,9 @@ impl TriggerStore {
     pub async fn get(&self, id: &str) -> Result<Option<Trigger>> {
         let db = self.db.lock().await;
         let trigger = db
-            .query_row(
-                "SELECT * FROM triggers WHERE id = ?1",
-                params![id],
-                |row| Ok(row_to_trigger(row)),
-            )
+            .query_row("SELECT * FROM triggers WHERE id = ?1", params![id], |row| {
+                Ok(row_to_trigger(row))
+            })
             .optional()?;
         Ok(trigger)
     }
@@ -529,9 +507,8 @@ impl TriggerStore {
     /// List all triggers for a specific agent.
     pub async fn list_for_agent(&self, agent_id: &str) -> Result<Vec<Trigger>> {
         let db = self.db.lock().await;
-        let mut stmt = db.prepare(
-            "SELECT * FROM triggers WHERE agent_id = ?1 ORDER BY created_at ASC",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT * FROM triggers WHERE agent_id = ?1 ORDER BY created_at ASC")?;
         let triggers = stmt
             .query_map(params![agent_id], |row| Ok(row_to_trigger(row)))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -541,9 +518,8 @@ impl TriggerStore {
     /// List all enabled triggers.
     pub async fn list_all_enabled(&self) -> Result<Vec<Trigger>> {
         let db = self.db.lock().await;
-        let mut stmt = db.prepare(
-            "SELECT * FROM triggers WHERE enabled = 1 ORDER BY created_at ASC",
-        )?;
+        let mut stmt =
+            db.prepare("SELECT * FROM triggers WHERE enabled = 1 ORDER BY created_at ASC")?;
         let triggers = stmt
             .query_map([], |row| Ok(row_to_trigger(row)))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -553,9 +529,7 @@ impl TriggerStore {
     /// List all triggers (enabled and disabled).
     pub async fn list_all(&self) -> Result<Vec<Trigger>> {
         let db = self.db.lock().await;
-        let mut stmt = db.prepare(
-            "SELECT * FROM triggers ORDER BY created_at ASC",
-        )?;
+        let mut stmt = db.prepare("SELECT * FROM triggers ORDER BY created_at ASC")?;
         let triggers = stmt
             .query_map([], |row| Ok(row_to_trigger(row)))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -567,7 +541,12 @@ impl TriggerStore {
         let all = self.list_all_enabled().await?;
         Ok(all
             .into_iter()
-            .filter(|t| matches!(t.trigger_type, TriggerType::Schedule { .. } | TriggerType::Once { .. }))
+            .filter(|t| {
+                matches!(
+                    t.trigger_type,
+                    TriggerType::Schedule { .. } | TriggerType::Once { .. }
+                )
+            })
             .filter(|t| t.is_due())
             .collect())
     }
@@ -664,8 +643,10 @@ impl TriggerStore {
 fn row_to_trigger(row: &rusqlite::Row) -> Trigger {
     let type_str: String = row.get("trigger_type").unwrap_or_default();
     let config_json: String = row.get("config").unwrap_or_else(|_| "{}".to_string());
-    let trigger_type = TriggerType::from_db(&type_str, &config_json)
-        .unwrap_or(TriggerType::Schedule { expr: "* * * * *".to_string() });
+    let trigger_type =
+        TriggerType::from_db(&type_str, &config_json).unwrap_or(TriggerType::Schedule {
+            expr: "* * * * *".to_string(),
+        });
 
     Trigger {
         id: row.get("id").unwrap_or_default(),
@@ -775,7 +756,9 @@ mod tests {
         let fetched = store.get(&trigger.id).await.unwrap().unwrap();
         assert_eq!(fetched.id, trigger.id);
         assert_eq!(fetched.name, "morning-brief");
-        assert!(matches!(fetched.trigger_type, TriggerType::Schedule { expr } if expr == "0 9 * * *"));
+        assert!(
+            matches!(fetched.trigger_type, TriggerType::Schedule { expr } if expr == "0 9 * * *")
+        );
     }
 
     #[tokio::test]
@@ -787,7 +770,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "daily".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 9 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 9 * * *".into(),
+                },
                 skill: "check".into(),
                 max_budget_usd: None,
             })
@@ -799,7 +784,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "daily".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 10 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 10 * * *".into(),
+                },
                 skill: "other".into(),
                 max_budget_usd: None,
             })
@@ -816,7 +803,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "t1".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 9 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 9 * * *".into(),
+                },
                 skill: "s1".into(),
                 max_budget_usd: None,
             })
@@ -849,7 +838,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "test".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 9 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 9 * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })
@@ -874,7 +865,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "ephemeral".into(),
-                trigger_type: TriggerType::Schedule { expr: "* * * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "* * * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })
@@ -894,7 +887,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "t1".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 9 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 9 * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })
@@ -904,7 +899,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "t2".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 10 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 10 * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })
@@ -932,7 +929,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "counter".into(),
-                trigger_type: TriggerType::Schedule { expr: "* * * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "* * * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })
@@ -1022,7 +1021,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "a".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 9 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 9 * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })
@@ -1032,7 +1033,9 @@ mod tests {
             .create(&NewTrigger {
                 agent_id: "agent-1".into(),
                 name: "b".into(),
-                trigger_type: TriggerType::Schedule { expr: "0 10 * * *".into() },
+                trigger_type: TriggerType::Schedule {
+                    expr: "0 10 * * *".into(),
+                },
                 skill: "s".into(),
                 max_budget_usd: None,
             })

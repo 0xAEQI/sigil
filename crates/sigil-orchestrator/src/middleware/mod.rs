@@ -388,17 +388,17 @@ impl MiddlewareChain {
         response_text: &str,
         stop_reason: &str,
     ) -> MiddlewareAction {
-        run_chain!(&self.layers, ctx, "after_turn", |mw, ctx| mw
-            .after_turn(ctx, response_text, stop_reason))
+        run_chain!(&self.layers, ctx, "after_turn", |mw, ctx| mw.after_turn(
+            ctx,
+            response_text,
+            stop_reason
+        ))
     }
 
     /// Collect enrichments from all middleware. Unlike other hooks, this
     /// gathers from ALL middleware (no short-circuiting) and returns the
     /// combined attachments sorted by priority.
-    pub async fn run_collect_enrichments(
-        &self,
-        ctx: &mut WorkerContext,
-    ) -> Vec<ContextAttachment> {
+    pub async fn run_collect_enrichments(&self, ctx: &mut WorkerContext) -> Vec<ContextAttachment> {
         let mut all = Vec::new();
         for layer in &self.layers {
             let mut attachments = layer.collect_enrichments(ctx).await;

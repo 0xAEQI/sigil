@@ -93,11 +93,7 @@ impl ShellHookExecutor {
     }
 
     /// Execute all hooks for an event. Returns results in order.
-    pub async fn execute(
-        &self,
-        event: &HookEvent,
-        input: &serde_json::Value,
-    ) -> Vec<HookResult> {
+    pub async fn execute(&self, event: &HookEvent, input: &serde_json::Value) -> Vec<HookResult> {
         let Some(hooks) = self.hooks.get(event) else {
             return Vec::new();
         };
@@ -163,7 +159,12 @@ impl ShellHookExecutor {
                     });
 
                 debug!(command = %hook.command, exit_code, "hook executed");
-                HookResult { exit_code, stdout, stderr, decision }
+                HookResult {
+                    exit_code,
+                    stdout,
+                    stderr,
+                    decision,
+                }
             }
             Ok(Err(e)) => HookResult {
                 exit_code: -1,
@@ -185,7 +186,10 @@ impl ShellHookExecutor {
 
     /// Simple pattern matching: "ToolName" or "ToolName(pattern*)".
     fn matches_condition(&self, condition: &str, input: &serde_json::Value) -> bool {
-        let tool_name = input.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+        let tool_name = input
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
 
         if let Some(paren_pos) = condition.find('(') {
             let cond_tool = &condition[..paren_pos];
@@ -196,7 +200,10 @@ impl ShellHookExecutor {
             if pattern.is_empty() || pattern == "*" {
                 return true;
             }
-            let tool_input = input.get("tool_input").map(|v| v.to_string()).unwrap_or_default();
+            let tool_input = input
+                .get("tool_input")
+                .map(|v| v.to_string())
+                .unwrap_or_default();
             if let Some(prefix) = pattern.strip_suffix('*') {
                 tool_input.contains(prefix)
             } else {
@@ -223,7 +230,8 @@ mod tests {
     #[test]
     fn test_matches_condition_tool_name() {
         let executor = ShellHookExecutor::new(HashMap::new());
-        let input = serde_json::json!({"tool_name": "Shell", "tool_input": {"command": "git status"}});
+        let input =
+            serde_json::json!({"tool_name": "Shell", "tool_input": {"command": "git status"}});
         assert!(executor.matches_condition("Shell", &input));
         assert!(executor.matches_condition("shell", &input));
         assert!(!executor.matches_condition("Read", &input));
@@ -232,7 +240,8 @@ mod tests {
     #[test]
     fn test_matches_condition_with_pattern() {
         let executor = ShellHookExecutor::new(HashMap::new());
-        let input = serde_json::json!({"tool_name": "Shell", "tool_input": {"command": "git status"}});
+        let input =
+            serde_json::json!({"tool_name": "Shell", "tool_input": {"command": "git status"}});
         assert!(executor.matches_condition("Shell(git *)", &input));
         assert!(executor.matches_condition("Shell(*)", &input));
         assert!(!executor.matches_condition("Shell(npm *)", &input));
@@ -241,11 +250,14 @@ mod tests {
     #[test]
     fn test_has_hooks() {
         let mut hooks = HashMap::new();
-        hooks.insert(HookEvent::PreToolUse, vec![ShellHook {
-            command: "echo test".into(),
-            if_condition: None,
-            timeout_ms: 5000,
-        }]);
+        hooks.insert(
+            HookEvent::PreToolUse,
+            vec![ShellHook {
+                command: "echo test".into(),
+                if_condition: None,
+                timeout_ms: 5000,
+            }],
+        );
         let executor = ShellHookExecutor::new(hooks);
         assert!(executor.has_hooks(&HookEvent::PreToolUse));
         assert!(!executor.has_hooks(&HookEvent::PostToolUse));
@@ -255,13 +267,18 @@ mod tests {
     #[tokio::test]
     async fn test_execute_simple_hook() {
         let mut hooks = HashMap::new();
-        hooks.insert(HookEvent::SessionStart, vec![ShellHook {
-            command: "echo ok".into(),
-            if_condition: None,
-            timeout_ms: 5000,
-        }]);
+        hooks.insert(
+            HookEvent::SessionStart,
+            vec![ShellHook {
+                command: "echo ok".into(),
+                if_condition: None,
+                timeout_ms: 5000,
+            }],
+        );
         let executor = ShellHookExecutor::new(hooks);
-        let results = executor.execute(&HookEvent::SessionStart, &serde_json::json!({})).await;
+        let results = executor
+            .execute(&HookEvent::SessionStart, &serde_json::json!({}))
+            .await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].exit_code, 0);
         assert!(results[0].stdout.contains("ok"));
@@ -270,13 +287,18 @@ mod tests {
     #[tokio::test]
     async fn test_execute_json_decision() {
         let mut hooks = HashMap::new();
-        hooks.insert(HookEvent::PreToolUse, vec![ShellHook {
-            command: r#"echo '{"decision":"approve","reason":"safe"}'"#.into(),
-            if_condition: None,
-            timeout_ms: 5000,
-        }]);
+        hooks.insert(
+            HookEvent::PreToolUse,
+            vec![ShellHook {
+                command: r#"echo '{"decision":"approve","reason":"safe"}'"#.into(),
+                if_condition: None,
+                timeout_ms: 5000,
+            }],
+        );
         let executor = ShellHookExecutor::new(hooks);
-        let results = executor.execute(&HookEvent::PreToolUse, &serde_json::json!({})).await;
+        let results = executor
+            .execute(&HookEvent::PreToolUse, &serde_json::json!({}))
+            .await;
         assert_eq!(results.len(), 1);
         assert!(matches!(results[0].decision, Some(HookDecision::Approve)));
     }
@@ -284,13 +306,18 @@ mod tests {
     #[tokio::test]
     async fn test_hook_timeout() {
         let mut hooks = HashMap::new();
-        hooks.insert(HookEvent::PreToolUse, vec![ShellHook {
-            command: "sleep 10".into(),
-            if_condition: None,
-            timeout_ms: 100,
-        }]);
+        hooks.insert(
+            HookEvent::PreToolUse,
+            vec![ShellHook {
+                command: "sleep 10".into(),
+                if_condition: None,
+                timeout_ms: 100,
+            }],
+        );
         let executor = ShellHookExecutor::new(hooks);
-        let results = executor.execute(&HookEvent::PreToolUse, &serde_json::json!({})).await;
+        let results = executor
+            .execute(&HookEvent::PreToolUse, &serde_json::json!({}))
+            .await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].exit_code, -1);
         assert!(results[0].stderr.contains("timed out"));
@@ -299,13 +326,18 @@ mod tests {
     #[tokio::test]
     async fn test_exit_code_2_blocking() {
         let mut hooks = HashMap::new();
-        hooks.insert(HookEvent::PreToolUse, vec![ShellHook {
-            command: "echo 'blocked' >&2; exit 2".into(),
-            if_condition: None,
-            timeout_ms: 5000,
-        }]);
+        hooks.insert(
+            HookEvent::PreToolUse,
+            vec![ShellHook {
+                command: "echo 'blocked' >&2; exit 2".into(),
+                if_condition: None,
+                timeout_ms: 5000,
+            }],
+        );
         let executor = ShellHookExecutor::new(hooks);
-        let results = executor.execute(&HookEvent::PreToolUse, &serde_json::json!({})).await;
+        let results = executor
+            .execute(&HookEvent::PreToolUse, &serde_json::json!({}))
+            .await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].exit_code, 2);
         assert!(results[0].stderr.contains("blocked"));

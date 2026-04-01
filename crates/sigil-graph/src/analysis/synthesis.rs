@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::schema::{CodeNode, CodeEdge, EdgeType, NodeLabel};
 use crate::analysis::community::Community;
+use crate::schema::{CodeEdge, CodeNode, EdgeType, NodeLabel};
 
 /// A synthesized skill document generated from community analysis.
 #[derive(Debug, Clone)]
@@ -43,11 +43,7 @@ pub fn synthesize_skill(
         .collect();
 
     // Find key exported symbols (likely the community's public API)
-    let mut exported: Vec<&CodeNode> = members
-        .iter()
-        .filter(|n| n.is_exported)
-        .copied()
-        .collect();
+    let mut exported: Vec<&CodeNode> = members.iter().filter(|n| n.is_exported).copied().collect();
     exported.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Find internal call patterns (edges within the community)
@@ -111,8 +107,12 @@ pub fn synthesize_skill(
         .filter(|n| {
             matches!(
                 n.label,
-                NodeLabel::Struct | NodeLabel::Trait | NodeLabel::Enum | NodeLabel::Class
-                    | NodeLabel::Interface | NodeLabel::Contract
+                NodeLabel::Struct
+                    | NodeLabel::Trait
+                    | NodeLabel::Enum
+                    | NodeLabel::Class
+                    | NodeLabel::Interface
+                    | NodeLabel::Contract
             )
         })
         .collect();
@@ -120,10 +120,7 @@ pub fn synthesize_skill(
     if !type_nodes.is_empty() {
         content.push_str("## Key Types\n\n");
         for node in &type_nodes {
-            let sig = node
-                .signature
-                .as_deref()
-                .unwrap_or(&node.name);
+            let sig = node.signature.as_deref().unwrap_or(&node.name);
             let doc = node
                 .doc_comment
                 .as_deref()
@@ -147,11 +144,11 @@ pub fn synthesize_skill(
     if !key_funcs.is_empty() {
         content.push_str("## Key Functions\n\n");
         for node in &key_funcs {
-            let sig = node
-                .signature
-                .as_deref()
-                .unwrap_or(&node.name);
-            content.push_str(&format!("- `{}` (`{}:{}`)\n", sig, node.file_path, node.start_line));
+            let sig = node.signature.as_deref().unwrap_or(&node.name);
+            content.push_str(&format!(
+                "- `{}` (`{}:{}`)\n",
+                sig, node.file_path, node.start_line
+            ));
         }
         content.push('\n');
     }
@@ -215,14 +212,35 @@ mod tests {
     #[test]
     fn synthesize_from_community() {
         let nodes = vec![
-            CodeNode::new(NodeLabel::Trait, "Observer", "src/observer.rs", 1, 50, "rust")
-                .with_exported(true)
-                .with_doc("Observability trait"),
-            CodeNode::new(NodeLabel::Struct, "LogObserver", "src/observer.rs", 52, 60, "rust")
-                .with_exported(true),
-            CodeNode::new(NodeLabel::Method, "record", "src/observer.rs", 55, 58, "rust")
-                .with_exported(true)
-                .with_signature("fn record(&self, event: Event)"),
+            CodeNode::new(
+                NodeLabel::Trait,
+                "Observer",
+                "src/observer.rs",
+                1,
+                50,
+                "rust",
+            )
+            .with_exported(true)
+            .with_doc("Observability trait"),
+            CodeNode::new(
+                NodeLabel::Struct,
+                "LogObserver",
+                "src/observer.rs",
+                52,
+                60,
+                "rust",
+            )
+            .with_exported(true),
+            CodeNode::new(
+                NodeLabel::Method,
+                "record",
+                "src/observer.rs",
+                55,
+                58,
+                "rust",
+            )
+            .with_exported(true)
+            .with_signature("fn record(&self, event: Event)"),
         ];
 
         let edges = vec![

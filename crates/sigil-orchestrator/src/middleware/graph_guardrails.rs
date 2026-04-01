@@ -19,7 +19,7 @@ impl GraphGuardrailsMiddleware {
         }
     }
 
-    fn check_edit_impact(&self, project: &str, file_path: &str, input: &str) -> Option<String> {
+    fn check_edit_impact(&self, project: &str, file_path: &str, _input: &str) -> Option<String> {
         let db_path = self.graph_dir.join(format!("{project}.db"));
         if !db_path.exists() {
             return None;

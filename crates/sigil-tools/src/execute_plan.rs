@@ -81,10 +81,7 @@ impl Tool for ExecutePlanTool {
                 .get("tool")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
-            let tool_args = step
-                .get("args")
-                .cloned()
-                .unwrap_or(serde_json::json!({}));
+            let tool_args = step.get("args").cloned().unwrap_or(serde_json::json!({}));
 
             // Don't allow recursive execute_plan or delegate calls.
             if tool_name == "execute_plan" || tool_name == "delegate" {
@@ -130,7 +127,8 @@ impl Tool for ExecutePlanTool {
 
                     // Abort on critical errors (tool execution failure, not tool-level errors).
                     if result.is_error && result.output.contains("FATAL") {
-                        abort_reason = Some(format!("Step {} fatal error: {}", i + 1, result.output));
+                        abort_reason =
+                            Some(format!("Step {} fatal error: {}", i + 1, result.output));
                         break;
                     }
                 }

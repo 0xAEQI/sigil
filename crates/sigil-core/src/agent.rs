@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info, warn};
 
 use crate::identity::Identity;
@@ -54,14 +54,24 @@ const MICROCOMPACT_KEEP_RECENT: usize = 5;
 
 /// Tool names whose results can be cleared by microcompact.
 const COMPACTABLE_TOOLS: &[&str] = &[
-    "read", "read_file", "readfile", "cat",
-    "shell", "bash",
+    "read",
+    "read_file",
+    "readfile",
+    "cat",
+    "shell",
+    "bash",
     "grep",
     "glob",
-    "web_search", "websearch",
-    "web_fetch", "webfetch",
-    "edit", "edit_file", "fileedit",
-    "write", "write_file", "filewrite",
+    "web_search",
+    "websearch",
+    "web_fetch",
+    "webfetch",
+    "edit",
+    "edit_file",
+    "fileedit",
+    "write",
+    "write_file",
+    "filewrite",
 ];
 
 /// Cleared content marker for microcompacted tool results.
@@ -228,8 +238,11 @@ impl AgentConfig {
             return false;
         }
         // Contains code indicators → complex
-        if text.contains("```") || text.contains("fn ") || text.contains("def ")
-            || text.contains("class ") || text.contains("import ")
+        if text.contains("```")
+            || text.contains("fn ")
+            || text.contains("def ")
+            || text.contains("class ")
+            || text.contains("import ")
         {
             return false;
         }
@@ -239,9 +252,21 @@ impl AgentConfig {
         }
         // Complex keywords → keep primary
         let complex_keywords = [
-            "refactor", "implement", "debug", "fix", "migrate", "deploy",
-            "architecture", "design", "review", "analyze", "optimize",
-            "test", "benchmark", "security", "performance",
+            "refactor",
+            "implement",
+            "debug",
+            "fix",
+            "migrate",
+            "deploy",
+            "architecture",
+            "design",
+            "review",
+            "analyze",
+            "optimize",
+            "test",
+            "benchmark",
+            "security",
+            "performance",
         ];
         let lower = text.to_lowercase();
         if complex_keywords.iter().any(|kw| lower.contains(kw)) {
@@ -255,7 +280,10 @@ impl AgentConfig {
     }
 
     fn parse_token_shorthand(s: &str) -> Option<u32> {
-        let s = s.trim_end_matches("tokens").trim_end_matches("token").trim();
+        let s = s
+            .trim_end_matches("tokens")
+            .trim_end_matches("token")
+            .trim();
         if let Some(n) = s.strip_suffix('k') {
             n.parse::<f32>().ok().map(|v| (v * 1000.0) as u32)
         } else if let Some(n) = s.strip_suffix('m') {
@@ -352,13 +380,17 @@ impl ContextTracker {
 pub enum LoopTransition {
     Initial,
     ToolUse,
-    OutputTruncated { attempt: u32 },
+    OutputTruncated {
+        attempt: u32,
+    },
     ContextCompacted,
     ContextLengthRecovery,
     /// Reactive compaction: 413/context-length error recovered via emergency compact.
     ReactiveCompact,
     /// Snip compaction removed old rounds (no API call).
-    SnipCompacted { tokens_freed: u32 },
+    SnipCompacted {
+        tokens_freed: u32,
+    },
     FallbackModelSwitch,
     AfterTurnContinue,
 }
@@ -675,10 +707,10 @@ impl Agent {
 
             let full_threshold =
                 (self.config.context_window as f32 * self.config.compact_threshold) as u32;
-            let snip_threshold =
-                (self.config.context_window as f32 * self.config.compact_threshold * SNIP_THRESHOLD_FACTOR) as u32;
-            let protected =
-                self.config.compact_preserve_head + self.config.compact_preserve_tail;
+            let snip_threshold = (self.config.context_window as f32
+                * self.config.compact_threshold
+                * SNIP_THRESHOLD_FACTOR) as u32;
+            let protected = self.config.compact_preserve_head + self.config.compact_preserve_tail;
 
             // --- Stage 0: Snip — remove entire old API rounds (no API call, ~free) ---
             if estimated_tokens > snip_threshold && messages.len() > protected {
@@ -693,7 +725,9 @@ impl Agent {
                         tokens_freed = freed,
                         "snip compaction freed tokens"
                     );
-                    transition = LoopTransition::SnipCompacted { tokens_freed: freed };
+                    transition = LoopTransition::SnipCompacted {
+                        tokens_freed: freed,
+                    };
                 }
             }
 
@@ -736,28 +770,27 @@ impl Agent {
 
                 // Save session checkpoint after compaction.
                 if let Some(ref sf) = self.config.session_file {
-                    Self::save_session(
-                        &messages,
-                        &tracker,
-                        iterations,
-                        &active_model,
-                        sf,
-                    )
-                    .await;
+                    Self::save_session(&messages, &tracker, iterations, &active_model, sf).await;
                 }
             }
 
             // --- Conversation repair: ensure tool_use/tool_result pairing ---
             // Only needed after compaction which may drop half of a use/result pair.
-            if matches!(transition, LoopTransition::ContextCompacted | LoopTransition::ContextLengthRecovery) {
+            if matches!(
+                transition,
+                LoopTransition::ContextCompacted | LoopTransition::ContextLengthRecovery
+            ) {
                 Self::repair_tool_pairing(&mut messages);
             }
 
             // Smart model routing: use cheap model for simple messages when configured.
             let turn_model = if let Some(ref routing) = self.config.routing_model
-                && iterations == 1  // Only route on first turn (tool-use turns need the strong model)
+                && iterations == 1
+            // Only route on first turn (tool-use turns need the strong model)
             {
-                let last_user_text = messages.iter().rev()
+                let last_user_text = messages
+                    .iter()
+                    .rev()
                     .find(|m| m.role == Role::User)
                     .and_then(|m| m.content.as_text())
                     .unwrap_or("");
@@ -891,9 +924,7 @@ impl Agent {
             if let Some(ref text) = response.content
                 && !text.is_empty()
             {
-                self.emit(crate::chat_stream::ChatStreamEvent::TextDelta {
-                    text: text.clone(),
-                });
+                self.emit(crate::chat_stream::ChatStreamEvent::TextDelta { text: text.clone() });
             }
 
             self.emit(crate::chat_stream::ChatStreamEvent::TurnComplete {
@@ -1254,10 +1285,7 @@ impl Agent {
                             })
                             .await;
 
-                        let _ = self
-                            .observer
-                            .after_tool(&name, &e.to_string(), true)
-                            .await;
+                        let _ = self.observer.after_tool(&name, &e.to_string(), true).await;
 
                         processed.push(ProcessedToolResult {
                             id,
@@ -1786,8 +1814,7 @@ impl Agent {
         if total_tokens > 0 {
             debug!(
                 injected = attachments.len(),
-                total_tokens,
-                "mid-turn enrichments injected"
+                total_tokens, "mid-turn enrichments injected"
             );
         }
     }
@@ -1872,9 +1899,8 @@ impl Agent {
             return;
         }
 
-        let transcript = Self::build_compaction_transcript(
-            &messages[messages.len().saturating_sub(20)..],
-        );
+        let transcript =
+            Self::build_compaction_transcript(&messages[messages.len().saturating_sub(20)..]);
         if transcript.len() < 200 {
             return;
         }
@@ -2031,7 +2057,8 @@ impl Agent {
         // Collect all tool_use IDs from assistant messages.
         let mut tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
         // Collect all tool_result IDs from tool messages.
-        let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut tool_result_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for msg in messages.iter() {
             if let MessageContent::Parts(parts) = &msg.content {
@@ -2050,16 +2077,10 @@ impl Agent {
         }
 
         // Find dangling tool_uses (no matching result).
-        let dangling: Vec<String> = tool_use_ids
-            .difference(&tool_result_ids)
-            .cloned()
-            .collect();
+        let dangling: Vec<String> = tool_use_ids.difference(&tool_result_ids).cloned().collect();
 
         // Find orphan tool_results (no matching use).
-        let orphans: Vec<String> = tool_result_ids
-            .difference(&tool_use_ids)
-            .cloned()
-            .collect();
+        let orphans: Vec<String> = tool_result_ids.difference(&tool_use_ids).cloned().collect();
 
         if dangling.is_empty() && orphans.is_empty() {
             return;
@@ -2095,10 +2116,7 @@ impl Agent {
 
         // Strip orphan tool_results.
         if !orphans.is_empty() {
-            debug!(
-                count = orphans.len(),
-                "stripping orphan tool_results"
-            );
+            debug!(count = orphans.len(), "stripping orphan tool_results");
             let orphan_set: std::collections::HashSet<&str> =
                 orphans.iter().map(|s| s.as_str()).collect();
 
@@ -2195,7 +2213,8 @@ impl Agent {
             }
 
             // Estimate tokens in this round.
-            let round_tokens = Self::estimate_tokens_from_messages(&messages[round_start..round_end]);
+            let round_tokens =
+                Self::estimate_tokens_from_messages(&messages[round_start..round_end]);
             tokens_freed += round_tokens;
             remove_count += round_end - round_start;
             let _next = round_end; // consumed by break
@@ -2215,11 +2234,7 @@ impl Agent {
     /// Microcompact: clear old tool results by tool name, keeping the N most recent.
     /// More targeted than the old digest — only clears results from compactable tools
     /// (read, shell, grep, glob, web_search, web_fetch, edit, write).
-    fn microcompact(
-        messages: &mut [Message],
-        preserve_tail: usize,
-        keep_recent: usize,
-    ) {
+    fn microcompact(messages: &mut [Message], preserve_tail: usize, keep_recent: usize) {
         if messages.len() <= preserve_tail {
             return;
         }
@@ -2549,7 +2564,12 @@ impl Agent {
 
         // Cap at most recent to avoid overwhelming the context.
         let max_files = 10;
-        let recent_files: Vec<&str> = files.iter().rev().take(max_files).map(|s| s.as_str()).collect();
+        let recent_files: Vec<&str> = files
+            .iter()
+            .rev()
+            .take(max_files)
+            .map(|s| s.as_str())
+            .collect();
 
         let mut context = String::new();
         if !recent_files.is_empty() {
@@ -2568,14 +2588,17 @@ impl Agent {
     /// Skills are identified by ToolUse blocks calling "sigil_skills" with action="get",
     /// followed by their ToolResult. The result content (the skill text) is preserved.
     fn extract_skill_messages(messages: &[Message]) -> Vec<String> {
-        let mut skill_tool_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut skill_tool_ids: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut skill_contents: Vec<String> = Vec::new();
 
         // Pass 1: find tool_use IDs for sigil_skills get calls.
         for msg in messages {
             if let MessageContent::Parts(parts) = &msg.content {
                 for part in parts {
-                    if let ContentPart::ToolUse { id, name, input, .. } = part
+                    if let ContentPart::ToolUse {
+                        id, name, input, ..
+                    } = part
                         && name == "sigil_skills"
                         && input
                             .get("action")
@@ -2657,7 +2680,10 @@ impl Agent {
                      the agent to redo work or make wrong assumptions.\n\n\
                      {custom_instructions}\
                      ## Execution Transcript\n\n{transcript}",
-                    custom_instructions = self.config.compact_instructions.as_ref()
+                    custom_instructions = self
+                        .config
+                        .compact_instructions
+                        .as_ref()
                         .map(|ci| format!("## Additional Instructions\n\n{ci}\n\n"))
                         .unwrap_or_default()
                 )),
@@ -3204,7 +3230,10 @@ mod tests {
     fn test_parse_token_budget_shorthand() {
         assert_eq!(AgentConfig::parse_token_budget("+500k"), Some(500_000));
         assert_eq!(AgentConfig::parse_token_budget("+2m"), Some(2_000_000));
-        assert_eq!(AgentConfig::parse_token_budget("fix the bug +500k"), Some(500_000));
+        assert_eq!(
+            AgentConfig::parse_token_budget("fix the bug +500k"),
+            Some(500_000)
+        );
         assert_eq!(AgentConfig::parse_token_budget("+1.5m"), Some(1_500_000));
     }
 
@@ -3347,7 +3376,11 @@ mod tests {
         let freed = Agent::snip_compact(&mut messages, 2, 1);
         assert!(freed > 0, "should have freed tokens");
         // Head (2) + tail (1) preserved, middle snipped.
-        assert_eq!(messages.len(), 3, "should have 3 messages after snip (was 5)");
+        assert_eq!(
+            messages.len(),
+            3,
+            "should have 3 messages after snip (was 5)"
+        );
         // Head preserved.
         assert_eq!(messages[0].role, Role::System);
         assert_eq!(messages[1].role, Role::User);
@@ -3392,23 +3425,21 @@ mod tests {
 
     #[test]
     fn test_extract_active_context_deduplicates() {
-        let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: MessageContent::Parts(vec![
-                    ContentPart::ToolUse {
-                        id: "t1".into(),
-                        name: "Read".into(),
-                        input: serde_json::json!({"file_path": "/src/main.rs"}),
-                    },
-                    ContentPart::ToolUse {
-                        id: "t2".into(),
-                        name: "Read".into(),
-                        input: serde_json::json!({"file_path": "/src/main.rs"}),
-                    },
-                ]),
-            },
-        ];
+        let messages = vec![Message {
+            role: Role::Assistant,
+            content: MessageContent::Parts(vec![
+                ContentPart::ToolUse {
+                    id: "t1".into(),
+                    name: "Read".into(),
+                    input: serde_json::json!({"file_path": "/src/main.rs"}),
+                },
+                ContentPart::ToolUse {
+                    id: "t2".into(),
+                    name: "Read".into(),
+                    input: serde_json::json!({"file_path": "/src/main.rs"}),
+                },
+            ]),
+        }];
         let ctx = Agent::extract_active_context(&messages);
         // Should only appear once.
         assert_eq!(ctx.matches("/src/main.rs").count(), 1);

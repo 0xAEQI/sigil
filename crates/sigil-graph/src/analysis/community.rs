@@ -242,12 +242,47 @@ mod tests {
     fn detects_two_clusters() {
         // Two groups of functions that call each other internally
         let nodes = vec![
-            CodeNode::new(NodeLabel::Function, "auth_login", "src/auth.rs", 1, 10, "rust"),
-            CodeNode::new(NodeLabel::Function, "auth_verify", "src/auth.rs", 11, 20, "rust"),
-            CodeNode::new(NodeLabel::Function, "auth_hash", "src/auth.rs", 21, 30, "rust"),
-            CodeNode::new(NodeLabel::Function, "db_connect", "src/db.rs", 1, 10, "rust"),
+            CodeNode::new(
+                NodeLabel::Function,
+                "auth_login",
+                "src/auth.rs",
+                1,
+                10,
+                "rust",
+            ),
+            CodeNode::new(
+                NodeLabel::Function,
+                "auth_verify",
+                "src/auth.rs",
+                11,
+                20,
+                "rust",
+            ),
+            CodeNode::new(
+                NodeLabel::Function,
+                "auth_hash",
+                "src/auth.rs",
+                21,
+                30,
+                "rust",
+            ),
+            CodeNode::new(
+                NodeLabel::Function,
+                "db_connect",
+                "src/db.rs",
+                1,
+                10,
+                "rust",
+            ),
             CodeNode::new(NodeLabel::Function, "db_query", "src/db.rs", 11, 20, "rust"),
-            CodeNode::new(NodeLabel::Function, "db_migrate", "src/db.rs", 21, 30, "rust"),
+            CodeNode::new(
+                NodeLabel::Function,
+                "db_migrate",
+                "src/db.rs",
+                21,
+                30,
+                "rust",
+            ),
         ];
 
         let edges = vec![

@@ -10,6 +10,12 @@ const DEFAULT_MAX_LENGTH: usize = 50_000;
 /// Fetch a web page and return its content as readable text.
 pub struct WebFetchTool;
 
+impl Default for WebFetchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebFetchTool {
     pub fn new() -> Self {
         Self
@@ -94,9 +100,7 @@ impl sigil_core::traits::Tool for WebFetchTool {
 
         let status = response.status();
         if !status.is_success() {
-            return Ok(ToolResult::error(format!(
-                "HTTP {status} for {url}"
-            )));
+            return Ok(ToolResult::error(format!("HTTP {status} for {url}")));
         }
 
         let content_type = response
@@ -108,7 +112,11 @@ impl sigil_core::traits::Tool for WebFetchTool {
 
         let body = match response.text().await {
             Ok(text) => text,
-            Err(e) => return Ok(ToolResult::error(format!("failed to read response body: {e}"))),
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "failed to read response body: {e}"
+                )));
+            }
         };
 
         let content = if content_type.contains("text/html") {
@@ -130,9 +138,7 @@ impl sigil_core::traits::Tool for WebFetchTool {
             output_body.push_str("\n... (truncated)");
         }
 
-        let output = format!(
-            "URL: {url}\nContent-Type: {content_type}\n\n{output_body}"
-        );
+        let output = format!("URL: {url}\nContent-Type: {content_type}\n\n{output_body}");
 
         Ok(ToolResult::success(output))
     }

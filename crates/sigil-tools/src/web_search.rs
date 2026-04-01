@@ -10,6 +10,12 @@ const DEFAULT_MAX_RESULTS: usize = 8;
 /// Search the web using DuckDuckGo and return results.
 pub struct WebSearchTool;
 
+impl Default for WebSearchTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WebSearchTool {
     pub fn new() -> Self {
         Self
@@ -189,9 +195,7 @@ impl sigil_core::traits::Tool for WebSearchTool {
             .build()?;
 
         let encoded_query = Self::url_encode(query);
-        let search_url = format!(
-            "https://html.duckduckgo.com/html/?q={encoded_query}"
-        );
+        let search_url = format!("https://html.duckduckgo.com/html/?q={encoded_query}");
 
         let response = match client.get(&search_url).send().await {
             Ok(resp) => resp,
@@ -207,7 +211,11 @@ impl sigil_core::traits::Tool for WebSearchTool {
 
         let html = match response.text().await {
             Ok(text) => text,
-            Err(e) => return Ok(ToolResult::error(format!("failed to read search response: {e}"))),
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "failed to read search response: {e}"
+                )));
+            }
         };
 
         let results = Self::parse_results(&html, max_results);

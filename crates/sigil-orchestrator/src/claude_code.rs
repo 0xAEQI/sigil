@@ -118,15 +118,14 @@ impl ClaudeCodeExecutor {
                     debug!(session = %session_id, "claude code session started");
                 }
                 "assistant" => {
-                    if let Some(content) = event.get("message").and_then(|v| v.get("content")) {
-                        if let Some(arr) = content.as_array() {
-                            for block in arr {
-                                if block.get("type").and_then(|v| v.as_str()) == Some("text") {
-                                    if let Some(text) = block.get("text").and_then(|v| v.as_str())
-                                    {
-                                        result_text = text.to_string();
-                                    }
-                                }
+                    if let Some(content) = event.get("message").and_then(|v| v.get("content"))
+                        && let Some(arr) = content.as_array()
+                    {
+                        for block in arr {
+                            if block.get("type").and_then(|v| v.as_str()) == Some("text")
+                                && let Some(text) = block.get("text").and_then(|v| v.as_str())
+                            {
+                                result_text = text.to_string();
                             }
                         }
                     }
@@ -193,9 +192,7 @@ fn find_claude_binary() -> Result<PathBuf> {
 }
 
 fn which_claude() -> Result<PathBuf> {
-    let output = std::process::Command::new("which")
-        .arg("claude")
-        .output()?;
+    let output = std::process::Command::new("which").arg("claude").output()?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() {

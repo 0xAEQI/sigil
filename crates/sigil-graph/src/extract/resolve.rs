@@ -89,10 +89,10 @@ impl SymbolTable {
         }
 
         // Tier 2: exported cross-file
-        if let Some(entry) = self.resolve_exported(name) {
-            if entry.is_exported {
-                return Some((entry.node_id.clone(), ResolutionTier::ImportScoped));
-            }
+        if let Some(entry) = self.resolve_exported(name)
+            && entry.is_exported
+        {
+            return Some((entry.node_id.clone(), ResolutionTier::ImportScoped));
         }
 
         // Tier 3: global fallback
@@ -218,19 +218,18 @@ pub fn resolve_graph(
                     // The caller is source_name (a method/function). Check if "self" has a known type
                     // in that scope, which means this is a method call on self's type.
                     let receiver_type = env.resolve_type(source_name, "self");
-                    if let Some(type_name) = receiver_type {
-                        if let Some((target_id, tier)) =
+                    if let Some(type_name) = receiver_type
+                        && let Some((target_id, tier)) =
                             table.resolve_method_on_type(name, type_name)
-                        {
-                            resolved.push(CodeEdge {
-                                target_id,
-                                confidence: tier.confidence(),
-                                tier: Some(tier.as_str().to_string()),
-                                ..edge
-                            });
-                            type_resolved_count += 1;
-                            continue;
-                        }
+                    {
+                        resolved.push(CodeEdge {
+                            target_id,
+                            confidence: tier.confidence(),
+                            tier: Some(tier.as_str().to_string()),
+                            ..edge
+                        });
+                        type_resolved_count += 1;
+                        continue;
                     }
                     unresolved_count += 1;
                 } else {
@@ -284,25 +283,25 @@ fn extract_import_names(use_text: &str) -> Vec<String> {
     }
 
     // Group import: "crate::foo::{Bar, Baz as B}"
-    if let Some(brace_start) = text.find('{') {
-        if let Some(brace_end) = text.rfind('}') {
-            let inner = &text[brace_start + 1..brace_end];
-            return inner
-                .split(',')
-                .filter_map(|item| {
-                    let item = item.trim();
-                    if item.is_empty() {
-                        return None;
-                    }
-                    // Handle "Foo as Bar" — the local name is "Bar"
-                    if let Some((_orig, alias)) = item.split_once(" as ") {
-                        Some(alias.trim().to_string())
-                    } else {
-                        Some(item.to_string())
-                    }
-                })
-                .collect();
-        }
+    if let Some(brace_start) = text.find('{')
+        && let Some(brace_end) = text.rfind('}')
+    {
+        let inner = &text[brace_start + 1..brace_end];
+        return inner
+            .split(',')
+            .filter_map(|item| {
+                let item = item.trim();
+                if item.is_empty() {
+                    return None;
+                }
+                // Handle "Foo as Bar" — the local name is "Bar"
+                if let Some((_orig, alias)) = item.split_once(" as ") {
+                    Some(alias.trim().to_string())
+                } else {
+                    Some(item.to_string())
+                }
+            })
+            .collect();
     }
 
     // Simple import: "std::sync::Arc" → "Arc"
@@ -311,10 +310,10 @@ fn extract_import_names(use_text: &str) -> Vec<String> {
         return vec![alias.trim().to_string()];
     }
 
-    if let Some(last) = text.rsplit("::").next() {
-        if !last.is_empty() {
-            return vec![last.to_string()];
-        }
+    if let Some(last) = text.rsplit("::").next()
+        && !last.is_empty()
+    {
+        return vec![last.to_string()];
     }
 
     vec![]
@@ -393,11 +392,22 @@ mod tests {
         let nodes = vec![
             CodeNode::new(NodeLabel::Trait, "Observer", "src/traits.rs", 1, 50, "rust")
                 .with_exported(true),
-            CodeNode::new(NodeLabel::Impl, "Observer for LogObserver", "src/log.rs", 1, 30, "rust"),
+            CodeNode::new(
+                NodeLabel::Impl,
+                "Observer for LogObserver",
+                "src/log.rs",
+                1,
+                30,
+                "rust",
+            ),
         ];
         let edges = vec![
-            CodeEdge::new(&nodes[1].id, "unresolved:trait:Observer", EdgeType::Implements)
-                .with_confidence(0.5),
+            CodeEdge::new(
+                &nodes[1].id,
+                "unresolved:trait:Observer",
+                EdgeType::Implements,
+            )
+            .with_confidence(0.5),
         ];
 
         let (resolved, unresolved) = resolve_graph(&nodes, edges, &HashMap::new());
@@ -413,8 +423,15 @@ mod tests {
             CodeNode::new(NodeLabel::File, "main.rs", "src/main.rs", 1, 100, "rust"),
             CodeNode::new(NodeLabel::Trait, "Observer", "src/traits.rs", 1, 50, "rust")
                 .with_exported(true),
-            CodeNode::new(NodeLabel::Struct, "LogObserver", "src/traits.rs", 52, 60, "rust")
-                .with_exported(true),
+            CodeNode::new(
+                NodeLabel::Struct,
+                "LogObserver",
+                "src/traits.rs",
+                52,
+                60,
+                "rust",
+            )
+            .with_exported(true),
         ];
         let edges = vec![CodeEdge::new(
             &nodes[0].id,

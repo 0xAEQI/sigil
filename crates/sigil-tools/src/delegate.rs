@@ -4,7 +4,7 @@ use sigil_core::traits::{LogObserver, Observer, Provider, Tool, ToolResult, Tool
 use sigil_core::{Agent, AgentConfig, Identity, LoopNotification, NotificationSender, SessionType};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 // ---------------------------------------------------------------------------
 // Agent notification — delivered to parent after background agent completes
@@ -50,11 +50,7 @@ impl AgentNotification {
              <iterations>{}</iterations>\n  \
              <duration_ms>{}</duration_ms>\n</usage>\n\
              </task-notification>",
-            self.agent_id,
-            self.description,
-            self.total_tokens,
-            self.iterations,
-            self.duration_ms,
+            self.agent_id, self.description, self.total_tokens, self.iterations, self.duration_ms,
         )
     }
 }
@@ -388,10 +384,11 @@ impl Tool for DelegateTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "delegate".to_string(),
-            description: "Spawn a sub-agent to handle a delegated task. Use run_in_background=true \
+            description:
+                "Spawn a sub-agent to handle a delegated task. Use run_in_background=true \
                 for tasks that can run independently while you continue other work. The sub-agent \
                 runs with the same tools and identity but its own iteration budget."
-                .to_string(),
+                    .to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

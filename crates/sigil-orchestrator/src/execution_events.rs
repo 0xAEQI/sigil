@@ -110,10 +110,7 @@ pub enum ExecutionEvent {
         threshold_usd: f64,
     },
     /// A persistent agent has been idle.
-    AgentIdle {
-        agent_id: String,
-        idle_secs: u64,
-    },
+    AgentIdle { agent_id: String, idle_secs: u64 },
     /// A dispatch was received.
     DispatchReceived {
         from_agent: String,

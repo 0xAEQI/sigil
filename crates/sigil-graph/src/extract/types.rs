@@ -28,12 +28,11 @@ impl TypeEnv {
     /// Look up a variable's type, checking local scope first, then file scope.
     pub fn resolve_type(&self, scope: &str, var_name: &str) -> Option<&str> {
         // Check local scope first
-        if !scope.is_empty() {
-            if let Some(bindings) = self.bindings.get(scope) {
-                if let Some(type_name) = bindings.get(var_name) {
-                    return Some(type_name);
-                }
-            }
+        if !scope.is_empty()
+            && let Some(bindings) = self.bindings.get(scope)
+            && let Some(type_name) = bindings.get(var_name)
+        {
+            return Some(type_name);
         }
         // Fall back to file scope
         self.bindings
@@ -74,12 +73,7 @@ pub fn build_type_env_rust(source: &str, file_path: &str) -> TypeEnv {
     env
 }
 
-fn collect_bindings_rust(
-    node: tree_sitter::Node,
-    source: &str,
-    scope: &str,
-    env: &mut TypeEnv,
-) {
+fn collect_bindings_rust(node: tree_sitter::Node, source: &str, scope: &str, env: &mut TypeEnv) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -115,10 +109,10 @@ fn collect_bindings_rust(
                                 .unwrap_or("");
                             if !method_scope.is_empty() {
                                 // self has the impl's type
-                                if let Some(type_node) = child.child_by_field_name("type") {
-                                    if let Ok(type_name) = type_node.utf8_text(source.as_bytes()) {
-                                        env.bind(method_scope, "self", type_name);
-                                    }
+                                if let Some(type_node) = child.child_by_field_name("type")
+                                    && let Ok(type_name) = type_node.utf8_text(source.as_bytes())
+                                {
+                                    env.bind(method_scope, "self", type_name);
                                 }
                                 if let Some(params) = ichild.child_by_field_name("parameters") {
                                     extract_params(&params, source, method_scope, env);
@@ -138,12 +132,7 @@ fn collect_bindings_rust(
     }
 }
 
-fn extract_let_binding(
-    node: &tree_sitter::Node,
-    source: &str,
-    scope: &str,
-    env: &mut TypeEnv,
-) {
+fn extract_let_binding(node: &tree_sitter::Node, source: &str, scope: &str, env: &mut TypeEnv) {
     let pattern = match node.child_by_field_name("pattern") {
         Some(p) => p,
         None => return,
@@ -155,30 +144,25 @@ fn extract_let_binding(
     };
 
     // Strategy 1: Explicit type annotation — `let x: Foo = ...`
-    if let Some(type_node) = node.child_by_field_name("type") {
-        if let Ok(type_name) = type_node.utf8_text(source.as_bytes()) {
-            let clean = clean_type_name(type_name);
-            if !clean.is_empty() {
-                env.bind(scope, &var_name, &clean);
-                return;
-            }
+    if let Some(type_node) = node.child_by_field_name("type")
+        && let Ok(type_name) = type_node.utf8_text(source.as_bytes())
+    {
+        let clean = clean_type_name(type_name);
+        if !clean.is_empty() {
+            env.bind(scope, &var_name, &clean);
+            return;
         }
     }
 
     // Strategy 2: Constructor binding — `let x = Foo::new(...)` or `let x = Foo { ... }`
-    if let Some(value) = node.child_by_field_name("value") {
-        if let Some(type_name) = infer_type_from_value(&value, source, env, scope) {
-            env.bind(scope, &var_name, &type_name);
-        }
+    if let Some(value) = node.child_by_field_name("value")
+        && let Some(type_name) = infer_type_from_value(&value, source, env, scope)
+    {
+        env.bind(scope, &var_name, &type_name);
     }
 }
 
-fn extract_params(
-    params: &tree_sitter::Node,
-    source: &str,
-    scope: &str,
-    env: &mut TypeEnv,
-) {
+fn extract_params(params: &tree_sitter::Node, source: &str, scope: &str, env: &mut TypeEnv) {
     let mut cursor = params.walk();
     for child in params.children(&mut cursor) {
         if child.kind() == "parameter" {
@@ -212,15 +196,22 @@ fn infer_type_from_value(
             if let Some(func) = value.child_by_field_name("function") {
                 let func_text = func.utf8_text(source.as_bytes()).ok()?;
                 // Pattern: Type::constructor(...)
-                if let Some((type_part, method)) = func_text.rsplit_once("::") {
-                    if matches!(
+                if let Some((type_part, method)) = func_text.rsplit_once("::")
+                    && matches!(
                         method,
-                        "new" | "default" | "create" | "open" | "build" | "from" | "with_capacity" | "empty"
-                    ) {
-                        // Strip any path prefix: crate::foo::Bar → Bar
-                        let type_name = type_part.rsplit("::").next().unwrap_or(type_part);
-                        return Some(type_name.to_string());
-                    }
+                        "new"
+                            | "default"
+                            | "create"
+                            | "open"
+                            | "build"
+                            | "from"
+                            | "with_capacity"
+                            | "empty"
+                    )
+                {
+                    // Strip any path prefix: crate::foo::Bar → Bar
+                    let type_name = type_part.rsplit("::").next().unwrap_or(type_part);
+                    return Some(type_name.to_string());
                 }
                 // Pattern: other_var.method() → look up other_var's type
                 if let Some((receiver, _method)) = func_text.rsplit_once('.') {
@@ -333,7 +324,10 @@ fn process(config: &AgentConfig, name: String) {
 
     #[test]
     fn clean_types() {
-        assert_eq!(clean_type_name("&'a mut HashMap<String, Vec<u8>>"), "HashMap");
+        assert_eq!(
+            clean_type_name("&'a mut HashMap<String, Vec<u8>>"),
+            "HashMap"
+        );
         assert_eq!(clean_type_name("Arc<dyn Observer>"), "Arc");
         assert_eq!(clean_type_name("Vec<String>"), "Vec");
         assert_eq!(clean_type_name("u32"), "u32");

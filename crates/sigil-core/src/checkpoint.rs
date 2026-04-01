@@ -118,8 +118,7 @@ impl CheckpointManager {
     /// Clean up the shadow git directory.
     pub fn cleanup(&self) -> Result<(), String> {
         if self.git_dir.exists() {
-            std::fs::remove_dir_all(&self.git_dir)
-                .map_err(|e| format!("cleanup failed: {e}"))?;
+            std::fs::remove_dir_all(&self.git_dir).map_err(|e| format!("cleanup failed: {e}"))?;
             debug!(git_dir = %self.git_dir.display(), "shadow repo cleaned up");
         }
         Ok(())
@@ -144,9 +143,19 @@ impl CheckpointManager {
             .map_err(|e| format!("failed to create excludes dir: {e}"))?;
 
         let excludes = [
-            "node_modules/", "target/", ".git/", "__pycache__/",
-            "*.pyc", ".env", ".env.*", "venv/", ".venv/",
-            "dist/", "build/", ".next/", ".cache/",
+            "node_modules/",
+            "target/",
+            ".git/",
+            "__pycache__/",
+            "*.pyc",
+            ".env",
+            ".env.*",
+            "venv/",
+            ".venv/",
+            "dist/",
+            "build/",
+            ".next/",
+            ".cache/",
         ];
         std::fs::write(excludes_dir.join("exclude"), excludes.join("\n"))
             .map_err(|e| format!("failed to write excludes: {e}"))?;

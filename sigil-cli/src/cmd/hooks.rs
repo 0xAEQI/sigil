@@ -1,5 +1,5 @@
 use crate::cli::HooksAction;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,10 +15,9 @@ pub(crate) async fn cmd_hooks(action: HooksAction) -> Result<()> {
         } => cmd_hooks_test(&script, input.as_deref(), &tool).await,
         HooksAction::Validate => cmd_hooks_validate().await,
         HooksAction::List => cmd_hooks_list().await,
-        HooksAction::Bench {
-            script,
-            iterations,
-        } => cmd_hooks_bench(script.as_deref(), iterations).await,
+        HooksAction::Bench { script, iterations } => {
+            cmd_hooks_bench(script.as_deref(), iterations).await
+        }
     }
 }
 
@@ -98,11 +97,7 @@ fn extract_inline_reason(command: &str) -> Option<String> {
 
 // --- Subcommands ---
 
-pub(crate) async fn cmd_hooks_test(
-    script: &str,
-    input: Option<&str>,
-    tool: &str,
-) -> Result<()> {
+pub(crate) async fn cmd_hooks_test(script: &str, input: Option<&str>, tool: &str) -> Result<()> {
     let script_path = resolve_script(script);
     if !script_path.exists() {
         bail!("Script not found: {}", script_path.display());
@@ -133,10 +128,7 @@ pub(crate) async fn cmd_hooks_test(
     let output = Command::new(&script_path)
         .env("CLAUDE_TOOL_INPUT", tool_input)
         .env("CLAUDE_TOOL", tool)
-        .env(
-            "SIGIL_CONFIG",
-            "/home/claudedev/sigil/config/sigil.toml",
-        )
+        .env("SIGIL_CONFIG", "/home/claudedev/sigil/config/sigil.toml")
         .output()
         .with_context(|| format!("Failed to execute {}", script_path.display()))?;
     let elapsed = start.elapsed();
@@ -274,18 +266,18 @@ pub(crate) async fn cmd_hooks_validate() -> Result<()> {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        if let Ok(meta) = path.metadata() {
-                            if meta.permissions().mode() & 0o111 == 0 {
-                                issues.push("NOT EXECUTABLE");
-                            }
+                        if let Ok(meta) = path.metadata()
+                            && meta.permissions().mode() & 0o111 == 0
+                        {
+                            issues.push("NOT EXECUTABLE");
                         }
                     }
 
                     // Check shebang
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        if !content.starts_with("#!") {
-                            issues.push("NO SHEBANG");
-                        }
+                    if let Ok(content) = std::fs::read_to_string(&path)
+                        && !content.starts_with("#!")
+                    {
+                        issues.push("NO SHEBANG");
                     }
 
                     // Dry-run: execute with empty input and check for crashes
@@ -414,8 +406,7 @@ pub(crate) async fn cmd_hooks_bench(script: Option<&str>, iterations: u32) -> Re
         paths
     };
 
-    let default_input =
-        r#"{"file_path":"/home/claudedev/sigil/crates/sigil-core/src/lib.rs"}"#;
+    let default_input = r#"{"file_path":"/home/claudedev/sigil/crates/sigil-core/src/lib.rs"}"#;
 
     // Ensure recall gate is set for benchmarking
     let home = std::env::var("HOME").context("HOME not set")?;

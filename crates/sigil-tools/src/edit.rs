@@ -77,9 +77,7 @@ impl sigil_core::traits::Tool for FileEditTool {
         };
 
         if old_string == new_string {
-            return Ok(ToolResult::error(
-                "old_string and new_string are identical",
-            ));
+            return Ok(ToolResult::error("old_string and new_string are identical"));
         }
 
         if replace_all {
@@ -307,8 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_match_suggests_fuzzy() {
-        let (tool, _dir, file) =
-            setup("fn main() {\n    let value = 42;\n}\n").await;
+        let (tool, _dir, file) = setup("fn main() {\n    let value = 42;\n}\n").await;
         let result = tool
             .execute(serde_json::json!({
                 "path": file.to_str().unwrap(),

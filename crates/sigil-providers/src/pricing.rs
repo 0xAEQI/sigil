@@ -278,7 +278,10 @@ mod tests {
 
     #[test]
     fn test_context_window_claude_sonnet() {
-        assert_eq!(context_window_for_model("anthropic/claude-sonnet-4.6"), 200_000);
+        assert_eq!(
+            context_window_for_model("anthropic/claude-sonnet-4.6"),
+            200_000
+        );
     }
 
     #[test]
@@ -288,7 +291,10 @@ mod tests {
 
     #[test]
     fn test_context_window_unknown_model() {
-        assert_eq!(context_window_for_model("totally-unknown/v1"), DEFAULT_CONTEXT_WINDOW);
+        assert_eq!(
+            context_window_for_model("totally-unknown/v1"),
+            DEFAULT_CONTEXT_WINDOW
+        );
     }
 
     #[test]

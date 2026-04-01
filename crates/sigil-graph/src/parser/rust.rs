@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use tree_sitter::{Language, Parser};
 
-use crate::schema::{CodeEdge, CodeNode, EdgeType, NodeLabel};
 use super::{FileExtraction, LanguageProvider};
+use crate::schema::{CodeEdge, CodeNode, EdgeType, NodeLabel};
 
 pub struct RustProvider {
     language: Language,
@@ -83,7 +83,9 @@ fn extract_items(
                 }
             }
             "struct_item" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Struct) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Struct)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -93,7 +95,9 @@ fn extract_items(
                 }
             }
             "enum_item" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Enum) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Enum)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -102,7 +106,9 @@ fn extract_items(
                 }
             }
             "trait_item" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Trait) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Trait)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -126,7 +132,9 @@ fn extract_items(
                 }
             }
             "const_item" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Const) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Const)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -135,7 +143,9 @@ fn extract_items(
                 }
             }
             "static_item" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Static) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Static)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -144,7 +154,9 @@ fn extract_items(
                 }
             }
             "macro_definition" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Macro) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Macro)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -156,7 +168,9 @@ fn extract_items(
                 extract_use(&child, source, file_path, parent_id, extraction);
             }
             "mod_item" => {
-                if let Some(code_node) = extract_named_item(&child, source, file_path, NodeLabel::Module) {
+                if let Some(code_node) =
+                    extract_named_item(&child, source, file_path, NodeLabel::Module)
+                {
                     let id = code_node.id.clone();
                     extraction
                         .edges
@@ -173,11 +187,7 @@ fn extract_items(
     }
 }
 
-fn extract_function(
-    node: &tree_sitter::Node,
-    source: &str,
-    file_path: &str,
-) -> Option<CodeNode> {
+fn extract_function(node: &tree_sitter::Node, source: &str, file_path: &str) -> Option<CodeNode> {
     let name_node = node.child_by_field_name("name")?;
     let name = name_node.utf8_text(source.as_bytes()).ok()?;
     let start = node.start_position().row as u32 + 1;
@@ -206,10 +216,9 @@ fn extract_function(
     // Collect doc comment from preceding siblings
     let doc = collect_doc_comment(node, source);
 
-    let mut code_node =
-        CodeNode::new(NodeLabel::Function, name, file_path, start, end, "rust")
-            .with_exported(is_pub)
-            .with_signature(sig);
+    let mut code_node = CodeNode::new(NodeLabel::Function, name, file_path, start, end, "rust")
+        .with_exported(is_pub)
+        .with_signature(sig);
 
     if let Some(doc) = doc {
         code_node = code_node.with_doc(doc);
@@ -270,14 +279,7 @@ fn extract_impl(
         type_name.to_string()
     };
 
-    let impl_node = CodeNode::new(
-        NodeLabel::Impl,
-        &impl_name,
-        file_path,
-        start,
-        end,
-        "rust",
-    );
+    let impl_node = CodeNode::new(NodeLabel::Impl, &impl_name, file_path, start, end, "rust");
     let impl_id = impl_node.id.clone();
     extraction
         .edges
@@ -288,8 +290,12 @@ fn extract_impl(
     if let Some(trait_name) = &trait_name {
         // Store as a placeholder edge — resolution happens in a later phase
         extraction.edges.push(
-            CodeEdge::new(&impl_id, &format!("unresolved:trait:{trait_name}"), EdgeType::Implements)
-                .with_confidence(0.5),
+            CodeEdge::new(
+                &impl_id,
+                format!("unresolved:trait:{trait_name}"),
+                EdgeType::Implements,
+            )
+            .with_confidence(0.5),
         );
     }
 
@@ -297,16 +303,16 @@ fn extract_impl(
     if let Some(body) = node.child_by_field_name("body") {
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
-            if child.kind() == "function_item" {
-                if let Some(mut method) = extract_function(&child, source, file_path) {
-                    method.label = NodeLabel::Method;
-                    let method_id = method.id.clone();
-                    extraction
-                        .edges
-                        .push(CodeEdge::new(&impl_id, &method_id, EdgeType::HasMethod));
-                    extraction.nodes.push(method);
-                    extract_calls(&child, source, file_path, &method_id, extraction);
-                }
+            if child.kind() == "function_item"
+                && let Some(mut method) = extract_function(&child, source, file_path)
+            {
+                method.label = NodeLabel::Method;
+                let method_id = method.id.clone();
+                extraction
+                    .edges
+                    .push(CodeEdge::new(&impl_id, &method_id, EdgeType::HasMethod));
+                extraction.nodes.push(method);
+                extract_calls(&child, source, file_path, &method_id, extraction);
             }
         }
     }
@@ -322,26 +328,18 @@ fn extract_trait_methods(
     if let Some(body) = node.child_by_field_name("body") {
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
-            if child.kind() == "function_item" || child.kind() == "function_signature_item" {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
-                        let start = child.start_position().row as u32 + 1;
-                        let end = child.end_position().row as u32 + 1;
-                        let method = CodeNode::new(
-                            NodeLabel::Method,
-                            name,
-                            file_path,
-                            start,
-                            end,
-                            "rust",
-                        );
-                        let method_id = method.id.clone();
-                        extraction
-                            .edges
-                            .push(CodeEdge::new(trait_id, &method_id, EdgeType::HasMethod));
-                        extraction.nodes.push(method);
-                    }
-                }
+            if (child.kind() == "function_item" || child.kind() == "function_signature_item")
+                && let Some(name_node) = child.child_by_field_name("name")
+                && let Ok(name) = name_node.utf8_text(source.as_bytes())
+            {
+                let start = child.start_position().row as u32 + 1;
+                let end = child.end_position().row as u32 + 1;
+                let method = CodeNode::new(NodeLabel::Method, name, file_path, start, end, "rust");
+                let method_id = method.id.clone();
+                extraction
+                    .edges
+                    .push(CodeEdge::new(trait_id, &method_id, EdgeType::HasMethod));
+                extraction.nodes.push(method);
             }
         }
     }
@@ -357,26 +355,18 @@ fn extract_fields(
     if let Some(body) = node.child_by_field_name("body") {
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
-            if child.kind() == "field_declaration" {
-                if let Some(name_node) = child.child_by_field_name("name") {
-                    if let Ok(name) = name_node.utf8_text(source.as_bytes()) {
-                        let start = child.start_position().row as u32 + 1;
-                        let end = child.end_position().row as u32 + 1;
-                        let field = CodeNode::new(
-                            NodeLabel::Property,
-                            name,
-                            file_path,
-                            start,
-                            end,
-                            "rust",
-                        );
-                        let field_id = field.id.clone();
-                        extraction
-                            .edges
-                            .push(CodeEdge::new(struct_id, &field_id, EdgeType::HasProperty));
-                        extraction.nodes.push(field);
-                    }
-                }
+            if child.kind() == "field_declaration"
+                && let Some(name_node) = child.child_by_field_name("name")
+                && let Ok(name) = name_node.utf8_text(source.as_bytes())
+            {
+                let start = child.start_position().row as u32 + 1;
+                let end = child.end_position().row as u32 + 1;
+                let field = CodeNode::new(NodeLabel::Property, name, file_path, start, end, "rust");
+                let field_id = field.id.clone();
+                extraction
+                    .edges
+                    .push(CodeEdge::new(struct_id, &field_id, EdgeType::HasProperty));
+                extraction.nodes.push(field);
             }
         }
     }
@@ -392,6 +382,7 @@ fn extract_calls(
     extract_calls_recursive(*node, source, file_path, caller_id, extraction);
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn extract_calls_recursive(
     node: tree_sitter::Node,
     source: &str,
@@ -399,23 +390,23 @@ fn extract_calls_recursive(
     caller_id: &str,
     extraction: &mut FileExtraction,
 ) {
-    if node.kind() == "call_expression" {
-        if let Some(func) = node.child_by_field_name("function") {
-            let call_text = func.utf8_text(source.as_bytes()).unwrap_or("");
-            // Extract the final name (e.g., "self.observer.record" -> "record")
-            let call_name = call_text.rsplit("::").next().unwrap_or(call_text);
-            let call_name = call_name.rsplit('.').next().unwrap_or(call_name);
+    if node.kind() == "call_expression"
+        && let Some(func) = node.child_by_field_name("function")
+    {
+        let call_text = func.utf8_text(source.as_bytes()).unwrap_or("");
+        // Extract the final name (e.g., "self.observer.record" -> "record")
+        let call_name = call_text.rsplit("::").next().unwrap_or(call_text);
+        let call_name = call_name.rsplit('.').next().unwrap_or(call_name);
 
-            if !call_name.is_empty() {
-                extraction.edges.push(
-                    CodeEdge::new(
-                        caller_id,
-                        &format!("unresolved:call:{call_name}"),
-                        EdgeType::Calls,
-                    )
-                    .with_confidence(0.5),
-                );
-            }
+        if !call_name.is_empty() {
+            extraction.edges.push(
+                CodeEdge::new(
+                    caller_id,
+                    format!("unresolved:call:{call_name}"),
+                    EdgeType::Calls,
+                )
+                .with_confidence(0.5),
+            );
         }
     }
 
@@ -428,7 +419,7 @@ fn extract_calls_recursive(
 fn extract_use(
     node: &tree_sitter::Node,
     source: &str,
-    file_path: &str,
+    _file_path: &str,
     parent_id: &str,
     extraction: &mut FileExtraction,
 ) {
@@ -438,8 +429,12 @@ fn extract_use(
     }
     // Store the import as an unresolved edge — resolution happens later
     extraction.edges.push(
-        CodeEdge::new(parent_id, &format!("unresolved:import:{text}"), EdgeType::Imports)
-            .with_confidence(0.5),
+        CodeEdge::new(
+            parent_id,
+            format!("unresolved:import:{text}"),
+            EdgeType::Imports,
+        )
+        .with_confidence(0.5),
     );
 }
 
@@ -464,10 +459,7 @@ fn collect_doc_comment(node: &tree_sitter::Node, source: &str) -> Option<String>
             "block_comment" => {
                 let text = sib.utf8_text(source.as_bytes()).ok()?;
                 if text.starts_with("/**") {
-                    let content = text
-                        .trim_start_matches("/**")
-                        .trim_end_matches("*/")
-                        .trim();
+                    let content = text.trim_start_matches("/**").trim_end_matches("*/").trim();
                     comments.push(content.to_string());
                 }
                 break;
@@ -509,7 +501,12 @@ pub fn add(a: u32, b: u32) -> u32 {
         assert_eq!(func.label, NodeLabel::Function);
         assert!(func.is_exported);
         assert!(func.signature.as_ref().unwrap().contains("-> u32"));
-        assert!(func.doc_comment.as_ref().unwrap().contains("Adds two numbers"));
+        assert!(
+            func.doc_comment
+                .as_ref()
+                .unwrap()
+                .contains("Adds two numbers")
+        );
     }
 
     #[test]
@@ -606,8 +603,23 @@ pub type Result<T> = std::result::Result<T, Error>;
 "#;
         let result = provider.extract(source, "src/types.rs").unwrap();
 
-        assert!(result.nodes.iter().any(|n| n.name == "Color" && n.label == NodeLabel::Enum));
-        assert!(result.nodes.iter().any(|n| n.name == "MAX_SIZE" && n.label == NodeLabel::Const));
-        assert!(result.nodes.iter().any(|n| n.name == "Result" && n.label == NodeLabel::TypeAlias));
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "Color" && n.label == NodeLabel::Enum)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "MAX_SIZE" && n.label == NodeLabel::Const)
+        );
+        assert!(
+            result
+                .nodes
+                .iter()
+                .any(|n| n.name == "Result" && n.label == NodeLabel::TypeAlias)
+        );
     }
 }

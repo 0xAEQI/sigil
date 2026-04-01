@@ -166,9 +166,7 @@ impl GuardrailsMiddleware {
 
         // Check deny patterns first (highest priority).
         for p in &self.patterns {
-            if matches!(p.tier, PermissionTier::Deny(_))
-                && combined.contains(&p.pattern)
-            {
+            if matches!(p.tier, PermissionTier::Deny(_)) && combined.contains(&p.pattern) {
                 return p.tier.clone();
             }
         }

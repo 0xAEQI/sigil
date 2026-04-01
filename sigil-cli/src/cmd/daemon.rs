@@ -5,8 +5,8 @@ use sigil_core::{Identity, SecretStore};
 use sigil_gates::TelegramChannel;
 use sigil_orchestrator::tools::build_orchestration_tools;
 use sigil_orchestrator::{
-    AgentRouter, AuditLog, Blackboard, ConversationStore, Daemon, DispatchBus,
-    ExpertiseLedger, Project, ProjectRegistry, Supervisor,
+    AgentRouter, AuditLog, Blackboard, ConversationStore, Daemon, DispatchBus, ExpertiseLedger,
+    Project, ProjectRegistry, Supervisor,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -16,10 +16,10 @@ use tracing::{info, warn};
 
 use crate::cli::DaemonAction;
 use crate::helpers::{
-    augment_identity_with_org_context, build_project_tools,
-    build_provider_for_agent, build_provider_for_project, build_tools, daemon_ipc_request,
-    find_agent_dir, find_project_dir, get_api_key, handle_fast_lane, load_config,
-    load_config_with_agents, open_memory, pid_file_path,
+    augment_identity_with_org_context, build_project_tools, build_provider_for_agent,
+    build_provider_for_project, build_tools, daemon_ipc_request, find_agent_dir, find_project_dir,
+    get_api_key, handle_fast_lane, load_config, load_config_with_agents, open_memory,
+    pid_file_path,
 };
 use crate::service::{install_user_service, render_user_service, uninstall_user_service};
 
@@ -549,7 +549,10 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                         .wire_agent_system(
                             agent_reg,
                             trigger_store,
-                            daemon.chat_engine.as_ref().map(|ce| ce.conversations.clone()),
+                            daemon
+                                .chat_engine
+                                .as_ref()
+                                .map(|ce| ce.conversations.clone()),
                         )
                         .await;
                 }
