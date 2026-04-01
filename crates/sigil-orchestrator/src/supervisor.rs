@@ -1037,6 +1037,7 @@ impl Supervisor {
             let verification_model = self.preflight_model.clone();
             let verification_repo = self.repo.clone();
             let task_description = task.description.clone();
+            let conversation_store = self.conversation_store.clone();
             let escalation_tracker = self.escalation_tracker.clone();
             let handle = tokio::spawn(async move {
                 let start = std::time::Instant::now();
@@ -1344,6 +1345,42 @@ impl Supervisor {
                                 }
                             }
                             TaskOutcome::Handoff { .. } => {}
+                        }
+
+                        // Save transcript summary to ConversationStore for cross-session search.
+                        if let Some(ref cs) = conversation_store {
+                            let outcome_text = match &outcome {
+                                TaskOutcome::Done(s) => format!("DONE: {s}"),
+                                TaskOutcome::Blocked { question, .. } => format!("BLOCKED: {question}"),
+                                TaskOutcome::Failed(e) => format!("FAILED: {e}"),
+                                TaskOutcome::Handoff { .. } => "HANDOFF".to_string(),
+                            };
+                            let transcript = format!(
+                                "Agent: {}\nTask: {} ({})\nOutcome: {}\nCost: ${:.4}\nTurns: {}",
+                                agent_name_for_records,
+                                task_subject,
+                                task_id_clone,
+                                outcome_text.chars().take(500).collect::<String>(),
+                                cost_usd,
+                                turns,
+                            );
+                            let chat_id = crate::conversation_store::named_channel_chat_id(
+                                &format!("transcript:{}", agent_name_for_records),
+                            );
+                            let _ = cs.ensure_channel(chat_id, "transcript", &agent_name_for_records).await;
+                            let _ = cs.record_event(
+                                chat_id,
+                                "task_completed",
+                                &agent_name_for_records,
+                                &transcript,
+                                Some("agent"),
+                                Some(&serde_json::json!({
+                                    "task_id": task_id_clone,
+                                    "cost_usd": cost_usd,
+                                    "turns": turns,
+                                })),
+
+                            ).await;
                         }
                     }
                     Err(e) => {

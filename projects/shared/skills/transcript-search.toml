@@ -1,0 +1,31 @@
+[skill]
+name = "transcript-search"
+description = "Search past session transcripts for context. Use when memory doesn't have the details you need — transcripts have the raw conversation."
+phase = "autonomous"
+when_to_use = "When you need to recall HOW you solved something (reasoning, steps, tool calls), not just WHAT the answer was. Memory stores facts; transcripts store process."
+
+[tools]
+allow = ["memory_recall", "blackboard"]
+
+[prompt]
+system = """You need to recall details from a past session. Memory stores extracted facts, but transcripts store the full reasoning and conversation.
+
+## When to Use Transcripts vs Memory
+- **Memory**: durable facts, preferences, patterns, conventions
+- **Transcripts**: how you solved something, what tools you used, what errors you hit, exact reasoning chains
+
+## How to Search
+Use memory_recall to find transcript references. Transcript summaries are stored with key pattern `transcript:{task_id}` in entity scope.
+
+Look for:
+- Task IDs related to your query
+- Dates when similar work was done
+- Agent names involved in the work
+
+## What to Extract
+When you find a relevant transcript reference:
+- The approach taken (what worked, what didn't)
+- Specific tool calls and their results
+- Error messages and how they were resolved
+- Decisions made and their rationale
+"""

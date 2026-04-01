@@ -18,6 +18,11 @@ pub fn api_routes() -> Router<AppState> {
         .route("/tasks/{id}/close", post(close_task))
         .route("/missions", get(missions))
         .route("/agents", get(agents))
+        .route("/agents/registry", get(agents_registry))
+        .route("/agents/spawn", post(agents_spawn))
+        .route("/agents/{id}/retire", post(agent_retire))
+        .route("/agents/{id}/activate", post(agent_activate))
+        .route("/triggers", get(triggers))
         .route("/audit", get(audit))
         .route("/blackboard", get(blackboard).post(post_blackboard_entry))
         .route("/expertise", get(expertise))
@@ -133,6 +138,65 @@ async fn agents(State(state): State<AppState>) -> Response {
         .collect();
 
     Json(serde_json::json!({"ok": true, "agents": enriched})).into_response()
+}
+
+// --- Agent Registry ---
+
+#[derive(Deserialize, Default)]
+struct RegistryQuery {
+    project: Option<String>,
+    status: Option<String>,
+}
+
+async fn agents_registry(
+    State(state): State<AppState>,
+    Query(q): Query<RegistryQuery>,
+) -> Response {
+    let mut params = serde_json::json!({});
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
+    }
+    if let Some(status) = &q.status {
+        params["status"] = serde_json::Value::String(status.clone());
+    }
+    ipc_proxy(state, "agents_registry", params).await
+}
+
+async fn agents_spawn(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    ipc_proxy(state, "agent_spawn", body).await
+}
+
+async fn agent_retire(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    ipc_proxy(
+        state,
+        "agent_set_status",
+        serde_json::json!({"name": id, "status": "retired"}),
+    )
+    .await
+}
+
+async fn agent_activate(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    ipc_proxy(
+        state,
+        "agent_set_status",
+        serde_json::json!({"name": id, "status": "active"}),
+    )
+    .await
+}
+
+// --- Triggers ---
+
+async fn triggers(State(state): State<AppState>) -> Response {
+    ipc_proxy(state, "triggers", serde_json::Value::Null).await
 }
 
 // --- Audit ---

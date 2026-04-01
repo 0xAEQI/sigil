@@ -6,9 +6,13 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal;
+use pulldown_cmark::{html, Options, Parser};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 use sigil_core::ChatStreamEvent;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Theme, ThemeSet};
+use syntect::parsing::SyntaxSet;
 
 use crate::helpers::load_config;
 
@@ -23,6 +27,39 @@ struct ChatLine {
     style: Style,
 }
 
+// Lazy-loaded syntax and theme sets for markdown code highlighting.
+struct SyntaxHighlighter {
+    syntax_set: SyntaxSet,
+    theme: Theme,
+    highlighter: HighlightLines,
+}
+
+impl SyntaxHighlighter {
+    fn new() -> Self {
+        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let theme = ThemeSet::load_defaults().themes["base16-ocean.dark"].clone();
+        let highlighter = HighlightLines::new(&syntax_set, &theme);
+        Self {
+            syntax_set,
+            theme,
+            highlighter,
+        }
+    }
+
+    fn highlight_code(&self, code: &str, lang: Option<&str>) -> Vec<(String, Style)> {
+        let syntax = lang
+            .and_then(|l| self.syntax_set.find_syntax_by_token(l))
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+
+        let mut result = Vec::new();
+        for (line, style) in self.highlighter.highlight_line(code, syntax) {
+            let style = Style::from(style);
+            result.push((line.to_string(), style));
+        }
+        result
+    }
+}
+
 #[allow(dead_code)]
 struct AppState {
     messages: Vec<ChatLine>,
@@ -30,6 +67,7 @@ struct AppState {
     status_agent: String,
     status_model: String,
     status_tokens: u32,
+    status_context_pct: f64, // context usage percentage
     status_cost: f64,
     status_text: String,
     scroll_offset: u16,
@@ -37,6 +75,10 @@ struct AppState {
     should_quit: bool,
     agent_id: Option<String>,
     project: Option<String>,
+    slash_mode: bool,
+    slash_input: String,
+    syntax_highlighter: SyntaxHighlighter,
+    activity_spinner: u8, // for animated spinner
 }
 
 impl AppState {
@@ -47,6 +89,7 @@ impl AppState {
             status_agent: "Rei".into(),
             status_model: String::new(),
             status_tokens: 0,
+            status_context_pct: 0.0,
             status_cost: 0.0,
             status_text: String::new(),
             scroll_offset: 0,
@@ -54,6 +97,10 @@ impl AppState {
             should_quit: false,
             agent_id: None,
             project: None,
+            slash_mode: false,
+            slash_input: String::new(),
+            syntax_highlighter: SyntaxHighlighter::new(),
+            activity_spinner: 0,
         }
     }
 
@@ -211,37 +258,38 @@ fn draw(frame: &mut Frame, state: &AppState) {
 }
 
 fn draw_messages(frame: &mut Frame, area: Rect, state: &AppState) {
-    let mut lines: Vec<Line> = Vec::new();
+    let mut all_lines: Vec<Line> = Vec::new();
 
     for msg in &state.messages {
+        // Role prefix
         let prefix = if msg.role.is_empty() {
             "  ".to_string()
         } else {
             format!("{}: ", msg.role)
         };
 
-        // Split text into wrapped display lines.
-        let full = format!("{prefix}{}", msg.text);
-        let width = area.width.saturating_sub(2) as usize; // account for block border
-        if width == 0 {
-            lines.push(Line::from(Span::styled(full, msg.style)));
-            continue;
+        // Render message text as markdown
+        let rendered = render_markdown(&msg.text, &state.syntax_highlighter);
+        
+        // Add prefix to first line only
+        if let Some(first) = rendered.first_mut() {
+            first.spans.insert(0, Span::styled(prefix, msg.style));
         }
 
-        for chunk in textwrap(full.as_str(), width) {
-            lines.push(Line::from(Span::styled(chunk, msg.style)));
-        }
+        all_lines.extend(rendered);
+        all_lines.push(Line::from("")); // blank line between messages
     }
 
     // Auto-scroll: show the tail.
     let visible = area.height.saturating_sub(2) as usize; // block borders
-    let scroll = if lines.len() > visible {
-        (lines.len() - visible) as u16
+    let total_lines = all_lines.len();
+    let scroll = if total_lines > visible {
+        (total_lines - visible) as u16
     } else {
         0
     };
 
-    let paragraph = Paragraph::new(lines)
+    let paragraph = Paragraph::new(all_lines)
         .block(Block::default().borders(Borders::ALL).title(" Chat "))
         .scroll((scroll, 0))
         .wrap(Wrap { trim: false });
@@ -252,6 +300,7 @@ fn draw_messages(frame: &mut Frame, area: Rect, state: &AppState) {
 fn draw_status(frame: &mut Frame, area: Rect, state: &AppState) {
     let tokens_fmt = format_number(state.status_tokens);
     let cost_fmt = format!("${:.2}", state.status_cost);
+    let ctx_fmt = format!("{:.0}%", state.status_context_pct);
 
     let model_display = if state.status_model.is_empty() {
         String::new()
@@ -265,9 +314,17 @@ fn draw_status(frame: &mut Frame, area: Rect, state: &AppState) {
         format!(" | {}", state.status_text)
     };
 
+    // Animated spinner frames
+    let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let spinner = if state.status_text.is_empty() {
+        ""
+    } else {
+        spinner_frames[state.activity_spinner as usize]
+    };
+
     let text = format!(
-        "\u{25cf} {}{} | {} tokens | {}{}",
-        state.status_agent, model_display, tokens_fmt, cost_fmt, extra,
+        "{} {}{} | {} tokens | {} ctx | {}{}",
+        spinner, state.status_agent, model_display, tokens_fmt, ctx_fmt, cost_fmt, extra,
     );
 
     let bar = Paragraph::new(text).style(Style::default().bg(Color::DarkGray).fg(Color::White));
@@ -452,6 +509,260 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Slash commands
+// ---------------------------------------------------------------------------
+
+fn handle_slash_command(input: &str, state: &mut AppState, cmd_tx: &mpsc::Sender<WsCommand>) -> bool {
+    let parts: Vec<&str> = input.trim_start_matches('/').splitn(2, ' ').collect();
+    let cmd = parts[0].to_lowercase();
+    let args = parts.get(1).copied().unwrap_or("");
+
+    match cmd.as_str() {
+        "exit" | "quit" => {
+            state.should_quit = true;
+            return true;
+        }
+        "new" => {
+            state.messages.clear();
+            state.status_text.clear();
+            return true;
+        }
+        "model" => {
+            if !args.is_empty() {
+                let msg = serde_json::json!({
+                    "message": format!("/model {}", args),
+                });
+                let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
+            }
+            return true;
+        }
+        "compress" => {
+            let msg = serde_json::json!({
+                "message": "/compress",
+            });
+            let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
+            return true;
+        }
+        "status" => {
+            let msg = serde_json::json!({
+                "message": "/status",
+            });
+            let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
+            return true;
+        }
+        "skills" => {
+            let msg = serde_json::json!({
+                "message": "/skills",
+            });
+            let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
+            return true;
+        }
+        "help" => {
+            state.push_system(
+                "Slash commands: /new, /model <name>, /compress, /status, /skills, /exit".to_string(),
+                Style::default().fg(Color::Cyan),
+            );
+            return true;
+        }
+        _ => {
+            state.push_system(
+                format!("Unknown command: /{}", cmd),
+                Style::default().fg(Color::Red),
+            );
+            return true;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Markdown rendering
+// ---------------------------------------------------------------------------
+
+fn render_markdown(text: &str, highlighter: &SyntaxHighlighter) -> Vec<Line> {
+    let mut lines = Vec::new();
+    let mut current_style = Style::default();
+    let mut in_code_block = false;
+    let mut code_content = String::new();
+    let mut code_lang: Option<String> = None;
+
+    let opts = Options::empty();
+    let parser = Parser::new_ext(text, opts);
+
+    for event in parser {
+        match event {
+            pulldown_cmark::Event::Start(tag) => match tag {
+                pulldown_cmark::Tag::Paragraph => {}
+                pulldown_cmark::Tag::Heading(level, _, _) => {
+                    let prefix = match level {
+                        pulldown_cmark::HeadingLevel::H1 => "# ",
+                        pulldown_cmark::HeadingLevel::H2 => "## ",
+                        pulldown_cmark::HeadingLevel::H3 => "### ",
+                        pulldown_cmark::HeadingLevel::H4 => "#### ",
+                        pulldown_cmark::HeadingLevel::H5 => "##### ",
+                        pulldown_cmark::HeadingLevel::H6 => "###### ",
+                    };
+                    lines.push(Line::from(Span::styled(
+                        prefix.to_string(),
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )));
+                    current_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+                }
+                pulldown_cmark::Tag::BlockQuote => {
+                    lines.push(Line::from(Span::styled(
+                        "> ".to_string(),
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                    current_style = Style::default().fg(Color::DarkGray);
+                }
+                pulldown_cmark::Tag::CodeBlock(kind) => {
+                    in_code_block = true;
+                    code_content.clear();
+                    if let pulldown_cmark::CodeBlockKind::Fenced(lang) = kind {
+                        code_lang = Some(lang.to_string());
+                    } else {
+                        code_lang = None;
+                    }
+                }
+                pulldown_cmark::Tag::List(_) => {}
+                pulldown_cmark::Tag::Item => {
+                    lines.push(Line::from(Span::styled(
+                        "  • ".to_string(),
+                        Style::default().fg(Color::Cyan),
+                    )));
+                    current_style = Style::default();
+                }
+                pulldown_cmark::Tag::Emphasis => {
+                    current_style = current_style.add_modifier(Modifier::ITALIC);
+                }
+                pulldown_cmark::Tag::Strong => {
+                    current_style = current_style.add_modifier(Modifier::BOLD);
+                }
+                pulldown_cmark::Tag::Link(_link_type, _dest, _title) => {
+                    current_style = current_style.fg(Color::Blue).add_modifier(Modifier::UNDERLINED);
+                }
+                pulldown_cmark::Tag::Image(_link_type, _dest, _title) => {
+                    current_style = current_style.fg(Color::Magenta);
+                }
+                pulldown_cmark::Tag::Table(_) => {}
+                pulldown_cmark::Tag::TableHead => {}
+                pulldown_cmark::Tag::TableRow => {}
+                pulldown_cmark::Tag::TableCell => {}
+            },
+            pulldown_cmark::Event::End(tag) => match tag {
+                pulldown_cmark::Tag::Paragraph => {
+                    lines.push(Line::from(""));
+                }
+                pulldown_cmark::Tag::Heading(_, _, _) => {
+                    lines.push(Line::from(""));
+                    current_style = Style::default();
+                }
+                pulldown_cmark::Tag::BlockQuote => {
+                    lines.push(Line::from(""));
+                }
+                pulldown_cmark::Tag::CodeBlock(_) => {
+                    in_code_block = false;
+                    if !code_content.is_empty() {
+                        // Render code block with syntax highlighting.
+                        for (line, style) in highlighter.highlight_code(&code_content, code_lang.as_deref()) {
+                            lines.push(Line::from(Span::styled(line, style)));
+                        }
+                        lines.push(Line::from(""));
+                    }
+                    code_content.clear();
+                    code_lang = None;
+                    current_style = Style::default();
+                }
+                pulldown_cmark::Tag::List(_) => {}
+                pulldown_cmark::Tag::Item => {
+                    current_style = Style::default();
+                }
+                pulldown_cmark::Tag::Emphasis => {
+                    current_style = current_style.remove_modifier(Modifier::ITALIC);
+                }
+                pulldown_cmark::Tag::Strong => {
+                    current_style = current_style.remove_modifier(Modifier::BOLD);
+                }
+                pulldown_cmark::Tag::Link(_, _, _) => {
+                    current_style = current_style.remove_modifier(Modifier::UNDERLINED);
+                }
+                pulldown_cmark::Tag::Image(_, _, _) => {
+                    current_style = Style::default();
+                }
+                pulldown_cmark::Tag::Table(_) => {}
+                pulldown_cmark::Tag::TableHead => {}
+                pulldown_cmark::Tag::TableRow => {}
+                pulldown_cmark::Tag::TableCell => {}
+            },
+            pulldown_cmark::Event::Text(text) => {
+                if in_code_block {
+                    code_content.push_str(&text);
+                } else {
+                    for ch in text.chars() {
+                        if ch == '\n' {
+                            lines.push(Line::from(""));
+                        } else {
+                            // Accumulate characters into the current line.
+                            if lines.is_empty() {
+                                lines.push(Line::from(Span::styled(ch.to_string(), current_style)));
+                            } else {
+                                let last = lines.last_mut().unwrap();
+                                last.spans.last_mut().unwrap().content.push(ch);
+                            }
+                        }
+                    }
+                }
+            }
+            pulldown_cmark::Event::Code(text) => {
+                let span = Span::styled(
+                    text.to_string(),
+                    Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+                );
+                if lines.is_empty() {
+                    lines.push(Line::from(span));
+                } else {
+                    lines.last_mut().unwrap().spans.push(span);
+                }
+            }
+            pulldown_cmark::Event::Html(_html) => {}
+            pulldown_cmark::Event::SoftBreak => {
+                lines.push(Line::from(""));
+            }
+            pulldown_cmark::Event::HardBreak => {
+                lines.push(Line::from(""));
+            }
+            pulldown_cmark::Event::Rule => {
+                for _ in 0..2 {
+                    lines.push(Line::from(Span::styled(
+                        "─".repeat(80),
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+            }
+            pulldown_cmark::Event::FootnoteReference(_name) => {}
+            pulldown_cmark::Event::TaskListMarker(true) => {
+                if let Some(last) = lines.last_mut() {
+                    let check = Span::styled("[x] ", Style::default().fg(Color::Green));
+                    last.spans.push(check);
+                }
+            }
+            pulldown_cmark::Event::TaskListMarker(false) => {
+                if let Some(last) = lines.last_mut() {
+                    let check = Span::styled("[ ] ", Style::default().fg(Color::DarkGray));
+                    last.spans.push(check);
+                }
+            }
+        }
+    }
+
+    // Clean up empty trailing lines.
+    while lines.last().map(|l| l.spans.is_empty() && l.is_empty()) == Some(true) {
+        lines.pop();
+    }
+
+    lines
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -557,34 +868,67 @@ fn run_loop(
         {
             match key.code {
                 KeyCode::Esc => {
-                    state.should_quit = true;
+                    if state.slash_mode {
+                        state.slash_mode = false;
+                        state.slash_input.clear();
+                    } else {
+                        state.should_quit = true;
+                    }
                 }
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     state.should_quit = true;
                 }
                 KeyCode::Enter => {
-                    let text = state.input.trim().to_string();
-                    if !text.is_empty() {
-                        state.push_user(&text);
-                        state.input.clear();
+                    let input = if state.slash_mode {
+                        format!("/{}", state.slash_input)
+                    } else {
+                        state.input.trim().to_string()
+                    };
+                    
+                    if !input.is_empty() {
+                        if state.slash_mode {
+                            // Handle slash command
+                            let _ = handle_slash_command(&input, state, cmd_tx);
+                            state.slash_mode = false;
+                            state.slash_input.clear();
+                        } else if input.starts_with('/') {
+                            // Enter slash mode with the command (without leading /)
+                            state.slash_mode = true;
+                            state.slash_input = input[1..].to_string();
+                        } else {
+                            // Regular message
+                            state.push_user(&input);
+                            state.input.clear();
 
-                        let mut msg = serde_json::json!({
-                            "message": text,
-                        });
-                        if let Some(ref aid) = state.agent_id {
-                            msg["agent_id"] = serde_json::json!(aid);
+                            let mut msg = serde_json::json!({
+                                "message": input,
+                            });
+                            if let Some(ref aid) = state.agent_id {
+                                msg["agent_id"] = serde_json::json!(aid);
+                            }
+                            if let Some(ref p) = state.project {
+                                msg["project"] = serde_json::json!(p);
+                            }
+                            let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
                         }
-                        if let Some(ref p) = state.project {
-                            msg["project"] = serde_json::json!(p);
-                        }
-                        let _ = cmd_tx.send(WsCommand::Send(msg.to_string()));
+                    } else if state.slash_mode {
+                        state.slash_mode = false;
+                        state.slash_input.clear();
                     }
                 }
                 KeyCode::Backspace => {
-                    state.input.pop();
+                    if state.slash_mode {
+                        state.slash_input.pop();
+                    } else {
+                        state.input.pop();
+                    }
                 }
                 KeyCode::Char(c) => {
-                    state.input.push(c);
+                    if state.slash_mode {
+                        state.slash_input.push(c);
+                    } else {
+                        state.input.push(c);
+                    }
                 }
                 _ => {}
             }

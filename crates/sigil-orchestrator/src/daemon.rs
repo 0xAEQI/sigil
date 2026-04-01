@@ -564,6 +564,7 @@ impl Daemon {
                     let registry = self.registry.clone();
                     let dispatch_bus = self.dispatch_bus.clone();
                     let trigger_store = self.trigger_store.clone();
+                    let agent_registry = self.agent_registry.clone();
                     let chat_engine = self.chat_engine.clone();
                     let event_buffer = self.event_buffer.clone();
                     let running = self.running.clone();
@@ -575,6 +576,7 @@ impl Daemon {
                             registry,
                             dispatch_bus,
                             trigger_store,
+                            agent_registry,
                             chat_engine,
                             event_buffer,
                             running,
@@ -845,6 +847,7 @@ impl Daemon {
         registry: Arc<ProjectRegistry>,
         dispatch_bus: Arc<DispatchBus>,
         trigger_store: Option<Arc<TriggerStore>>,
+        agent_registry: Option<Arc<AgentRegistry>>,
         chat_engine: Option<Arc<ChatEngine>>,
         event_buffer: Arc<Mutex<EventBuffer>>,
         running: Arc<std::sync::atomic::AtomicBool>,
@@ -859,6 +862,7 @@ impl Daemon {
                     let registry = registry.clone();
                     let dispatch_bus = dispatch_bus.clone();
                     let trigger_store = trigger_store.clone();
+                    let agent_registry = agent_registry.clone();
                     let chat_engine = chat_engine.clone();
                     let event_buffer = event_buffer.clone();
                     let readiness = readiness.clone();
@@ -868,6 +872,7 @@ impl Daemon {
                             registry,
                             dispatch_bus,
                             trigger_store,
+                            agent_registry,
                             chat_engine,
                             event_buffer,
                             readiness,
@@ -894,6 +899,7 @@ impl Daemon {
         registry: Arc<ProjectRegistry>,
         dispatch_bus: Arc<DispatchBus>,
         trigger_store: Option<Arc<TriggerStore>>,
+        agent_registry: Option<Arc<AgentRegistry>>,
         chat_engine: Option<Arc<ChatEngine>>,
         event_buffer: Arc<Mutex<EventBuffer>>,
         readiness: ReadinessContext,
@@ -2534,6 +2540,115 @@ impl Daemon {
                         serde_json::json!({"ok": false, "error": "chat engine not initialized"})
                     }
                 }
+
+                // ── Persistent Agent Registry ──
+
+                "agents_registry" => match &agent_registry {
+                    Some(reg) => {
+                        let project = request.get("project").and_then(|v| v.as_str());
+                        let status_filter = request.get("status").and_then(|v| v.as_str());
+                        let status = status_filter.and_then(|s| match s {
+                            "active" => Some(crate::agent_registry::AgentStatus::Active),
+                            "paused" => Some(crate::agent_registry::AgentStatus::Paused),
+                            "retired" => Some(crate::agent_registry::AgentStatus::Retired),
+                            _ => None,
+                        });
+                        match reg.list(project, status).await {
+                            Ok(agents) => {
+                                let items: Vec<serde_json::Value> = agents.iter().map(|a| {
+                                    serde_json::json!({
+                                        "id": a.id,
+                                        "name": a.name,
+                                        "display_name": a.display_name,
+                                        "template": a.template,
+                                        "project": a.project,
+                                        "department": a.department,
+                                        "parent_id": a.parent_id,
+                                        "model": a.model,
+                                        "capabilities": a.capabilities,
+                                        "status": a.status,
+                                        "created_at": a.created_at.to_rfc3339(),
+                                        "last_active": a.last_active.map(|dt| dt.to_rfc3339()),
+                                        "session_count": a.session_count,
+                                        "total_tokens": a.total_tokens,
+                                        "color": a.color,
+                                        "avatar": a.avatar,
+                                        "faces": a.faces,
+                                    })
+                                }).collect();
+                                serde_json::json!({"ok": true, "agents": items})
+                            }
+                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                        }
+                    }
+                    None => serde_json::json!({"ok": true, "agents": []}),
+                },
+
+                "agent_spawn" => match &agent_registry {
+                    Some(reg) => {
+                        let template = request.get("template").and_then(|v| v.as_str()).unwrap_or("");
+                        if template.is_empty() {
+                            serde_json::json!({"ok": false, "error": "template is required"})
+                        } else {
+                            // Read template file from agents/ directory
+                            let cwd = std::env::current_dir().unwrap_or_default();
+                            let md_path = cwd.join("agents").join(template).join("agent.md");
+                            let toml_path = cwd.join("agents").join(template).join("agent.toml");
+                            let template_content = if md_path.exists() {
+                                std::fs::read_to_string(&md_path).ok()
+                            } else if toml_path.exists() {
+                                std::fs::read_to_string(&toml_path).ok()
+                            } else {
+                                None
+                            };
+                            match template_content {
+                                Some(content) => {
+                                    let project = request.get("project").and_then(|v| v.as_str());
+                                    let department = request.get("department").and_then(|v| v.as_str());
+                                    match reg.spawn_from_template(&content, project, department).await {
+                                        Ok(agent) => serde_json::json!({
+                                            "ok": true,
+                                            "agent": {
+                                                "id": agent.id,
+                                                "name": agent.name,
+                                                "display_name": agent.display_name,
+                                                "status": agent.status,
+                                            }
+                                        }),
+                                        Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                                    }
+                                }
+                                None => serde_json::json!({"ok": false, "error": format!("template not found: {template}")}),
+                            }
+                        }
+                    }
+                    None => serde_json::json!({"ok": false, "error": "agent registry not available"}),
+                },
+
+                "agent_set_status" => match &agent_registry {
+                    Some(reg) => {
+                        let name = request.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let status_str = request.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                        if name.is_empty() || status_str.is_empty() {
+                            serde_json::json!({"ok": false, "error": "name and status required"})
+                        } else {
+                            let status = match status_str {
+                                "active" => Some(crate::agent_registry::AgentStatus::Active),
+                                "paused" => Some(crate::agent_registry::AgentStatus::Paused),
+                                "retired" => Some(crate::agent_registry::AgentStatus::Retired),
+                                _ => None,
+                            };
+                            match status {
+                                Some(s) => match reg.set_status(name, s).await {
+                                    Ok(_) => serde_json::json!({"ok": true}),
+                                    Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                                },
+                                None => serde_json::json!({"ok": false, "error": format!("invalid status: {status_str}")}),
+                            }
+                        }
+                    }
+                    None => serde_json::json!({"ok": false, "error": "agent registry not available"}),
+                },
 
                 _ => serde_json::json!({"ok": false, "error": format!("unknown command: {cmd}")}),
             };
