@@ -87,6 +87,26 @@ impl ConversationStore {
         )
         .context("failed to initialize conversation schema")?;
 
+        // FTS5 virtual table for full-text search across transcripts.
+        let _ = conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                 content,
+                 content=conversations,
+                 content_rowid=id
+             );
+             -- Triggers to keep FTS5 in sync with base table.
+             CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
+                 INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+             END;
+             CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
+                 INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+             END;
+             CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
+                 INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
+                 INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+             END;",
+        );
+
         // Migrations (idempotent).
         let _ =
             conn.execute_batch("ALTER TABLE conversations ADD COLUMN source TEXT DEFAULT NULL;");

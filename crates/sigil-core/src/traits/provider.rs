@@ -36,6 +36,32 @@ impl MessageContent {
             _ => None,
         }
     }
+
+    /// Convert to a searchable text representation including tool calls/results.
+    pub fn to_transcript_text(&self) -> String {
+        match self {
+            Self::Text(s) => s.clone(),
+            Self::Parts(parts) => {
+                let mut texts = Vec::new();
+                for part in parts {
+                    match part {
+                        ContentPart::Text { text } => texts.push(text.clone()),
+                        ContentPart::ToolUse { name, input, .. } => {
+                            let input_str = serde_json::to_string(input).unwrap_or_default();
+                            let preview: String = input_str.chars().take(500).collect();
+                            texts.push(format!("[tool:{name}] {preview}"));
+                        }
+                        ContentPart::ToolResult { content, is_error, .. } => {
+                            let prefix = if *is_error { "[error]" } else { "[result]" };
+                            let preview: String = content.chars().take(500).collect();
+                            texts.push(format!("{prefix} {preview}"));
+                        }
+                    }
+                }
+                texts.join("\n")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

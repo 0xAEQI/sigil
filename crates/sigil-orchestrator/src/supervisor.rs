@@ -1375,7 +1375,7 @@ impl Supervisor {
                                                 sigil_core::traits::Role::System => "system",
                                                 sigil_core::traits::Role::Tool => "tool",
                                             };
-                                            let text = msg.content.as_text().unwrap_or_default();
+                                            let text = msg.content.to_transcript_text();
                                             if !text.is_empty() {
                                                 let _ = cs.record_with_source(
                                                     chat_id, role, &text, Some("agent"),
