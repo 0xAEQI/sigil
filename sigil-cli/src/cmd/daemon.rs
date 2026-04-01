@@ -38,7 +38,10 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             }
 
             let data_dir = config.data_dir();
-            let dispatch_bus = Arc::new(DispatchBus::with_persistence(data_dir.join("dispatches")));
+            let event_broadcaster = Arc::new(sigil_orchestrator::EventBroadcaster::new());
+            let mut dispatch_bus = DispatchBus::with_persistence(data_dir.join("dispatches"));
+            dispatch_bus.set_event_broadcaster(event_broadcaster.clone());
+            let dispatch_bus = Arc::new(dispatch_bus);
             let cost_ledger = Arc::new(sigil_orchestrator::CostLedger::with_persistence(
                 config.security.max_cost_per_day_usd,
                 data_dir.join("cost_ledger.jsonl"),
@@ -93,7 +96,6 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             }
 
             let registry = Arc::new(registry_inner);
-            let event_broadcaster = Arc::new(sigil_orchestrator::EventBroadcaster::new());
             let background_automation_enabled = config.orchestrator.background_automation_enabled;
             let advisor_agents = config.advisor_agents();
             let mut skipped_projects = Vec::new();
