@@ -66,32 +66,42 @@ Every persistent agent gets `dispatch_read`, `dispatch_send`, and `channel_post`
 
 ## Architecture
 
+Two ways agents run:
+
 ```
-User message (CLI / Telegram / Slack / Web)
-    |
-    v
-ChatEngine routes to agent's conversation
-    |
-    v
-Task created --> Supervisor assigns to worker
-    |
-    v
-Worker loads: agent identity + skill + memory + org context + blackboard
-    |
-    v
-Agent loop: LLM --> tool calls --> LLM --> ... --> done
-    |
-    v
-Outcome: DONE / BLOCKED (escalate) / FAILED (retry)
-    |
-    v
-Transcript saved to ConversationStore (FTS5 searchable)
+CHAT SESSION (CLI / Telegram / Slack / Web)
+
+    User sends message
+        |
+        v
+    Agent session (identity + memory + tools + org context)
+        |
+        v
+    Agent loop: LLM --> tool calls --> LLM --> ... --> response
+        |
+        v
+    Conversation persists in ConversationStore
 
 
-Trigger fires (schedule / event / dispatch received / channel message)
-    |
-    v
-Same worker path as above
+ASYNC TASK (trigger fires / task assigned / dispatch received)
+
+    Trigger or task creation
+        |
+        v
+    Supervisor assigns to worker
+        |
+        v
+    Worker loads: agent identity + skill + memory + org context + blackboard
+        |
+        v
+    Agent loop: LLM --> tool calls --> LLM --> ... --> done
+        |
+        v
+    Outcome: DONE / BLOCKED (escalate) / FAILED (retry)
+        |
+        v
+    Transcript saved (FTS5 searchable)
+```
 ```
 
 ### Daemon Patrol Loop
