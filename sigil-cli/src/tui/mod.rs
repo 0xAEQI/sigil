@@ -341,7 +341,7 @@ pub async fn run(
         }
 
         eprintln!("  \x1b[1mAvailable agent templates:\x1b[0m");
-        for (i, (name, path)) in templates.iter().enumerate() {
+        for (i, (name, _path)) in templates.iter().enumerate() {
             let marker = if name == "shadow" { " \x1b[33m(recommended)\x1b[0m" } else { "" };
             eprintln!("    \x1b[36m{}\x1b[0m. {name}{marker}", i + 1);
         }
