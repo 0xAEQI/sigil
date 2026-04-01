@@ -1498,7 +1498,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::Utc;
     use sigil_core::config::{
-        AgentRole, DepartmentConfig, ExecutionMode, PeerAgentConfig, ProjectConfig,
+        DepartmentConfig, ExecutionMode, PeerAgentConfig, ProjectConfig,
         ProjectTeamConfig,
     };
     use sigil_core::traits::{
@@ -1920,7 +1920,7 @@ mod tests {
                     prefix: "rs".to_string(),
                     model: None,
                     runtime: None,
-                    role: AgentRole::Advisor,
+                    role: "advisor".to_string(),
                     voice: Default::default(),
                     execution_mode: ExecutionMode::Agent,
                     max_workers: 1,
@@ -1936,7 +1936,7 @@ mod tests {
                     prefix: "rv".to_string(),
                     model: None,
                     runtime: None,
-                    role: AgentRole::Advisor,
+                    role: "advisor".to_string(),
                     voice: Default::default(),
                     execution_mode: ExecutionMode::Agent,
                     max_workers: 1,
@@ -1952,7 +1952,7 @@ mod tests {
                     prefix: "ot".to_string(),
                     model: None,
                     runtime: None,
-                    role: AgentRole::Advisor,
+                    role: "advisor".to_string(),
                     voice: Default::default(),
                     execution_mode: ExecutionMode::Agent,
                     max_workers: 1,
@@ -1998,7 +1998,7 @@ mod tests {
             prefix: "rv".to_string(),
             model: None,
             runtime: None,
-            role: AgentRole::Advisor,
+            role: "advisor".to_string(),
             voice: Default::default(),
             execution_mode: ExecutionMode::Agent,
             max_workers: 1,

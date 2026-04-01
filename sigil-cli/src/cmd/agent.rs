@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-use crate::helpers::{format_agent_org_hint, load_config, resolve_agents_dir, role_str};
+use crate::helpers::{format_agent_org_hint, load_config, resolve_agents_dir};
 
 pub(crate) async fn cmd_agent(
     config_path: &Option<PathBuf>,
@@ -29,11 +29,11 @@ pub(crate) async fn cmd_agent(
                 } else {
                     "toml"
                 };
-                all_agents.push((&a.name, source, role_str(&a.role)));
+                all_agents.push((&a.name, source, &a.role));
             }
             for a in &disk_agents {
                 if !toml_names.contains(a.name.as_str()) {
-                    all_agents.push((&a.name, "disk", role_str(&a.role)));
+                    all_agents.push((&a.name, "disk", &a.role));
                 }
             }
             all_agents.sort_by_key(|a| a.0);

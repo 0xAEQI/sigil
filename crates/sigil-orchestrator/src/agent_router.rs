@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sigil_core::config::{AgentRole, PeerAgentConfig};
+use sigil_core::config::PeerAgentConfig;
 use std::collections::HashMap;
 use std::time::Instant;
 use tracing::{info, warn};
@@ -91,7 +91,7 @@ impl AgentRouter {
             "Classification rules:\n- \"casual\": Simple chat, greetings, personal talk -> no advisors needed\n",
         );
         for agent in available_agents {
-            if agent.role != AgentRole::Advisor || agent.expertise.is_empty() {
+            if agent.role != "advisor" || agent.expertise.is_empty() {
                 continue;
             }
             rules.push_str(&format!(
@@ -194,7 +194,7 @@ Use empty array for "casual" messages. Only include advisors whose expertise is 
         let now = Instant::now();
         let valid_agent_names: Vec<String> = available_agents
             .iter()
-            .filter(|a| a.role == AgentRole::Advisor)
+            .filter(|a| a.role == "advisor")
             .map(|a| a.name.clone())
             .collect();
 

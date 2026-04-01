@@ -245,18 +245,8 @@ fn default_chunk_overlap() -> usize {
 // Agent configuration
 // ──────────────────────────────────────────────────────────────
 
-/// Role of an agent in the party.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum AgentRole {
-    /// Primary interface — orchestrates, routes, synthesizes.
-    #[default]
-    Orchestrator,
-    /// Project worker — executes tasks on repos.
-    Worker,
-    /// Specialist advisor — provides perspective on demand.
-    Advisor,
+fn default_agent_role() -> String {
+    "orchestrator".to_string()
 }
 
 /// Whether an agent speaks in group channels.
@@ -282,8 +272,8 @@ pub struct PeerAgentConfig {
     /// Runtime preset name. If omitted, falls back to `[sigil].default_runtime`.
     #[serde(default, alias = "runtime_preset")]
     pub runtime: Option<String>,
-    #[serde(default)]
-    pub role: AgentRole,
+    #[serde(default = "default_agent_role")]
+    pub role: String,
     #[serde(default)]
     pub voice: AgentVoice,
     #[serde(default)]
@@ -1031,20 +1021,20 @@ impl SigilConfig {
     /// Get the team leader agent config (point-of-contact).
     pub fn leader_agent(&self) -> Option<&PeerAgentConfig> {
         self.agent(&self.team.leader).or_else(|| {
-            self.agents_with_role(AgentRole::Orchestrator)
-                .first()
-                .copied()
+            self.agents
+                .iter()
+                .find(|a| a.role == "orchestrator")
         })
     }
 
-    /// Get all agents with a specific role.
-    pub fn agents_with_role(&self, role: AgentRole) -> Vec<&PeerAgentConfig> {
+    /// Get all agents with a specific role string.
+    pub fn agents_with_role(&self, role: &str) -> Vec<&PeerAgentConfig> {
         self.agents.iter().filter(|a| a.role == role).collect()
     }
 
     /// Get all advisor agents (convenience).
     pub fn advisor_agents(&self) -> Vec<&PeerAgentConfig> {
-        self.agents_with_role(AgentRole::Advisor)
+        self.agents_with_role("advisor")
     }
 
     /// Resolve a repo key to a path. If the key exists in `[repos]`, return that.
@@ -1182,7 +1172,7 @@ impl SigilConfig {
         let orchestrator_count = self
             .agents
             .iter()
-            .filter(|a| a.role == AgentRole::Orchestrator)
+            .filter(|a| a.role == "orchestrator")
             .count();
         if !self.agents.is_empty() && orchestrator_count == 0 {
             errors.push("no orchestrator agent configured".to_string());
@@ -1594,8 +1584,8 @@ repo = "/home/user/backend"
         let config = SigilConfig::parse(toml).unwrap();
         assert_eq!(config.agents.len(), 2);
         assert_eq!(config.agents[0].name, "alpha");
-        assert_eq!(config.agents[0].role, AgentRole::Orchestrator);
-        assert_eq!(config.agents[1].role, AgentRole::Advisor);
+        assert_eq!(config.agents[0].role, "orchestrator".to_string());
+        assert_eq!(config.agents[1].role, "advisor".to_string());
         assert_eq!(config.team.leader, "alpha");
         assert_eq!(config.repos.len(), 2);
         let leader = config.leader_agent().unwrap();
@@ -1823,9 +1813,9 @@ role = "orchestrator"
         let agents = discover_agents(&agents_dir).unwrap();
         assert_eq!(agents.len(), 2);
         assert_eq!(agents[0].name, "alice");
-        assert_eq!(agents[0].role, AgentRole::Orchestrator);
+        assert_eq!(agents[0].role, "orchestrator".to_string());
         assert_eq!(agents[1].name, "bob");
-        assert_eq!(agents[1].role, AgentRole::Advisor);
+        assert_eq!(agents[1].role, "advisor".to_string());
     }
 
     #[test]
@@ -1881,7 +1871,7 @@ role = "advisor"
 
         let alice = config.agent("alice").unwrap();
         assert_eq!(alice.model.as_deref(), Some("disk-model"));
-        assert_eq!(alice.role, AgentRole::Advisor); // disk version
+        assert_eq!(alice.role, "advisor".to_string()); // disk version
 
         // Charlie from TOML should be preserved.
         assert!(config.agent("charlie").is_some());
@@ -1920,7 +1910,7 @@ role = "orchestrator"
             prefix: "tt".to_string(),
             model: Some("claude-opus-4-6".to_string()),
             runtime: Some("anthropic_agent".to_string()),
-            role: AgentRole::Advisor,
+            role: "advisor".to_string(),
             voice: AgentVoice::Vocal,
             execution_mode: ExecutionMode::Agent,
             max_workers: 2,
@@ -1939,7 +1929,7 @@ role = "orchestrator"
         assert_eq!(loaded.prefix, "tt");
         assert_eq!(loaded.model.as_deref(), Some("claude-opus-4-6"));
         assert_eq!(loaded.runtime.as_deref(), Some("anthropic_agent"));
-        assert_eq!(loaded.role, AgentRole::Advisor);
+        assert_eq!(loaded.role, "advisor".to_string());
         assert_eq!(loaded.execution_mode, ExecutionMode::Agent);
         assert_eq!(loaded.max_workers, 2);
         assert_eq!(loaded.max_turns, Some(15));

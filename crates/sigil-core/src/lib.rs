@@ -22,7 +22,7 @@ pub use agent::{
 };
 pub use chat_stream::{ChatStreamEvent, ChatStreamSender};
 pub use config::{
-    AgentRole, AgentVoice, ContextBudgetConfig, ExecutionMode, MissionDef, PeerAgentConfig,
+    AgentVoice, ContextBudgetConfig, ExecutionMode, MissionDef, PeerAgentConfig,
     ProjectConfig, ProjectTeamConfig, ProviderKind, RuntimePresetConfig, SigilConfig, TeamConfig,
     discover_agents, load_agent_config,
 };

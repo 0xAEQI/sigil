@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use sigil_core::traits::{Provider, Tool};
-use sigil_core::{AgentRole, Identity, ProviderKind, SecretStore, SigilConfig};
+use sigil_core::{Identity, ProviderKind, SecretStore, SigilConfig};
 
 /// Resolve `${ENV_VAR}` patterns in a config value. Returns empty string if
 /// the value is a `${...}` pattern and the env var is not set.
@@ -456,13 +456,6 @@ pub(crate) fn resolve_agents_dir(config_path: &Path) -> PathBuf {
     PathBuf::from("agents")
 }
 
-pub(crate) fn role_str(role: &AgentRole) -> &str {
-    match role {
-        AgentRole::Orchestrator => "orchestrator",
-        AgentRole::Worker => "worker",
-        AgentRole::Advisor => "advisor",
-    }
-}
 
 pub(crate) fn pid_file_path(config: &SigilConfig) -> PathBuf {
     config.data_dir().join("rm.pid")
