@@ -40,6 +40,12 @@ const CHARS_PER_TOKEN: usize = 4;
 /// Maximum compaction attempts per agent run to prevent infinite loops.
 const MAX_COMPACTIONS_PER_RUN: u32 = 3;
 
+/// Minimum total prompt tokens before session memory extraction starts.
+const SESSION_MEMORY_MIN_TOKENS: u32 = 50_000;
+
+/// Key prefix for session memory entries.
+const SESSION_MEMORY_KEY: &str = "session-notes";
+
 /// Maximum mid-loop memory recalls.
 const MAX_MID_LOOP_RECALLS: u32 = 2;
 
@@ -140,6 +146,10 @@ pub struct AgentConfig {
     /// automatically after end-turn if total output tokens < budget * 0.9.
     /// Parsed from "+500k" or "use 2m tokens" syntax in the user prompt.
     pub token_budget: Option<u32>,
+    /// Use streaming tool execution — start executing tools as they stream in
+    /// from the provider instead of waiting for the full response. Requires the
+    /// provider to support chat_stream(). Default: false.
+    pub use_streaming_tools: bool,
 }
 
 impl Default for AgentConfig {
@@ -165,6 +175,7 @@ impl Default for AgentConfig {
             session_file: None,
             session_type: SessionType::Async,
             token_budget: None,
+            use_streaming_tools: false,
         }
     }
 }
@@ -320,6 +331,66 @@ struct ProcessedToolResult {
     name: String,
     output: String,
     is_error: bool,
+}
+
+/// Tracks which tool results have been replaced/persisted, ensuring consistent
+/// decisions across compactions and subagent forks (cache coherency).
+#[derive(Debug, Clone, Default)]
+pub struct ContentReplacementState {
+    /// tool_use_id → replacement type applied.
+    replacements: std::collections::HashMap<String, ReplacementType>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields read by future session-memory-compact path
+enum ReplacementType {
+    /// Content persisted to disk (file path recorded).
+    Persisted(String),
+    /// Content truncated in-place.
+    Truncated,
+    /// Content cleared by microcompact.
+    Cleared,
+}
+
+impl ContentReplacementState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record that a tool result was persisted to disk.
+    pub fn mark_persisted(&mut self, tool_use_id: &str, path: &str) {
+        self.replacements.insert(
+            tool_use_id.to_string(),
+            ReplacementType::Persisted(path.to_string()),
+        );
+    }
+
+    /// Record that a tool result was truncated.
+    pub fn mark_truncated(&mut self, tool_use_id: &str) {
+        self.replacements
+            .insert(tool_use_id.to_string(), ReplacementType::Truncated);
+    }
+
+    /// Record that a tool result was cleared by microcompact.
+    pub fn mark_cleared(&mut self, tool_use_id: &str) {
+        self.replacements
+            .insert(tool_use_id.to_string(), ReplacementType::Cleared);
+    }
+
+    /// Check if a tool result has already been replaced.
+    pub fn is_replaced(&self, tool_use_id: &str) -> bool {
+        self.replacements.contains_key(tool_use_id)
+    }
+
+    /// Number of tracked replacements.
+    pub fn len(&self) -> usize {
+        self.replacements.len()
+    }
+
+    /// Whether any replacements have been tracked.
+    pub fn is_empty(&self) -> bool {
+        self.replacements.is_empty()
+    }
 }
 
 /// Post-compact restoration constants.
@@ -516,6 +587,7 @@ impl Agent {
         let mut persist_dir_created: Option<PathBuf> = None;
         let invoked_skills: Vec<InvokedSkill> = Vec::new();
         let mut has_attempted_reactive_compact = false;
+        let mut replacement_state = ContentReplacementState::new();
 
         loop {
             iterations += 1;
@@ -990,54 +1062,80 @@ impl Agent {
                 break;
             }
 
-            // --- Execute tools with concurrency classification ---
-            let mut safe_calls = Vec::new();
-            let mut unsafe_calls = Vec::new();
-
-            for tc in &allowed_calls {
-                let is_safe = self
-                    .tools
-                    .iter()
-                    .find(|t| t.name() == tc.name)
-                    .map(|t| t.is_concurrent_safe(&tc.arguments))
-                    .unwrap_or(true);
-
-                if is_safe {
-                    safe_calls.push(*tc);
-                } else {
-                    unsafe_calls.push(*tc);
-                }
-            }
-
+            // --- Execute tools ---
+            // Two paths: streaming (StreamingToolExecutor with concurrent batching)
+            // or legacy (manual safe/unsafe partition with join_all).
             let mut all_results: Vec<(String, String, Result<ToolResult, anyhow::Error>, u64)> =
                 Vec::new();
 
-            // Run safe tools in parallel.
-            if !safe_calls.is_empty() {
-                let futures: Vec<_> = safe_calls
+            if self.config.use_streaming_tools {
+                // Streaming path: uses StreamingToolExecutor for concurrent execution.
+                let allowed_tool_calls: Vec<crate::traits::ToolCall> = allowed_calls
                     .iter()
-                    .map(|tc| {
-                        let tools = self.tools.clone();
-                        let name = tc.name.clone();
-                        let args = tc.arguments.clone();
-                        let id = tc.id.clone();
-                        async move {
-                            let start = std::time::Instant::now();
-                            let result = Self::execute_tool_static(&tools, &name, args).await;
-                            (id, name, result, start.elapsed().as_millis() as u64)
-                        }
+                    .map(|tc| crate::traits::ToolCall {
+                        id: tc.id.clone(),
+                        name: tc.name.clone(),
+                        arguments: tc.arguments.clone(),
                     })
                     .collect();
-                all_results.extend(futures::future::join_all(futures).await);
-            }
+                let streaming_results =
+                    Self::execute_tools_streaming(&self.tools, &allowed_tool_calls).await;
+                for r in streaming_results {
+                    let result = if r.is_error {
+                        Ok(ToolResult::error(r.output))
+                    } else {
+                        Ok(ToolResult::success(r.output))
+                    };
+                    all_results.push((r.id, r.name, result, 0));
+                }
+            } else {
+                // Legacy path: manual safe/unsafe partition.
+                let mut safe_calls = Vec::new();
+                let mut unsafe_calls = Vec::new();
 
-            // Run unsafe tools sequentially.
-            for tc in &unsafe_calls {
-                let start = std::time::Instant::now();
-                let result =
-                    Self::execute_tool_static(&self.tools, &tc.name, tc.arguments.clone()).await;
-                let duration_ms = start.elapsed().as_millis() as u64;
-                all_results.push((tc.id.clone(), tc.name.clone(), result, duration_ms));
+                for tc in &allowed_calls {
+                    let is_safe = self
+                        .tools
+                        .iter()
+                        .find(|t| t.name() == tc.name)
+                        .map(|t| t.is_concurrent_safe(&tc.arguments))
+                        .unwrap_or(true);
+
+                    if is_safe {
+                        safe_calls.push(*tc);
+                    } else {
+                        unsafe_calls.push(*tc);
+                    }
+                }
+
+                // Run safe tools in parallel.
+                if !safe_calls.is_empty() {
+                    let futures: Vec<_> = safe_calls
+                        .iter()
+                        .map(|tc| {
+                            let tools = self.tools.clone();
+                            let name = tc.name.clone();
+                            let args = tc.arguments.clone();
+                            let id = tc.id.clone();
+                            async move {
+                                let start = std::time::Instant::now();
+                                let result = Self::execute_tool_static(&tools, &name, args).await;
+                                (id, name, result, start.elapsed().as_millis() as u64)
+                            }
+                        })
+                        .collect();
+                    all_results.extend(futures::future::join_all(futures).await);
+                }
+
+                // Run unsafe tools sequentially.
+                for tc in &unsafe_calls {
+                    let start = std::time::Instant::now();
+                    let result =
+                        Self::execute_tool_static(&self.tools, &tc.name, tc.arguments.clone())
+                            .await;
+                    let duration_ms = start.elapsed().as_millis() as u64;
+                    all_results.push((tc.id.clone(), tc.name.clone(), result, duration_ms));
+                }
             }
 
             // --- Process results: observe, persist/truncate, budget ---
@@ -1120,6 +1218,7 @@ impl Agent {
                                 original = original_len,
                                 "tool result persisted to disk"
                             );
+                            replacement_state.mark_persisted(&r.id, &persisted_msg);
                             r.output = persisted_msg;
                             continue;
                         }
@@ -1131,6 +1230,7 @@ impl Agent {
 
                 // Fallback: truncate with head+tail preview.
                 r.output = Self::truncate_result(&r.output, self.config.max_tool_result_chars);
+                replacement_state.mark_truncated(&r.id);
                 debug!(
                     agent = %self.config.name,
                     tool = %r.name,
@@ -1220,6 +1320,15 @@ impl Agent {
                     }
                 }
             }
+
+            // --- Session memory extraction (fire-and-forget background task) ---
+            Self::maybe_extract_session_memory(
+                &self.memory,
+                &messages,
+                &tracker,
+                &self.config.name,
+                &self.config.entity_id,
+            );
 
             // --- Detect file changes since last read (mid-turn enrichment) ---
             let file_change_msgs = Self::detect_file_changes(&recent_files).await;
@@ -1650,6 +1759,84 @@ impl Agent {
         }
 
         messages
+    }
+
+    /// Fire-and-forget session memory extraction. Runs in background after
+    /// tool-use turns when enough context has accumulated. Stores a running
+    /// session summary in memory for cheaper compaction.
+    fn maybe_extract_session_memory(
+        memory: &Option<Arc<dyn Memory>>,
+        messages: &[Message],
+        tracker: &ContextTracker,
+        agent_name: &str,
+        config_entity_id: &Option<String>,
+    ) {
+        let Some(mem) = memory.clone() else { return };
+        if tracker.total_prompt_tokens < SESSION_MEMORY_MIN_TOKENS {
+            return;
+        }
+
+        let transcript = Self::build_compaction_transcript(
+            &messages[messages.len().saturating_sub(20)..],
+        );
+        if transcript.len() < 200 {
+            return;
+        }
+
+        let name = agent_name.to_string();
+        let entity_id = config_entity_id.clone();
+
+        tokio::spawn(async move {
+            let summary = format!(
+                "Session working notes (auto-extracted):\n{}",
+                &transcript[..transcript.len().min(8000)]
+            );
+            match mem
+                .store(
+                    SESSION_MEMORY_KEY,
+                    &summary,
+                    MemoryCategory::Context,
+                    MemoryScope::Domain,
+                    entity_id.as_deref(),
+                )
+                .await
+            {
+                Ok(_) => debug!(agent = %name, len = summary.len(), "session memory extracted"),
+                Err(e) => debug!(agent = %name, "session memory extraction failed: {e}"),
+            }
+        });
+    }
+
+    /// Execute tools using the StreamingToolExecutor — starts executing tools
+    /// as they stream in from the provider. Falls back to standard execution
+    /// if the provider doesn't support streaming.
+    async fn execute_tools_streaming(
+        tools: &[Arc<dyn Tool>],
+        tool_calls: &[crate::traits::ToolCall],
+    ) -> Vec<ProcessedToolResult> {
+        use crate::streaming_executor::StreamingToolExecutor;
+
+        let mut executor = StreamingToolExecutor::new(tools.to_vec());
+
+        // Feed all tool calls — the executor starts concurrent-safe ones immediately.
+        for tc in tool_calls {
+            executor
+                .add_tool(tc.id.clone(), tc.name.clone(), tc.arguments.clone())
+                .await;
+        }
+
+        // Await all results.
+        let completed = executor.finish_all().await;
+
+        completed
+            .into_iter()
+            .map(|c| ProcessedToolResult {
+                id: c.id,
+                name: c.name,
+                output: c.result.output,
+                is_error: c.result.is_error,
+            })
+            .collect()
     }
 
     /// Detect files that changed externally since we last read them.

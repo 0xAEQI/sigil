@@ -16,8 +16,8 @@ pub mod streaming_executor;
 pub mod traits;
 
 pub use agent::{
-    Agent, AgentConfig, AgentResult, AgentStopReason, LoopNotification, NotificationReceiver,
-    NotificationSender, SessionState, SessionType,
+    Agent, AgentConfig, AgentResult, AgentStopReason, ContentReplacementState, LoopNotification,
+    NotificationReceiver, NotificationSender, SessionState, SessionType,
 };
 pub use chat_stream::{ChatStreamEvent, ChatStreamSender};
 pub use config::{
