@@ -39,8 +39,6 @@ pub struct ProjectRegistry {
     pub conversation_store: Option<Arc<ConversationStore>>,
     /// Names from [[projects]] config (to distinguish from agent entries).
     pub config_project_names: Vec<String>,
-    /// Watchdog rules config (for IPC query).
-    pub watchdog_rules_config: Vec<serde_json::Value>,
 }
 
 impl ProjectRegistry {
@@ -59,7 +57,6 @@ impl ProjectRegistry {
             blackboard: None,
             conversation_store: None,
             config_project_names: Vec::new(),
-            watchdog_rules_config: Vec::new(),
         }
     }
 

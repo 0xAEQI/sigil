@@ -1,6 +1,5 @@
 use anyhow::Result;
-use chrono::{Timelike, Utc};
-use std::collections::HashMap;
+use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -11,18 +10,12 @@ use crate::chat_engine::{ChatEngine, ChatMessage, ChatSource};
 use crate::conversation_store::{
     agency_chat_id, department_chat_id, named_channel_chat_id, project_chat_id,
 };
-use crate::execution_events::{EventBroadcaster, ExecutionEvent};
-use crate::heartbeat::Heartbeat;
-use crate::lifecycle::LifecycleEngine;
-use crate::message::{Dispatch, DispatchBus, DispatchHealth};
-use crate::notes::{DirectiveDetector, DirectiveStatus, NoteStore};
-use crate::proactive;
-use crate::reflection::Reflection;
-use crate::registry::ProjectRegistry;
 use crate::agent_registry::AgentRegistry;
-use crate::trigger::TriggerStore;
+use crate::execution_events::{EventBroadcaster, ExecutionEvent};
+use crate::message::{Dispatch, DispatchBus, DispatchHealth};
+use crate::registry::ProjectRegistry;
 use crate::session_tracker::SessionTracker;
-use crate::watchdog::WatchdogEngine;
+use crate::trigger::TriggerStore;
 
 const ACK_RETRY_AGE_SECS: u64 = 60;
 const MAX_EVENT_BUFFER_LEN: usize = 512;
@@ -199,33 +192,21 @@ fn attach_chat_id(mut payload: serde_json::Value, chat_id: i64) -> serde_json::V
     payload
 }
 
-/// The Daemon: background process that runs the ProjectRegistry patrol loop,
-/// pulses, and cron jobs.
+/// The Daemon: background process that runs the ProjectRegistry patrol loop
+/// and trigger system.
 pub struct Daemon {
     pub registry: Arc<ProjectRegistry>,
     pub dispatch_bus: Arc<DispatchBus>,
     pub patrol_interval_secs: u64,
     pub background_automation_enabled: bool,
-    pub pulses: Vec<Heartbeat>,
-    pub reflections: Vec<Reflection>,
-    pub lifecycle: Option<LifecycleEngine>,
     pub trigger_store: Option<Arc<TriggerStore>>,
     pub agent_registry: Option<Arc<AgentRegistry>>,
-    pub watchdog: Option<WatchdogEngine>,
     pub chat_engine: Option<Arc<ChatEngine>>,
-    pub note_store: Option<Arc<NoteStore>>,
-    pub anomaly_detector: proactive::AnomalyDetector,
     pub write_queue: Arc<std::sync::Mutex<sigil_memory::debounce::WriteQueue>>,
     pub event_broadcaster: Arc<EventBroadcaster>,
     event_buffer: Arc<Mutex<EventBuffer>>,
     pub pid_file: Option<PathBuf>,
     pub socket_path: Option<PathBuf>,
-    /// Date of the last morning brief sent via Telegram.
-    pub last_brief_date: Option<chrono::NaiveDate>,
-    /// Queue of outbound Telegram messages `(chat_id, text)` for proactive delivery.
-    pub pending_telegram_messages: Arc<std::sync::Mutex<Vec<(i64, String)>>>,
-    /// Chat IDs allowed for proactive Telegram delivery (from config).
-    pub telegram_allowed_chats: Vec<i64>,
     session_tracker_shutdown: Option<Arc<tokio::sync::Notify>>,
     running: Arc<std::sync::atomic::AtomicBool>,
     config_reloaded: Arc<std::sync::atomic::AtomicBool>,
@@ -240,15 +221,9 @@ impl Daemon {
             dispatch_bus,
             patrol_interval_secs: 30,
             background_automation_enabled: true,
-            pulses: Vec::new(),
-            reflections: Vec::new(),
-            lifecycle: None,
             trigger_store: None,
             agent_registry: None,
-            watchdog: None,
             chat_engine: None,
-            note_store: None,
-            anomaly_detector: proactive::AnomalyDetector::new(),
             write_queue: Arc::new(std::sync::Mutex::new(
                 sigil_memory::debounce::WriteQueue::default(),
             )),
@@ -256,9 +231,6 @@ impl Daemon {
             event_buffer: Arc::new(Mutex::new(EventBuffer::default())),
             pid_file: None,
             socket_path: None,
-            last_brief_date: None,
-            pending_telegram_messages: Arc::new(std::sync::Mutex::new(Vec::new())),
-            telegram_allowed_chats: Vec::new(),
             session_tracker_shutdown: None,
             running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             config_reloaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -267,15 +239,6 @@ impl Daemon {
         }
     }
 
-    /// Add a heartbeat to the daemon.
-    pub fn add_heartbeat(&mut self, heartbeat: Heartbeat) {
-        self.pulses.push(heartbeat);
-    }
-
-    /// Add a reflection cycle to the daemon.
-    pub fn add_reflection(&mut self, reflection: Reflection) {
-        self.reflections.push(reflection);
-    }
 
     pub fn set_background_automation_enabled(&mut self, enabled: bool) {
         self.background_automation_enabled = enabled;
@@ -371,11 +334,6 @@ impl Daemon {
         }
     }
 
-    /// Set the lifecycle engine for autonomous agent processes.
-    pub fn set_lifecycle(&mut self, engine: LifecycleEngine) {
-        self.lifecycle = Some(engine);
-    }
-
     /// Set the trigger store for agent-owned triggers.
     pub fn set_trigger_store(&mut self, store: Arc<TriggerStore>) {
         self.trigger_store = Some(store);
@@ -384,11 +342,6 @@ impl Daemon {
     /// Set the agent registry for trigger agent lookups.
     pub fn set_agent_registry(&mut self, registry: Arc<AgentRegistry>) {
         self.agent_registry = Some(registry);
-    }
-
-    /// Set the watchdog engine for event-driven automation.
-    pub fn set_watchdog(&mut self, engine: WatchdogEngine) {
-        self.watchdog = Some(engine);
     }
 
     /// Set a PID file path (written on start, removed on stop).
@@ -601,10 +554,8 @@ impl Daemon {
                 Ok(listener) => {
                     let registry = self.registry.clone();
                     let dispatch_bus = self.dispatch_bus.clone();
-                    let pulse_count = self.pulses.len();
                     let trigger_store = self.trigger_store.clone();
                     let chat_engine = self.chat_engine.clone();
-                    let note_store = self.note_store.clone();
                     let event_buffer = self.event_buffer.clone();
                     let running = self.running.clone();
                     let readiness = self.readiness.clone();
@@ -614,10 +565,8 @@ impl Daemon {
                             listener,
                             registry,
                             dispatch_bus,
-                            pulse_count,
                             trigger_store,
                             chat_engine,
-                            note_store,
                             event_buffer,
                             running,
                             readiness,
@@ -644,7 +593,6 @@ impl Daemon {
         }
 
         info!(
-            pulses = self.pulses.len(),
             triggers = self.trigger_store.is_some(),
             "daemon started"
         );
@@ -655,48 +603,7 @@ impl Daemon {
                 warn!(error = %e, "patrol cycle failed");
             }
 
-            // 2. Run due heartbeats.
-            for heartbeat in self.pulses.iter_mut() {
-                if heartbeat.is_due() {
-                    match heartbeat.run().await {
-                        Ok(result) => {
-                            info!(project = %heartbeat.project_name, "heartbeat completed");
-                            let _ = result;
-                        }
-                        Err(e) => {
-                            warn!(project = %heartbeat.project_name, error = %e, "heartbeat failed");
-                        }
-                    }
-                }
-            }
-
-            // 3. Run due reflections (self-examination of identity files).
-            for reflection in self.reflections.iter_mut() {
-                if reflection.is_due() {
-                    match reflection.run().await {
-                        Ok(result) => {
-                            info!(project = %reflection.project_name, result = %result, "reflection completed");
-                        }
-                        Err(e) => {
-                            warn!(project = %reflection.project_name, error = %e, "reflection failed");
-                        }
-                    }
-                }
-            }
-
-            // 4. Run due lifecycle processes (autonomous agent evolution).
-            if let Some(ref mut lifecycle) = self.lifecycle {
-                for result in lifecycle.tick().await {
-                    if let Some(ref err) = result.error {
-                        warn!(agent=%result.agent, process=%result.process, error=%err, "lifecycle failed");
-                    } else {
-                        info!(agent=%result.agent, process=%result.process, summary=%result.summary,
-                            cost_usd=%result.cost_usd, "lifecycle completed");
-                    }
-                }
-            }
-
-            // 5. Run due triggers (schedule + once types).
+            // 2. Run due triggers (schedule + once types).
             if let Some(ref trigger_store) = self.trigger_store {
                 match trigger_store.due_schedule_triggers().await {
                     Ok(due) => {
@@ -717,24 +624,7 @@ impl Daemon {
                 }
             }
 
-            // 5b. Morning brief delivery via Telegram.
-            if self.background_automation_enabled && !self.telegram_allowed_chats.is_empty() {
-                let now = chrono::Local::now();
-                let today = now.date_naive();
-                let hour = now.hour();
-                if (7..=9).contains(&hour) && self.last_brief_date != Some(today) {
-                    self.last_brief_date = Some(today);
-                    info!("generating morning brief for Telegram delivery");
-
-                    let brief_text = self.generate_brief_text().await;
-                    let chat_id = self.telegram_allowed_chats[0];
-                    if let Ok(mut queue) = self.pending_telegram_messages.lock() {
-                        queue.push((chat_id, brief_text));
-                    }
-                }
-            }
-
-            // 6. Check for config reload signal (SIGHUP).
+            // 3. Check for config reload signal (SIGHUP).
             if self
                 .config_reloaded
                 .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -868,220 +758,7 @@ impl Daemon {
                 warn!(error = %e, "failed to prune blackboard");
             }
 
-            // 12. Evaluate watchdog rules and execute fired actions.
-            if let Some(ref mut watchdog) = self.watchdog
-                && let Some(ref audit) = self.registry.audit_log
-            {
-                let (spent, budget, _) = self.registry.cost_ledger.budget_status();
-                let budget_pct = if budget > 0.0 {
-                    Some(spent / budget)
-                } else {
-                    None
-                };
-                let fired = watchdog.evaluate(audit, budget_pct);
-                for (name, action) in &fired {
-                    info!(rule = %name, "watchdog rule fired");
-
-                    // Record audit event.
-                    let _ = audit.record(
-                        &crate::audit::AuditEvent::new(
-                            "*",
-                            crate::audit::DecisionType::WatchdogFired,
-                            format!("Rule '{}' fired", name),
-                        )
-                        .with_metadata(serde_json::json!({"action": format!("{action:?}")})),
-                    );
-
-                    // Execute the action.
-                    match action {
-                        crate::watchdog::WatchdogAction::CreateTask {
-                            project,
-                            subject,
-                            description,
-                        } => match self.registry.assign(project, subject, description).await {
-                            Ok(task) => {
-                                info!(
-                                    rule = %name,
-                                    task = %task.id,
-                                    project = %project,
-                                    "watchdog created task"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    rule = %name,
-                                    project = %project,
-                                    error = %e,
-                                    "watchdog failed to create task"
-                                );
-                            }
-                        },
-                        crate::watchdog::WatchdogAction::SendDispatch { to, message } => {
-                            self.dispatch_bus
-                                .send(crate::message::Dispatch::new_typed(
-                                    "watchdog",
-                                    to,
-                                    crate::message::DispatchKind::Escalation {
-                                        project: "*".to_string(),
-                                        task_id: String::new(),
-                                        subject: format!("[watchdog] {name}"),
-                                        description: message.clone(),
-                                        attempts: 0,
-                                    },
-                                ))
-                                .await;
-                            info!(rule = %name, to = %to, "watchdog sent dispatch");
-                        }
-                        crate::watchdog::WatchdogAction::Escalate { message } => {
-                            self.dispatch_bus
-                                .send(crate::message::Dispatch::new_typed(
-                                    "watchdog",
-                                    &self.registry.leader_agent_name,
-                                    crate::message::DispatchKind::Escalation {
-                                        project: "*".to_string(),
-                                        task_id: String::new(),
-                                        subject: format!("[watchdog] {name}"),
-                                        description: message.clone(),
-                                        attempts: 0,
-                                    },
-                                ))
-                                .await;
-                            info!(rule = %name, "watchdog escalated to leader");
-                        }
-                        crate::watchdog::WatchdogAction::PauseProject { project } => {
-                            if let Some(sup) = self.registry.get_supervisor(project).await {
-                                let mut s = sup.lock().await;
-                                s.paused = true;
-                                info!(
-                                    rule = %name,
-                                    project = %project,
-                                    "watchdog paused project"
-                                );
-                            }
-                        }
-                        crate::watchdog::WatchdogAction::RunCommand { command } => {
-                            info!(rule = %name, command = %command, "watchdog executing command");
-                            match tokio::process::Command::new("sh")
-                                .arg("-c")
-                                .arg(command)
-                                .status()
-                                .await
-                            {
-                                Ok(status) => {
-                                    info!(
-                                        rule = %name,
-                                        status = %status,
-                                        "watchdog command completed"
-                                    );
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        rule = %name,
-                                        error = %e,
-                                        "watchdog command failed"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 13. Process pending note directives into tasks.
-            if let Some(ref ns) = self.note_store
-                && let Ok(pending) = ns.get_pending_directives()
-            {
-                for directive in pending.iter().take(5) {
-                    let _ =
-                        ns.update_directive_status(&directive.id, DirectiveStatus::Active, None);
-                    info!(
-                        directive = %directive.id,
-                        content = %directive.content,
-                        "directive activated"
-                    );
-                }
-            }
-
-            // 14. Anomaly detection: record baselines + check for anomalies.
-            {
-                let project_costs = self.registry.cost_ledger.daily_report();
-
-                // Compute failure rates from audit log if available.
-                let failure_rates: HashMap<String, (u32, u32)> = {
-                    let mut rates: HashMap<String, (u32, u32)> = HashMap::new();
-                    if let Some(ref audit) = self.registry.audit_log {
-                        for (project, _cost) in &project_costs {
-                            let recent = audit.query_by_project(project).unwrap_or_default();
-                            let recent_slice: Vec<_> = recent.into_iter().rev().take(50).collect();
-                            let total = recent_slice.len() as u32;
-                            let failures = recent_slice
-                                .iter()
-                                .filter(|e| {
-                                    e.decision_type == crate::audit::DecisionType::TaskFailed
-                                })
-                                .count() as u32;
-                            rates.insert(project.clone(), (failures, total));
-                        }
-                    }
-                    rates
-                };
-
-                let mut anomalies = Vec::new();
-
-                for (project, cost) in &project_costs {
-                    let (failures, total) = failure_rates.get(project).copied().unwrap_or((0, 0));
-                    let failure_rate = if total > 0 {
-                        failures as f32 / total as f32
-                    } else {
-                        0.0
-                    };
-
-                    self.anomaly_detector
-                        .record_baseline(project, *cost, failure_rate, 0);
-
-                    // Check for cost spikes.
-                    if let Some(anomaly) = self.anomaly_detector.check_cost(project, *cost) {
-                        warn!(
-                            project = %project,
-                            message = %anomaly.message,
-                            "anomaly detected: cost spike"
-                        );
-                        anomalies.push(anomaly);
-                    }
-
-                    // Check for failure rate surges.
-                    if let Some(anomaly) = self
-                        .anomaly_detector
-                        .check_failure_rate(project, failures, total)
-                    {
-                        warn!(
-                            project = %project,
-                            message = %anomaly.message,
-                            "anomaly detected: failure surge"
-                        );
-                        anomalies.push(anomaly);
-                    }
-                }
-
-                // Deliver anomalies via Telegram if configured.
-                if !anomalies.is_empty() {
-                    if let Ok(mut queue) = self.pending_telegram_messages.lock() {
-                        for anomaly in &anomalies {
-                            let text = format!(
-                                "\u{26a0}\u{fe0f} Anomaly: {}\nProject: {}\nSeverity: {:?}",
-                                anomaly.message,
-                                anomaly.project.as_deref().unwrap_or("system"),
-                                anomaly.severity,
-                            );
-                            for chat_id in &self.telegram_allowed_chats {
-                                queue.push((*chat_id, text.clone()));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 15. Flush debounced memory writes to project memory stores.
+            // 9. Flush debounced memory writes to project memory stores.
             if let Ok(mut wq) = self.write_queue.lock() {
                 let ready = wq.drain_ready(chrono::Utc::now());
                 if !ready.is_empty() {
@@ -1156,10 +833,8 @@ impl Daemon {
         listener: tokio::net::UnixListener,
         registry: Arc<ProjectRegistry>,
         dispatch_bus: Arc<DispatchBus>,
-        pulse_count: usize,
         trigger_store: Option<Arc<TriggerStore>>,
         chat_engine: Option<Arc<ChatEngine>>,
-        note_store: Option<Arc<NoteStore>>,
         event_buffer: Arc<Mutex<EventBuffer>>,
         running: Arc<std::sync::atomic::AtomicBool>,
         readiness: ReadinessContext,
@@ -1174,7 +849,6 @@ impl Daemon {
                     let dispatch_bus = dispatch_bus.clone();
                     let trigger_store = trigger_store.clone();
                     let chat_engine = chat_engine.clone();
-                    let note_store = note_store.clone();
                     let event_buffer = event_buffer.clone();
                     let readiness = readiness.clone();
                     tokio::spawn(async move {
@@ -1182,10 +856,8 @@ impl Daemon {
                             stream,
                             registry,
                             dispatch_bus,
-                            pulse_count,
                             trigger_store,
                             chat_engine,
-                            note_store,
                             event_buffer,
                             readiness,
                         )
@@ -1210,10 +882,8 @@ impl Daemon {
         stream: tokio::net::UnixStream,
         registry: Arc<ProjectRegistry>,
         dispatch_bus: Arc<DispatchBus>,
-        pulse_count: usize,
         trigger_store: Option<Arc<TriggerStore>>,
         chat_engine: Option<Arc<ChatEngine>>,
-        note_store: Option<Arc<NoteStore>>,
         event_buffer: Arc<Mutex<EventBuffer>>,
         readiness: ReadinessContext,
     ) -> Result<()> {
@@ -1265,7 +935,6 @@ impl Daemon {
                         "projects": project_names,
                         "project_count": project_names.len(),
                         "max_workers": worker_count,
-                        "pulses": pulse_count,
                         "triggers": trigger_count,
                         "pending_mail": mail_count,
                         "dispatch_health": {
@@ -1289,7 +958,6 @@ impl Daemon {
                     readiness_response(
                         &registry.leader_agent_name,
                         worker_limits,
-                        pulse_count,
                         dispatch_health,
                         (spent, budget, remaining),
                         &readiness,
@@ -2195,121 +1863,6 @@ impl Daemon {
                     None => serde_json::json!({"ok": true, "triggers": []}),
                 },
 
-                "watchdogs" => {
-                    serde_json::json!({"ok": true, "rules": registry.watchdog_rules_config})
-                }
-
-                "brief" => {
-                    use crate::proactive::{BriefBuilder, TaskSummary};
-
-                    let summaries = registry.list_project_summaries().await;
-                    let (spent, budget, _remaining) = registry.cost_ledger.budget_status();
-                    let worker_count = registry.total_max_workers().await;
-                    let dispatch_health = dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
-
-                    // Get recent audit events (last 50 for analysis).
-                    let recent = match &registry.audit_log {
-                        Some(audit) => audit.query_recent(50).unwrap_or_default(),
-                        None => Vec::new(),
-                    };
-
-                    // Compute summary stats from audit.
-                    let tasks_completed = recent
-                        .iter()
-                        .filter(|e| e.decision_type.to_string().contains("completed"))
-                        .count();
-                    let tasks_failed = recent
-                        .iter()
-                        .filter(|e| e.decision_type.to_string().contains("failed"))
-                        .count();
-                    let tasks_assigned = recent
-                        .iter()
-                        .filter(|e| e.decision_type.to_string().contains("assigned"))
-                        .count();
-
-                    let trigger_count = if let Some(ref ts) = trigger_store {
-                        ts.count_enabled().await.unwrap_or(0)
-                    } else {
-                        0
-                    };
-
-                    // Build structured brief via BriefBuilder.
-                    let mut builder = BriefBuilder::new();
-
-                    // Collect task summaries per category from project summaries.
-                    let mut completed = Vec::new();
-                    let mut blocked = Vec::new();
-                    let mut active = Vec::new();
-
-                    for s in &summaries {
-                        for _ in 0..s.done_tasks {
-                            completed.push(TaskSummary {
-                                id: String::new(),
-                                subject: format!("{} task", s.name),
-                                project: s.name.clone(),
-                                agent: None,
-                                cost_usd: None,
-                            });
-                        }
-                        for _ in 0..s.pending_tasks {
-                            blocked.push(TaskSummary {
-                                id: String::new(),
-                                subject: format!("{} pending", s.name),
-                                project: s.name.clone(),
-                                agent: None,
-                                cost_usd: None,
-                            });
-                        }
-                        for _ in 0..s.in_progress_tasks {
-                            active.push(TaskSummary {
-                                id: String::new(),
-                                subject: format!("{} in progress", s.name),
-                                project: s.name.clone(),
-                                agent: None,
-                                cost_usd: None,
-                            });
-                        }
-                    }
-
-                    builder.with_completed_tasks(&completed);
-                    builder.with_blocked_tasks(&blocked);
-                    builder.with_active_tasks(&active);
-
-                    // Add cost/budget section.
-                    if budget > 0.0 {
-                        builder.with_cost_summary(spent, budget);
-                    }
-
-                    let text = builder.render_text();
-
-                    // Append system health info (not modeled in BriefBuilder).
-                    let mut full_brief = text;
-                    full_brief.push_str(&format!(
-                        "--- System ---\n  {} workers, {} triggers, {} pending messages\n",
-                        worker_count, trigger_count, dispatch_health.unread
-                    ));
-                    if dispatch_health.dead_letters > 0 {
-                        full_brief.push_str(&format!(
-                            "  ! {} dead letters in dispatch queue\n",
-                            dispatch_health.dead_letters
-                        ));
-                    }
-
-                    serde_json::json!({
-                        "ok": true,
-                        "brief": full_brief.trim(),
-                        "stats": {
-                            "tasks_completed": tasks_completed,
-                            "tasks_failed": tasks_failed,
-                            "tasks_assigned": tasks_assigned,
-                            "budget_used_pct": if budget > 0.0 { (spent / budget) * 100.0 } else { 0.0 },
-                            "workers": worker_count,
-                            "triggers": trigger_count,
-                            "dead_letters": dispatch_health.dead_letters,
-                        }
-                    })
-                }
-
                 "agent_identity" => {
                     let agent_name = request.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     if agent_name.is_empty() {
@@ -2910,184 +2463,6 @@ impl Daemon {
                     }
                 }
 
-                // --- Notes & Directives ---
-                "note_save" => {
-                    let channel = request
-                        .get("channel")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let content = request
-                        .get("content")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
-                    if channel.is_empty() || content.is_empty() {
-                        serde_json::json!({"ok": false, "error": "channel and content required"})
-                    } else if let Some(ref ns) = note_store {
-                        match ns.save_note(channel, content) {
-                            Ok(note) => {
-                                let detected = DirectiveDetector::detect(content);
-                                match ns.save_directives(&note.id, detected) {
-                                    Ok(directives) => {
-                                        let dir_json: Vec<serde_json::Value> = directives
-                                            .iter()
-                                            .map(|d| {
-                                                serde_json::json!({
-                                                    "id": d.id,
-                                                    "note_id": d.note_id,
-                                                    "line_number": d.line_number,
-                                                    "content": d.content,
-                                                    "status": d.status.to_string(),
-                                                    "task_id": d.task_id,
-                                                    "matched_task_id": d.matched_task_id,
-                                                    "confidence": d.confidence,
-                                                    "created_at": d.created_at.to_rfc3339(),
-                                                    "updated_at": d.updated_at.to_rfc3339(),
-                                                })
-                                            })
-                                            .collect();
-                                        serde_json::json!({
-                                            "ok": true,
-                                            "note": {
-                                                "id": note.id,
-                                                "channel": note.channel,
-                                                "content": note.content,
-                                                "version": note.version,
-                                                "created_at": note.created_at.to_rfc3339(),
-                                                "updated_at": note.updated_at.to_rfc3339(),
-                                            },
-                                            "directives": dir_json,
-                                        })
-                                    }
-                                    Err(e) => {
-                                        serde_json::json!({"ok": false, "error": e.to_string()})
-                                    }
-                                }
-                            }
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        }
-                    } else {
-                        serde_json::json!({"ok": false, "error": "note store not initialized"})
-                    }
-                }
-
-                "note_get" => {
-                    let channel = request
-                        .get("channel")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
-                    if channel.is_empty() {
-                        serde_json::json!({"ok": false, "error": "channel required"})
-                    } else if let Some(ref ns) = note_store {
-                        match ns.get_note(channel) {
-                            Ok(Some(note)) => {
-                                let directives = ns.get_directives(&note.id).unwrap_or_default();
-                                let dir_json: Vec<serde_json::Value> = directives
-                                    .iter()
-                                    .map(|d| {
-                                        serde_json::json!({
-                                            "id": d.id,
-                                            "note_id": d.note_id,
-                                            "line_number": d.line_number,
-                                            "content": d.content,
-                                            "status": d.status.to_string(),
-                                            "task_id": d.task_id,
-                                            "matched_task_id": d.matched_task_id,
-                                            "confidence": d.confidence,
-                                            "created_at": d.created_at.to_rfc3339(),
-                                            "updated_at": d.updated_at.to_rfc3339(),
-                                        })
-                                    })
-                                    .collect();
-                                serde_json::json!({
-                                    "ok": true,
-                                    "note": {
-                                        "id": note.id,
-                                        "channel": note.channel,
-                                        "content": note.content,
-                                        "version": note.version,
-                                        "created_at": note.created_at.to_rfc3339(),
-                                        "updated_at": note.updated_at.to_rfc3339(),
-                                    },
-                                    "directives": dir_json,
-                                })
-                            }
-                            Ok(None) => {
-                                serde_json::json!({"ok": true, "note": null, "directives": []})
-                            }
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        }
-                    } else {
-                        serde_json::json!({"ok": false, "error": "note store not initialized"})
-                    }
-                }
-
-                "note_list" => {
-                    if let Some(ref ns) = note_store {
-                        match ns.list_notes() {
-                            Ok(notes) => {
-                                let items: Vec<serde_json::Value> = notes
-                                    .iter()
-                                    .map(|n| {
-                                        serde_json::json!({
-                                            "id": n.id,
-                                            "channel": n.channel,
-                                            "content": n.content,
-                                            "version": n.version,
-                                            "created_at": n.created_at.to_rfc3339(),
-                                            "updated_at": n.updated_at.to_rfc3339(),
-                                        })
-                                    })
-                                    .collect();
-                                serde_json::json!({"ok": true, "notes": items})
-                            }
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        }
-                    } else {
-                        serde_json::json!({"ok": false, "error": "note store not initialized"})
-                    }
-                }
-
-                "note_delete" => {
-                    let id = request.get("id").and_then(|v| v.as_str()).unwrap_or("");
-
-                    if id.is_empty() {
-                        serde_json::json!({"ok": false, "error": "id required"})
-                    } else if let Some(ref ns) = note_store {
-                        match ns.delete_note(id) {
-                            Ok(deleted) => serde_json::json!({"ok": true, "deleted": deleted}),
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        }
-                    } else {
-                        serde_json::json!({"ok": false, "error": "note store not initialized"})
-                    }
-                }
-
-                "directive_update" => {
-                    let directive_id = request
-                        .get("directive_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let status_str = request
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("pending");
-                    let task_id = request.get("task_id").and_then(|v| v.as_str());
-
-                    if directive_id.is_empty() {
-                        serde_json::json!({"ok": false, "error": "directive_id required"})
-                    } else if let Some(ref ns) = note_store {
-                        let status = DirectiveStatus::from_str_lossy(status_str);
-                        match ns.update_directive_status(directive_id, status, task_id) {
-                            Ok(_) => serde_json::json!({"ok": true}),
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        }
-                    } else {
-                        serde_json::json!({"ok": false, "error": "note store not initialized"})
-                    }
-                }
-
                 _ => serde_json::json!({"ok": false, "error": format!("unknown command: {cmd}")}),
             };
 
@@ -3110,79 +2485,6 @@ impl Daemon {
         self.running.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Generate morning brief text using the same logic as the "brief" IPC command.
-    async fn generate_brief_text(&self) -> String {
-        use crate::proactive::{BriefBuilder, TaskSummary};
-
-        let summaries = self.registry.list_project_summaries().await;
-        let (spent, budget, _remaining) = self.registry.cost_ledger.budget_status();
-        let worker_count = self.registry.total_max_workers().await;
-        let dispatch_health = self.dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
-
-        let trigger_count = if let Some(ref ts) = self.trigger_store {
-            ts.count_enabled().await.unwrap_or(0)
-        } else {
-            0
-        };
-
-        let mut builder = BriefBuilder::new();
-        let mut completed = Vec::new();
-        let mut blocked = Vec::new();
-        let mut active = Vec::new();
-
-        for s in &summaries {
-            for _ in 0..s.done_tasks {
-                completed.push(TaskSummary {
-                    id: String::new(),
-                    subject: format!("{} task", s.name),
-                    project: s.name.clone(),
-                    agent: None,
-                    cost_usd: None,
-                });
-            }
-            for _ in 0..s.pending_tasks {
-                blocked.push(TaskSummary {
-                    id: String::new(),
-                    subject: format!("{} pending", s.name),
-                    project: s.name.clone(),
-                    agent: None,
-                    cost_usd: None,
-                });
-            }
-            for _ in 0..s.in_progress_tasks {
-                active.push(TaskSummary {
-                    id: String::new(),
-                    subject: format!("{} in progress", s.name),
-                    project: s.name.clone(),
-                    agent: None,
-                    cost_usd: None,
-                });
-            }
-        }
-
-        builder.with_completed_tasks(&completed);
-        builder.with_blocked_tasks(&blocked);
-        builder.with_active_tasks(&active);
-
-        if budget > 0.0 {
-            builder.with_cost_summary(spent, budget);
-        }
-
-        let text = builder.render_text();
-        let mut full_brief = text;
-        full_brief.push_str(&format!(
-            "--- System ---\n  {} workers, {} triggers, {} pending messages\n",
-            worker_count, trigger_count, dispatch_health.unread
-        ));
-        if dispatch_health.dead_letters > 0 {
-            full_brief.push_str(&format!(
-                "  ! {} dead letters in dispatch queue\n",
-                dispatch_health.dead_letters
-            ));
-        }
-
-        full_brief
-    }
 }
 
 fn dispatch_state(dispatch: &Dispatch, overdue_cutoff: chrono::DateTime<Utc>) -> &'static str {
@@ -3226,7 +2528,6 @@ fn dispatch_summary_json(
 fn readiness_response(
     leader_agent_name: &str,
     mut worker_limits: Vec<(String, u32)>,
-    pulse_count: usize,
     dispatch_health: DispatchHealth,
     budget_status: (f64, f64, f64),
     readiness: &ReadinessContext,
@@ -3302,7 +2603,6 @@ fn readiness_response(
         "registered_owners": registered_owners,
         "registered_owner_count": managed_owners.len(),
         "max_workers": max_workers,
-        "pulses": pulse_count,
         "dispatch_health": {
             "unread": dispatch_health.unread,
             "awaiting_ack": dispatch_health.awaiting_ack,
@@ -3335,7 +2635,6 @@ mod tests {
         let response = readiness_response(
             "leader",
             vec![("leader".to_string(), 1), ("alpha".to_string(), 2)],
-            1,
             DispatchHealth::default(),
             (2.5, 50.0, 47.5),
             &ReadinessContext {
@@ -3364,7 +2663,6 @@ mod tests {
         let response = readiness_response(
             "leader",
             vec![("leader".to_string(), 1), ("alpha".to_string(), 2)],
-            2,
             DispatchHealth {
                 unread: 0,
                 awaiting_ack: 1,
@@ -3393,7 +2691,6 @@ mod tests {
         let response = readiness_response(
             "leader",
             vec![("leader".to_string(), 1), ("alpha".to_string(), 2)],
-            0,
             DispatchHealth::default(),
             (50.0, 50.0, 0.0),
             &ReadinessContext {
