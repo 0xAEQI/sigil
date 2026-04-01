@@ -1006,6 +1006,24 @@ pub struct ProjectConfig {
     /// Departments within this project (org chart hierarchy).
     #[serde(default)]
     pub departments: Vec<DepartmentConfig>,
+    /// Domain hints: keyword → skill/doc file mappings. Used by the Supervisor
+    /// to inject domain-specific context when tasks match keyword patterns.
+    /// Replaces the hardcoded keyword map in supervisor.rs.
+    #[serde(default)]
+    pub domain_hints: Vec<DomainHintConfig>,
+    /// Custom compaction instructions for this project. Appended to the 9-section
+    /// compaction prompt when agents working on this project need to compact.
+    #[serde(default)]
+    pub compact_instructions: Option<String>,
+}
+
+/// Domain keyword → file mapping for automatic context injection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DomainHintConfig {
+    /// Keywords that trigger this hint (matched case-insensitively against task subject + labels).
+    pub keywords: Vec<String>,
+    /// Skill/doc files to inject when keywords match (relative to project skills dir).
+    pub files: Vec<String>,
 }
 
 /// A department within a project — defines a team channel with its own agents.

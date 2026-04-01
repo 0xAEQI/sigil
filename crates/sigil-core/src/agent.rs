@@ -150,6 +150,10 @@ pub struct AgentConfig {
     /// from the provider instead of waiting for the full response. Requires the
     /// provider to support chat_stream(). Default: false.
     pub use_streaming_tools: bool,
+    /// Optional per-project/per-agent compaction instructions appended to the
+    /// 9-section compaction prompt. Example: "Always preserve trade positions
+    /// and PnL numbers in the summary."
+    pub compact_instructions: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -176,6 +180,7 @@ impl Default for AgentConfig {
             session_type: SessionType::Async,
             token_budget: None,
             use_streaming_tools: false,
+            compact_instructions: None,
         }
     }
 }
@@ -2559,7 +2564,11 @@ impl Agent {
                      Be precise. Include filenames, function signatures, error messages, and \
                      code snippets where they affect the next action. Vague summaries cause \
                      the agent to redo work or make wrong assumptions.\n\n\
-                     ## Execution Transcript\n\n{transcript}"
+                     {custom_instructions}\
+                     ## Execution Transcript\n\n{transcript}",
+                    custom_instructions = self.config.compact_instructions.as_ref()
+                        .map(|ci| format!("## Additional Instructions\n\n{ci}\n\n"))
+                        .unwrap_or_default()
                 )),
             }],
             tools: vec![],
