@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod chat_stream;
+pub mod checkpoint;
 pub mod config;
 pub mod identity;
 pub mod security;
