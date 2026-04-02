@@ -91,6 +91,18 @@ export default function AgentNav() {
 
       <div className="agent-nav-sep" />
 
+      {/* Root agents (no department) — above departments */}
+      {rootAgents.map((agent) => (
+        <div
+          key={agent.id}
+          className={`agent-row${selectedAgent === agent.name ? " active" : ""}`}
+          onClick={() => { setSelectedAgent(agent.name); navigate("/"); }}
+        >
+          {agent.display_name || agent.name}
+        </div>
+      ))}
+
+      {/* Department groups */}
       {deptGroups.map((group) => {
         const isCollapsed = collapsed[group.dept.id] ?? false;
         const isDeptActive = selectedAgent === `dept:${group.dept.id}`;
@@ -118,16 +130,6 @@ export default function AgentNav() {
           </div>
         );
       })}
-
-      {rootAgents.map((agent) => (
-        <div
-          key={agent.id}
-          className={`agent-row${selectedAgent === agent.name ? " active" : ""}`}
-          onClick={() => { setSelectedAgent(agent.name); navigate("/"); }}
-        >
-          {agent.display_name || agent.name}
-        </div>
-      ))}
 
       <div className="agent-nav-add" onClick={() => navigate("/agents")}>+</div>
 
