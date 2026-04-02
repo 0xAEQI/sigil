@@ -5,7 +5,7 @@ Sources: Sigil, Deer Flow, Hermes, Superpowers, Everything-Claude-Code, Claude-S
 ## Current Sigil Skill Lifecycle
 
 ```
-TOML on disk → Task.skill field → Supervisor loads prompt.system → Identity injection → Worker executes
+TOML on disk → Task.skill field → WorkerPool loads prompt.system → Identity injection → Worker executes
 ```
 
 Works for prompt injection. Missing: verification, composition, scoping, conditional activation, compliance.
@@ -96,7 +96,7 @@ after worker reports DONE. If checks fail, task is rejected.
 ### 2. Phased Execution with Gates (from Superpowers)
 
 Skills define phases. Gates between phases are hard stops — cannot proceed until
-the gate passes. Supervisor tracks phase state in task metadata.
+the gate passes. WorkerPool tracks phase state in task metadata.
 
 ```
 preflight [gate] → execute → verify [gate] → rollback-check
@@ -123,7 +123,7 @@ Skills should be hidden when their requirements aren't met:
 - `requires_expertise`: only show to agents with matching expertise
 - `platforms`: hide on incompatible OS
 
-Integration: Supervisor's `load_skill_prompt()` checks conditions before injection.
+Integration: WorkerPool's `load_skill_prompt()` checks conditions before injection.
 If conditions fail, skill is silently skipped and next candidate is tried.
 
 ### 5. Compliance Testing (from Everything-Claude-Code)
@@ -139,11 +139,11 @@ Long-term: feed compliance scores back into skill promotion confidence.
 ## Implementation Priority
 
 1. **Extend Skill struct** with new fields (conditions, verification, phases, red_flags, composition)
-2. **Wire tool gating** — the `is_tool_allowed()` method exists but is never called in supervisor
+2. **Wire tool gating** — the `is_tool_allowed()` method exists but is never called in worker_pool
 3. **Wire verification checks** into the existing VerificationPipeline
 4. **Add phase tracking** to task metadata
-5. **Add composition** — supervisor checks `next_skill` after DONE and creates follow-up task
-6. **Conditional activation** — supervisor filters skills by agent expertise + available tools
+5. **Add composition** — worker_pool checks `next_skill` after DONE and creates follow-up task
+6. **Conditional activation** — worker_pool filters skills by agent expertise + available tools
 7. **Project-scoped promotion** — SkillPromoter tracks source project per pattern
 
 ## The Workflow

@@ -379,7 +379,7 @@ impl AgentWorker {
     }
 
     /// Execute the hooked work through the native Sigil agent runtime.
-    /// Returns (outcome, cost_usd, turns_used) for the Supervisor to record.
+    /// Returns (outcome, cost_usd, turns_used) for the WorkerPool to record.
     pub async fn execute(&mut self) -> Result<(TaskOutcome, RuntimeExecution, f64, u32)> {
         let hook = match &self.hook {
             Some(h) => h.clone(),
@@ -797,7 +797,7 @@ impl AgentWorker {
             chain.run_on_complete(&mut worker_ctx, &mw_outcome).await;
         }
 
-        // Process outcome: save checkpoint, update task status, notify supervisor.
+        // Process outcome: save checkpoint, update task status, notify worker_pool.
         match &outcome {
             TaskOutcome::Done(result_text) => {
                 info!(worker = %self.name, task = %hook.task_id, "work completed");
@@ -849,7 +849,7 @@ impl AgentWorker {
                     turns,
                 )
                 .await;
-                // Mark task as Blocked and preserve the question for Supervisor resolution.
+                // Mark task as Blocked and preserve the question for WorkerPool resolution.
                 {
                     let mut store = self.tasks.lock().await;
                     if let Err(e) = store.update(&hook.task_id.0, |b| {

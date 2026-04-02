@@ -14,7 +14,7 @@ Sigil is an AI company orchestrator. You tell it what you want. It routes to the
 executes via Claude Code, learns from results, and reports back.
 
 **Backend (sigil — Rust, 9 crates, 466 tests):**
-- Long-running daemon with supervisor patrol loop
+- Long-running daemon with worker pool patrol loop
 - Task DAGs, missions, dependency inference
 - Expertise routing (right agent for right task)
 - Preflight assessment before execution
@@ -80,7 +80,7 @@ executes via Claude Code, learns from results, and reports back.
 
 ## III. What's Actually Good
 
-1. **The orchestration substrate is real.** Daemon, supervisor, workers, task DAGs, memory,
+1. **The orchestration substrate is real.** Daemon, worker pool, workers, task DAGs, memory,
    expertise routing, audit — these are not stubs. They work together. The system runs overnight
    and produces results.
 

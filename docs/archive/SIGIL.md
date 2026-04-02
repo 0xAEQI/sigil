@@ -244,7 +244,7 @@ Useful extension targets:
 - New provider: `crates/sigil-providers/`
 - New tool: `crates/sigil-tools/`
 - New daemon surface: `sigil-cli/src/cmd/daemon.rs` and `crates/sigil-orchestrator/src/daemon.rs`
-- New orchestration policy: `crates/sigil-orchestrator/src/supervisor.rs`
+- New orchestration policy: `crates/sigil-orchestrator/src/worker_pool.rs`
 
 ## Current Boundaries
 

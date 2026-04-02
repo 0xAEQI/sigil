@@ -1,12 +1,12 @@
 #![allow(clippy::too_many_arguments)]
 //! Agent orchestration engine — the operational heart of Sigil.
 //!
-//! Coordinates worker execution ([`AgentWorker`]), supervisor patrol ([`Supervisor`]),
+//! Coordinates worker execution ([`AgentWorker`]), worker pool patrol ([`WorkerPool`]),
 //! router classification ([`AgentRouter`]), project registry ([`ProjectRegistry`]),
 //! dispatch bus ([`DispatchBus`]), cost ledger ([`CostLedger`]), Prometheus metrics
 //! ([`SigilMetrics`]), and conversation storage.
 //!
-//! Workers run through Sigil's native agent loop. The supervisor enforces budgets
+//! Workers run through Sigil's native agent loop. The worker pool enforces budgets
 //! and escalation chains (worker → project leader → system leader → human).
 
 pub mod agent_registry;
@@ -40,7 +40,7 @@ pub mod project;
 pub mod registry;
 pub mod runtime;
 pub mod session_tracker;
-pub mod supervisor;
+pub mod worker_pool;
 pub mod template;
 pub mod tools;
 pub mod trigger;
@@ -74,6 +74,6 @@ pub use runtime::{
     RuntimeSession, RuntimeSessionStatus, VerificationReport,
 };
 pub use session_tracker::SessionTracker;
-pub use supervisor::Supervisor;
+pub use worker_pool::WorkerPool;
 pub use template::Template;
 pub use trigger::{EventPattern, Trigger, TriggerStore, TriggerType};

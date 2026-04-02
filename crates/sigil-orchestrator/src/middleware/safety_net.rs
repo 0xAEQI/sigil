@@ -107,7 +107,7 @@ impl Middleware for SafetyNetMiddleware {
             info!(task_id = %ctx.task_id, artifact = %artifact, "preserved artifact");
         }
 
-        // Store the annotated reason in metadata so the supervisor can pick it up.
+        // Store the annotated reason in metadata so the worker_pool can pick it up.
         ctx.metadata.insert("safety_net_reason".into(), annotated);
         ctx.metadata
             .insert("safety_net_artifacts".into(), artifacts.join("\n"));

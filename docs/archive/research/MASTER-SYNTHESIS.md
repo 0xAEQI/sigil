@@ -49,13 +49,13 @@ The goal: excellence through informed synthesis, not imitation.
 **Backend:** 9 crates, 466 tests, clippy clean
 - 8 active middleware (loop detection, guardrails, cost tracking, context compression,
   context budget, memory refresh, clarification, safety net)
-- Verification pipeline with confidence scoring (wired to supervisor)
-- Escalation tracker with three-strikes (wired to supervisor)
+- Verification pipeline with confidence scoring (wired to worker pool)
+- Escalation tracker with three-strikes (wired to worker pool)
 - Memory graph with dedup, hotness, hierarchy, query planner (wired to workers)
 - Notes with directive detection (wired to daemon patrol + web API)
 - Proactive engine with anomaly detection (wired to patrol)
 - Skill promotion from patterns (built, needs integration)
-- Event broadcasting (daemon → supervisor → WebSocket)
+- Event broadcasting (daemon → worker_pool → WebSocket)
 
 **Frontend:** Chat-first UI, 3-tab context panel (Notes/Context/Brief),
 layout switcher (Focus/Split/Stack), draggable divider, command palette
@@ -119,7 +119,7 @@ event broadcasting → brief generation
 **Gap:** is_tool_allowed() never called, no progressive loading
 **From:** Hermes (toolset composition), Deer Flow (deferred loading)
 **Build:**
-- Wire is_tool_allowed() in supervisor before worker execution
+- Wire is_tool_allowed() in worker_pool before worker execution
 - Tool registry with capability metadata (reads_fs, writes_fs, network, dangerous)
 - Workers access Sigil via CLI (`sigil task create`, `sigil daemon query`)
 - Progressive tool loading (ToolFilter middleware — metadata only, schemas on demand)
@@ -130,7 +130,7 @@ event broadcasting → brief generation
   - Both modes benefit from skill-level tool policy, but enforcement differs
 - NOTE: MCP server is DEFERRED — only needed when external consumers exist.
   Sigil is self-contained: daemon ↔ IPC ↔ workers ↔ Claude Code.
-**Files:** supervisor.rs, middleware/tool_filter.rs
+**Files:** worker_pool.rs, middleware/tool_filter.rs
 
 #### 6. EXECUTION
 **Gap:** 5 planned middleware not built
@@ -154,7 +154,7 @@ event broadcasting → brief generation
 - Phased execution with gates (prevent code before design)
 - Skill chaining (next_skill on completion, fallback_skill on failure)
 - Project-scoped promotion (2+ projects to become global)
-**Files:** sigil-tools/src/skill.rs, supervisor.rs, skill_promotion.rs
+**Files:** sigil-tools/src/skill.rs, worker_pool.rs, skill_promotion.rs
 
 #### 8. LEARNING
 **Gap:** No compliance measurement, no cross-project threshold, no instinct formation
@@ -184,7 +184,7 @@ event broadcasting → brief generation
 - DAG visualization in dashboard (live task graph with status per node)
 - Cost-based scheduling (use history to estimate and batch)
 - Delegation summarization (structured summary, not full reasoning)
-**Files:** supervisor.rs, sigil-ui new DAGView component
+**Files:** worker_pool.rs, sigil-ui new DAGView component
 
 ---
 

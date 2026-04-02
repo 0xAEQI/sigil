@@ -16,11 +16,11 @@ use crate::message::DispatchBus;
 use crate::metrics::SigilMetrics;
 use crate::operation::OperationStore;
 use crate::project::Project;
-use crate::supervisor::Supervisor;
+use crate::worker_pool::WorkerPool;
 
 pub struct ProjectRegistry {
     projects: RwLock<HashMap<String, Arc<Project>>>,
-    supervisors: RwLock<HashMap<String, Arc<Mutex<Supervisor>>>>,
+    worker_pools: RwLock<HashMap<String, Arc<Mutex<WorkerPool>>>>,
     pub dispatch_bus: Arc<DispatchBus>,
     pub wake: Arc<tokio::sync::Notify>,
     pub cost_ledger: Arc<CostLedger>,
@@ -45,7 +45,7 @@ impl ProjectRegistry {
     pub fn new(dispatch_bus: Arc<DispatchBus>, leader_agent_name: String) -> Self {
         Self {
             projects: RwLock::new(HashMap::new()),
-            supervisors: RwLock::new(HashMap::new()),
+            worker_pools: RwLock::new(HashMap::new()),
             dispatch_bus,
             wake: Arc::new(tokio::sync::Notify::new()),
             cost_ledger: Arc::new(CostLedger::new(50.0)),
@@ -70,7 +70,7 @@ impl ProjectRegistry {
         self.operation_store = Some(store);
     }
 
-    /// Register a project without creating a Supervisor.
+    /// Register a project without creating a WorkerPool.
     /// Used for dynamically registered projects
     /// but don't run daemon-driven execution.
     pub async fn register_project_only(&self, project: Arc<Project>) {
@@ -84,30 +84,30 @@ impl ProjectRegistry {
         self.projects.write().await.remove(name).is_some()
     }
 
-    pub async fn register_project(&self, project: Arc<Project>, mut supervisor: Supervisor) {
+    pub async fn register_project(&self, project: Arc<Project>, mut pool: WorkerPool) {
         let name = project.name.clone();
-        // Inject cost ledger + metrics + v3 components into the supervisor.
-        supervisor.cost_ledger = Some(self.cost_ledger.clone());
-        supervisor.metrics = Some(self.metrics.clone());
-        supervisor.audit_log = self.audit_log.clone();
-        supervisor.expertise_ledger = self.expertise_ledger.clone();
-        supervisor.blackboard = self.blackboard.clone();
+        // Inject cost ledger + metrics + v3 components into the worker pool.
+        pool.cost_ledger = Some(self.cost_ledger.clone());
+        pool.metrics = Some(self.metrics.clone());
+        pool.audit_log = self.audit_log.clone();
+        pool.expertise_ledger = self.expertise_ledger.clone();
+        pool.blackboard = self.blackboard.clone();
         self.metrics.ensure_project(&name);
         self.projects.write().await.insert(name.clone(), project);
-        self.supervisors
+        self.worker_pools
             .write()
             .await
-            .insert(name, Arc::new(Mutex::new(supervisor)));
+            .insert(name, Arc::new(Mutex::new(pool)));
     }
 
-    /// Wire agent registry, trigger store, and conversation store into all supervisors.
+    /// Wire agent registry, trigger store, and conversation store into all worker pools.
     pub async fn wire_agent_system(
         &self,
         agent_registry: Arc<crate::agent_registry::AgentRegistry>,
         trigger_store: Arc<crate::trigger::TriggerStore>,
         conversation_store: Option<Arc<crate::ConversationStore>>,
     ) {
-        let sups = self.supervisors.write().await;
+        let sups = self.worker_pools.write().await;
         for (_name, sup) in sups.iter() {
             let mut s = sup.lock().await;
             s.agent_registry = Some(agent_registry.clone());
@@ -356,15 +356,15 @@ impl ProjectRegistry {
         }
 
         // Parallel patrol: collect Arc clones, drop read lock, then join_all.
-        let supervisor_entries: Vec<(String, Arc<Mutex<Supervisor>>)> = {
-            let supervisors = self.supervisors.read().await;
-            supervisors
+        let pool_entries: Vec<(String, Arc<Mutex<WorkerPool>>)> = {
+            let pools = self.worker_pools.read().await;
+            pools
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()
         };
 
-        let futures: Vec<_> = supervisor_entries
+        let futures: Vec<_> = pool_entries
             .iter()
             .map(|(name, sup)| {
                 let name = name.clone();
@@ -372,7 +372,7 @@ impl ProjectRegistry {
                 async move {
                     let mut s = sup.lock().await;
                     if let Err(e) = s.patrol().await {
-                        warn!(project = %name, error = %e, "supervisor patrol failed");
+                        warn!(project = %name, error = %e, "worker_pool patrol failed");
                     }
                 }
             })
@@ -386,19 +386,19 @@ impl ProjectRegistry {
     pub async fn status(&self) -> RegistryStatus {
         let mut project_statuses = Vec::new();
         let projects = self.projects.read().await;
-        let supervisors = self.supervisors.read().await;
+        let pools = self.worker_pools.read().await;
 
         for (name, project) in projects.iter() {
             let open = project.open_tasks().await.len();
             let ready = project.ready_tasks().await.len();
-            let (idle, working, bonded) = if let Some(s) = supervisors.get(name) {
+            let (idle, working, bonded) = if let Some(s) = pools.get(name) {
                 s.lock().await.worker_counts()
             } else {
                 (0, 0, 0)
             };
 
-            // Get escalation target from the supervisor.
-            let team_leader = if let Some(s) = supervisors.get(name) {
+            // Get escalation target from the worker pool.
+            let team_leader = if let Some(s) = pools.get(name) {
                 let guard = s.lock().await;
                 Some(guard.escalation_target.clone())
             } else {
@@ -486,9 +486,9 @@ impl ProjectRegistry {
 
     /// Get real-time progress from all active workers across all projects.
     pub async fn worker_progress(&self) -> Vec<serde_json::Value> {
-        let supervisors = self.supervisors.read().await;
+        let pools = self.worker_pools.read().await;
         let mut all = Vec::new();
-        for (name, sup) in supervisors.iter() {
+        for (name, sup) in pools.iter() {
             if let Ok(sup) = sup.try_lock() {
                 let mut entries = sup.worker_progress();
                 for entry in &mut entries {
@@ -502,9 +502,9 @@ impl ProjectRegistry {
         all
     }
 
-    /// Get a supervisor by project name (for config reload).
-    pub async fn get_supervisor(&self, project: &str) -> Option<Arc<Mutex<Supervisor>>> {
-        self.supervisors.read().await.get(project).cloned()
+    /// Get a worker pool by project name (for config reload).
+    pub async fn get_worker_pool(&self, project: &str) -> Option<Arc<Mutex<WorkerPool>>> {
+        self.worker_pools.read().await.get(project).cloned()
     }
 
     /// Get a project's TaskBoard for direct task/mission access.
@@ -523,7 +523,7 @@ impl ProjectRegistry {
     /// Designed to minimize lock hold times — snapshot project list first, then read each
     /// project's task board independently without holding the registry-level RwLocks.
     pub async fn list_project_summaries(&self) -> Vec<ProjectSummary> {
-        // Step 1: Snapshot project list + supervisor refs, then release RwLocks immediately.
+        // Step 1: Snapshot project list + worker pool refs, then release RwLocks immediately.
         let project_list: Vec<(String, Arc<Project>)> = {
             let projects = self.projects.read().await;
             projects
@@ -670,7 +670,7 @@ mod tests {
 
         dispatch_bus
             .send(Dispatch::new_typed(
-                "supervisor-demo",
+                "pool-demo",
                 "leader",
                 DispatchKind::DelegateResponse {
                     reply_to: "t1".to_string(),
@@ -695,7 +695,7 @@ mod tests {
         dispatch_bus
             .send(
                 Dispatch::new_typed(
-                    "supervisor-demo",
+                    "pool-demo",
                     "leader",
                     DispatchKind::DelegateRequest {
                         prompt: "do something".to_string(),

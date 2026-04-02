@@ -27,7 +27,7 @@ From the code, Supermemory is primarily:
 - a set of SDK and middleware adapters that inject that memory into agent runtimes
 - an MCP surface and UI layer around that hosted memory product
 
-It is not, from this repo, a deep local agent orchestrator with supervisors, task DAGs, project patrol loops, durable worker ownership, or org-level control logic.
+It is not, from this repo, a deep local agent orchestrator with worker pools, task DAGs, project patrol loops, durable worker ownership, or org-level control logic.
 
 That matters because the right comparison is not "which orchestrator is better?" The fair comparison is:
 
@@ -195,7 +195,7 @@ This is where comparison discipline matters.
 
 Supermemory, from the code we can see, is not trying to provide:
 
-- a daemon-supervisor control plane
+- a daemon-worker_pool control plane
 - project patrol loops
 - task DAG execution
 - multi-agent routing and stable worker ownership

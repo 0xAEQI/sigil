@@ -6,7 +6,7 @@ use sigil_gates::TelegramChannel;
 use sigil_orchestrator::tools::build_orchestration_tools;
 use sigil_orchestrator::{
     AgentRouter, AuditLog, Blackboard, ConversationStore, Daemon, DispatchBus, ExpertiseLedger,
-    Project, ProjectRegistry, Supervisor,
+    Project, ProjectRegistry, WorkerPool,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -138,7 +138,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 );
                 let provider = build_provider_for_project(&config, &project_cfg.name)?;
                 let mut witness =
-                    Supervisor::new(&rig, provider.clone(), tools.clone(), dispatch_bus.clone());
+                    WorkerPool::new(&rig, provider.clone(), tools.clone(), dispatch_bus.clone());
                 witness.event_broadcaster = Some(event_broadcaster.clone());
                 let project_orch = config.orchestrator_for_project(&project_cfg.name);
 
@@ -234,7 +234,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 let agent_tools: Vec<Arc<dyn sigil_core::traits::Tool>> =
                     build_tools(&agent_workdir);
                 let provider = build_provider_for_agent(&config, &agent_cfg.name)?;
-                let mut agent_scout = Supervisor::new(
+                let mut agent_scout = WorkerPool::new(
                     &agent_project,
                     provider.clone(),
                     agent_tools,
@@ -244,7 +244,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
                 agent_scout.worker_max_budget_usd = agent_cfg.max_budget_usd;
 
-                // Wire memory + reflection for advisor agents (same pattern as project supervisors).
+                // Wire memory + reflection for advisor agents (same pattern as project worker pools).
                 if let Ok(mem) = open_memory(&config, Some(&agent_cfg.name)) {
                     let mem: Arc<dyn Memory> = Arc::new(mem);
                     agent_scout.memory = Some(mem);
@@ -477,7 +477,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 fa_tools.extend(orch_tools);
 
                 let leader_provider = build_provider_for_agent(&config, &leader_name)?;
-                let mut fa_witness = Supervisor::new(
+                let mut fa_witness = WorkerPool::new(
                     &fa_rig,
                     leader_provider.clone(),
                     fa_tools,
@@ -535,7 +535,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     daemon.set_trigger_store(trigger_store.clone());
                     daemon.set_agent_registry(agent_reg.clone());
 
-                    // Wire agent_registry + trigger_store into all supervisors.
+                    // Wire agent_registry + trigger_store into all worker pools.
                     daemon
                         .registry
                         .wire_agent_system(

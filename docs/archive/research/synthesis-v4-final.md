@@ -22,7 +22,7 @@ what exists into a living system.
 
 **What to do:**
 - Add `middleware_chain: MiddlewareChain` to AgentWorker
-- Supervisor builds chain per agent role during task assignment
+- WorkerPool builds chain per agent role during task assignment
 - execute() calls on_start → [before_model → model → after_model → before_tool → tool → after_tool]* → on_complete
 - Cost, guardrails, loop detection, context budget all activate
 
@@ -30,7 +30,7 @@ what exists into a living system.
 
 **From Deer Flow:** Their 13-middleware chain is conditional per agent type.
 Sigil should do the same — engineer gets all middleware, researcher gets a
-lighter chain. Build chain in supervisor based on agent role config.
+lighter chain. Build chain in worker_pool based on agent role config.
 
 ---
 
@@ -149,7 +149,7 @@ storage time and surface them differently in retrieval.
   - Halts execution cleanly (preserves state)
   - Pushes structured question to user via chat/Telegram/WebSocket
   - Worker waits (NEEDS_CONTEXT status)
-  - When user responds, supervisor injects answer and resumes worker
+  - When user responds, worker_pool injects answer and resumes worker
 - Question format: type (missing_info, choice, confirmation), context, options
 
 **This replaces the current BLOCKED → escalate flow with a clean

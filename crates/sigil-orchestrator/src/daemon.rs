@@ -895,8 +895,8 @@ impl Daemon {
                                     .set_project_budget(&pcfg.name, budget);
                             }
 
-                            // Update supervisor parameters.
-                            if let Some(sup) = self.registry.get_supervisor(&pcfg.name).await {
+                            // Update worker pool parameters.
+                            if let Some(sup) = self.registry.get_worker_pool(&pcfg.name).await {
                                 let mut s = sup.lock().await;
                                 s.max_workers = pcfg.max_workers;
 
@@ -924,7 +924,7 @@ impl Daemon {
                                     expertise_routing = s.expertise_routing,
                                     preflight = s.preflight_enabled,
                                     adaptive_retry = s.adaptive_retry,
-                                    "supervisor config updated via SIGHUP"
+                                    "worker_pool config updated via SIGHUP"
                                 );
                             }
                         }

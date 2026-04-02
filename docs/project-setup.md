@@ -278,7 +278,7 @@ project-alpha = 5.0
 project-beta = 3.0
 ```
 
-The supervisor checks `can_afford_project()` before spawning any worker. Budget status visible via `sigil daemon query cost`.
+The worker pool checks `can_afford_project()` before spawning any worker. Budget status visible via `sigil daemon query cost`.
 
 ## Verification
 

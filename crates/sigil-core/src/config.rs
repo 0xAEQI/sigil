@@ -757,9 +757,9 @@ pub struct ProjectConfig {
     /// Departments within this project (org chart hierarchy).
     #[serde(default)]
     pub departments: Vec<DepartmentConfig>,
-    /// Domain hints: keyword → skill/doc file mappings. Used by the Supervisor
+    /// Domain hints: keyword → skill/doc file mappings. Used by the WorkerPool
     /// to inject domain-specific context when tasks match keyword patterns.
-    /// Replaces the hardcoded keyword map in supervisor.rs.
+    /// Replaces the hardcoded keyword map in worker_pool.rs.
     #[serde(default)]
     pub domain_hints: Vec<DomainHintConfig>,
     /// Custom compaction instructions for this project. Appended to the 9-section

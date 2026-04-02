@@ -52,7 +52,7 @@ If workers need shared state, the orchestrator mediates via blackboard between p
 - **8+ workers** — add a tier: sub-orchestrators for groups of 3-5
 
 <HARD-GATE>
-Never overload a single orchestrator with 8+ parallel workers. Add hierarchy instead. Supervisor bottleneck degrades quality at 5+ direct reports.
+Never overload a single orchestrator with 8+ parallel workers. Add hierarchy instead. Worker pool bottleneck degrades quality at 5+ direct reports.
 </HARD-GATE>
 
 ---
@@ -82,4 +82,4 @@ Never overload a single orchestrator with 8+ parallel workers. Add hierarchy ins
 | "I'll just do them sequentially" | Sequential wastes context. Fresh workers = fresh context = better quality. |
 | "Workers can coordinate directly" | No. Workers are independent. Orchestrator mediates. |
 | "I'll forward the worker's output" | Synthesis is your job. Understand it, restate it, add judgment. |
-| "8 workers is fine" | Supervisor bottleneck is real. Add a tier at 5+. |
+| "8 workers is fine" | Worker pool bottleneck is real. Add a tier at 5+. |

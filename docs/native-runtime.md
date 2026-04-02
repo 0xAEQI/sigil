@@ -212,7 +212,7 @@ Text summaries still matter for the operator, but they should sit on top of stru
 The runtime should be designed for Sigil's current orchestration model:
 
 - `ChatEngine` creates or continues work
-- `Supervisor` assigns and schedules
+- `WorkerPool` assigns and schedules
 - `AgentWorker` executes the runtime session
 - middleware shapes behavior during execution
 - verification informs task closure or escalation

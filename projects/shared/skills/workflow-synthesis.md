@@ -88,7 +88,7 @@ Order improvements by impact × effort. Not everything worth doing is worth doin
 1. **Score each candidate** — high/medium/low for both impact and effort
 2. **Classify by path:**
    - **Harness (Path A)** — improves Claude Code + Sigil MCP integration (hooks, primer, skills)
-   - **Runtime (Path B)** — improves native agent orchestrator (agent loop, middleware, supervisor)
+   - **Runtime (Path B)** — improves native agent orchestrator (agent loop, middleware, worker pool)
    - **Shared** — improves both paths (memory, graph, blackboard, tools)
 3. **Prefer shared improvements** — changes that benefit both paths get priority
 4. **Create implementation plan** — ordered list of changes with the appropriate workflow for each

@@ -42,7 +42,7 @@ Sigil's center of gravity is different:
 - durable control-plane state
 - task ownership and routing
 - audit and intervention
-- supervisor logic
+- worker pool logic
 - budgets and patrol loops
 
 So Deer Flow is not "Sigil but better." It is a strong agent harness and product shell with a more mature live UX than Sigil, but with a shallower orchestration model.

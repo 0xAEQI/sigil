@@ -97,11 +97,11 @@ It is strong at:
 - environment backends
 - tool packaging
 
-### 3. Hermes is not a daemon-supervisor-taskboard system
+### 3. Hermes is not a daemon-worker_pool-taskboard system
 
 Hermes does have gateway and cron background execution, but it does not look like Sigil's:
 
-- per-project supervisors
+- per-project worker pools
 - task DAG orchestration
 - agent team assignment
 - expertise routing over task history
@@ -295,7 +295,7 @@ Key observations:
 
 - Hermes uses shadow git repos for transparent filesystem checkpoints.
 - Checkpoints happen automatically before file-mutating operations.
-- This is local filesystem rollback infrastructure, not task- or supervisor-level resumption.
+- This is local filesystem rollback infrastructure, not task- or worker_pool-level resumption.
 
 Relevant comparison for Sigil:
 

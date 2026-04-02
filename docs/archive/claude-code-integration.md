@@ -4,7 +4,7 @@ Sigil uses Claude Code in the daemon worker path, not in the basic `sigil run` p
 
 ## Where It Is Used
 
-- Project supervisors can run workers in `claude_code` mode
+- Project worker pools can run workers in `claude_code` mode
 - Advisor agents registered by the daemon also use Claude Code mode
 - `sigil run` and `sigil skill run` do not shell out to Claude Code; they use the internal agent loop
 

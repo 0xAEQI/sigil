@@ -6,7 +6,7 @@ Commit baseline: `29efa3e` (`Unify execution pipeline and harden orchestration`)
 ## Executive Summary
 
 Sigil is now a real agent orchestrator harness with a meaningful control plane, not just an idea pile.
-The daemon, supervisor loop, task DAG, budgets, audit log, blackboard, memory, checkpoints, dispatch
+The daemon, worker pool loop, task DAG, budgets, audit log, blackboard, memory, checkpoints, dispatch
 bus, readiness checks, and monitor surface all exist and are working together.
 
 It is materially better after the latest hardening pass:

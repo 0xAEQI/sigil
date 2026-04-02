@@ -16,7 +16,7 @@
 
 Sigil runs as a background daemon (`sigil daemon start`) with a 30-second patrol loop. The daemon owns all shared infrastructure:
 
-- **ProjectRegistry** — holds all projects and their supervisors
+- ****ProjectRegistry** — holds all projects and their worker pools
 - **DispatchBus** — SQLite-backed agent-to-agent message queue with ACK tracking
 - **CostLedger** — per-task cost tracking, daily budget enforcement (JSONL)
 - **AuditLog** — SQLite decision trail (routing, assignment, timeout, failure)
@@ -35,7 +35,7 @@ IPC via Unix socket at `~/.sigil/rm.sock` (JSON-line protocol, 40+ commands).
 Every 30 seconds:
 
 ```
-1. For each project → Supervisor.patrol()
+1. For each project → WorkerPool.patrol()
    ├─ Reload tasks from disk
    ├─ Reap finished workers, detect timeouts
    ├─ Handle blocked tasks (escalation)
@@ -49,9 +49,9 @@ Every 30 seconds:
 7. Update metrics
 ```
 
-### The Supervisor (1 per project, 45 fields)
+### The WorkerPool (1 per project, 45 fields)
 
-A Rust struct (`Arc<Mutex<Supervisor>>`) that manages one project's task execution:
+A Rust struct (`Arc<Mutex<WorkerPool>>`) that manages one project's task execution:
 
 - **Worker pool**: spawn up to `max_workers` concurrent tokio tasks, track timeouts, reap finished
 - **Agent selection**: `select_agent_for_task()` picks which agent runs a task from the project's team config, using expertise routing + load balancing
@@ -61,11 +61,11 @@ A Rust struct (`Arc<Mutex<Supervisor>>`) that manages one project's task executi
 - **Verification**: optional post-execution verification pipeline
 - **Metrics/audit**: record routing decisions, assignments, completions, failures
 
-The supervisor is NOT an agent. It has no UUID, no system prompt, no memory. It's static Rust code making orchestration decisions.
+The worker pool is NOT an agent. It has no UUID, no system prompt, no memory. It's static Rust code making orchestration decisions.
 
 ### The Agent Worker (ephemeral task executor)
 
-Created per-task by `Supervisor.create_worker()`. Fully configured with:
+Created per-task by `WorkerPool.create_worker()`. Fully configured with:
 
 - Identity (project default + persistent agent override from registry)
 - Tools (filtered by skill allow/deny lists)
@@ -131,7 +131,7 @@ An agent tool (not a daemon feature) that spawns ephemeral subagents within an a
 - `AgentHandle` tracks: id, description, status (Running/Completed/Failed), `notified` dedup flag
 - Atomic notification delivery: update handle status + send notification while holding registry lock
 
-**Current gap**: `agent_worker.rs execute_agent()` does NOT wire `notification_rx` or create `AgentInfra`. The DelegateTool infrastructure exists but is not connected in the supervisor worker path. It only works when `sigil chat` or `sigil run` sets it up manually.
+**Current gap**: `agent_worker.rs execute_agent()` does NOT wire `notification_rx` or create `AgentInfra`. The DelegateTool infrastructure exists but is not connected in the worker pool path. It only works when `sigil chat` or `sigil run` sets it up manually.
 
 ### Persistent Agents (AgentRegistry)
 
@@ -192,11 +192,11 @@ retry_count, max_retries (default 3)
 | TaskDone | YES | worker → leader | Task completed |
 | TaskBlocked | YES | worker → leader | Needs clarification |
 | TaskFailed | YES | worker → leader | Execution failed |
-| WorkerCrashed | YES | supervisor → leader | Worker timed out |
-| Escalation | YES | supervisor → leader | Blocked after max attempts |
-| Resolution | YES | leader → supervisor | Answer to escalation |
-| HumanEscalation | YES | supervisor → channels | Terminal escalation |
-| PatrolReport | GENERATED, NEVER CONSUMED | supervisor → leader | Active/pending counts |
+| WorkerCrashed | YES | worker_pool → leader | Worker timed out |
+| Escalation | YES | worker_pool → leader | Blocked after max attempts |
+| Resolution | YES | leader → worker_pool | Answer to escalation |
+| HumanEscalation | YES | worker_pool → channels | Terminal escalation |
+| PatrolReport | GENERATED, NEVER CONSUMED | worker_pool → leader | Active/pending counts |
 | CouncilTopic | NO | — | Never implemented |
 | CouncilResponse | NO | — | Never implemented |
 | CouncilSynthesis | NO | — | Never implemented |
@@ -324,13 +324,13 @@ These components are production-quality and should be preserved:
 
 ### 2. Communication Is Vertical-Only
 
-DispatchBus supports arbitrary from/to addressing and has 16 message types, but only 7 are used — all vertical (worker → leader, leader → supervisor). No agent-to-agent messaging. Agent A cannot send a directed message to Agent B.
+DispatchBus supports arbitrary from/to addressing and has 16 message types, but only 7 are used — all vertical (worker → leader, leader → worker_pool). No agent-to-agent messaging. Agent A cannot send a directed message to Agent B.
 
 9 dispatch types are dead code (PatrolReport generated but never consumed, Council system never implemented, TaskProposal/DependencySuggestion/AgentAdvice never sent).
 
-### 3. The Supervisor Is Not An Agent
+### 3. The WorkerPool Is Not An Agent
 
-The Supervisor is a Rust struct. It makes routing decisions via static code, not LLM reasoning. No UUID, no memory, no system prompt. Cannot be delegated to or from. All orchestration intelligence is hardcoded.
+The WorkerPool is a Rust struct. It makes routing decisions via static code, not LLM reasoning. No UUID, no memory, no system prompt. Cannot be delegated to or from. All orchestration intelligence is hardcoded.
 
 ### 4. `select_agent_for_task()` Solves A Non-Problem
 
@@ -338,7 +338,7 @@ Every task originates from either a trigger (owned by a specific agent) or a del
 
 ### 5. DelegateTool Is Not Wired In Workers
 
-The subagent notification infrastructure (AgentInfra, notification channels, LoopNotification drain) exists in delegate.rs and agent.rs, but `agent_worker.rs execute_agent()` does NOT set it up. Workers spawned by the supervisor cannot delegate to subagents.
+The subagent notification infrastructure (AgentInfra, notification channels, LoopNotification drain) exists in delegate.rs and agent.rs, but `agent_worker.rs execute_agent()` does NOT set it up. Workers spawned by the worker pool cannot delegate to subagents.
 
 ### 6. PeerAgentConfig Conflates Template And Runtime
 
@@ -401,7 +401,7 @@ Persistent agent delegation is the SAME pattern, just with:
 - Child persists across sessions (entity memory accumulates)
 - 5 response modes give precise control over where results land
 
-The supervisor's `create_worker()` already handles the context injection that persistent agents need (identity from registry, blackboard, org context, skills, middleware). The infrastructure is all there — it's just wired through the wrong abstraction (project-based supervisor routing instead of agent-based delegation).
+The worker pool's `create_worker()` already handles the context injection that persistent agents need (identity from registry, blackboard, org context, skills, middleware). The infrastructure is all there — it's just wired through the wrong abstraction (project-based worker pool routing instead of agent-based delegation).
 
 ### Interaction Model
 
@@ -424,7 +424,7 @@ The supervisor's `create_worker()` already handles the context injection that pe
 
 ### Agent Runtime
 
-Every persistent agent gets its own worker pool (replaces per-project Supervisor):
+Every persistent agent gets its own worker pool (replaces per-project WorkerPool):
 
 ```
 Agent (persistent, has UUID)
@@ -676,7 +676,7 @@ The existing `ClarificationMiddleware` already implements this pattern:
 
 `ClarificationType` already covers all cases: `MissingInfo`, `Choice`, `Confirmation` (= approval).
 
-**What changes:** Today, clarification halts and the supervisor escalates to the hardcoded `escalation_target`. In the new architecture, it routes via the department hierarchy instead:
+**What changes:** Today, clarification halts and the worker pool escalates to the hardcoded `escalation_target`. In the new architecture, it routes via the department hierarchy instead:
 
 ```
 Agent calls ask_clarification(type: "confirmation", question: "Deploy to prod?", context: "3 files changed")
@@ -752,7 +752,7 @@ Remove: TaskDone, TaskBlocked, TaskFailed, Resolution, PatrolReport, CouncilTopi
 
 | Component | Replacement |
 |-----------|-------------|
-| `Supervisor` as orchestration engine | Agent's own worker pool (infrastructure only) |
+| `WorkerPool` as orchestration engine | Agent's own worker pool (infrastructure only) |
 | `select_agent_for_task()` | Tasks are agent-bound at creation |
 | `AgentRole` enum | Removed — every agent can do everything |
 | `ProjectTeamConfig` | Removed — parent delegates to specific children |
@@ -788,7 +788,7 @@ Remove: TaskDone, TaskBlocked, TaskFailed, Resolution, PatrolReport, CouncilTopi
 
 | Component | Change |
 |-----------|--------|
-| Worker pool | Moves from per-project Supervisor to per-agent |
+| Worker pool | Moves from per-project WorkerPool to per-agent |
 | Escalation | Follows department hierarchy (dept.parent_id → manager_id) instead of hardcoded targets |
 | Task creation | Requires agent_id (never unassigned) |
 | Delegation | Unified delegate tool replaces dispatch_send + delegate + project_assign + channel_post |
@@ -842,8 +842,8 @@ No `select_agent_for_task()`. No team matching. No expertise routing for assignm
 - Update IPC `create_task` to require agent_id
 - Validate: no task can exist with empty agent_id
 
-### Phase 4: Replace Supervisor With Agent Worker Pool
-- Extract worker pool infrastructure from Supervisor into a standalone struct (spawn, track, reap, timeout, budget)
+### Phase 4: Extract Worker Pool Into Standalone Struct
+- Extract worker pool infrastructure from WorkerPool into a standalone struct (spawn, track, reap, timeout, budget)
 - Each agent in the registry gets a worker pool (lazy — only created when agent has pending tasks)
 - Patrol loop iterates agents with pending tasks, not projects
 - create_worker() uses agent's own identity from registry (already does this via lookup)

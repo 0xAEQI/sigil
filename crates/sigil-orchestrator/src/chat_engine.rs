@@ -1475,7 +1475,7 @@ impl ChatEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Supervisor;
+    use crate::WorkerPool;
     use crate::message::DispatchBus;
     use crate::project::Project;
     use crate::registry::ProjectRegistry;
@@ -1872,10 +1872,10 @@ mod tests {
         };
         let project = Arc::new(Project::from_config(&config, dir.path(), "test-model").unwrap());
         let provider: Arc<dyn Provider> = Arc::new(DoneProvider);
-        let mut supervisor = Supervisor::new(&project, provider, Vec::new(), dispatch_bus.clone());
-        supervisor.execution_mode = sigil_core::ExecutionMode::Agent;
-        supervisor.set_escalation_targets("leader", "leader");
-        registry.register_project(project, supervisor).await;
+        let mut pool = WorkerPool::new(&project, provider, Vec::new(), dispatch_bus.clone());
+        pool.execution_mode = sigil_core::ExecutionMode::Agent;
+        pool.set_escalation_targets("leader", "leader");
+        registry.register_project(project, pool).await;
 
         let conv_dir = TempDir::new().unwrap();
         let conv_path = conv_dir.path().join("conv.db");

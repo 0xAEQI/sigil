@@ -71,7 +71,7 @@ Sigil is now the clearest "real orchestrator" of the group.
 
 It has:
 
-- daemon and supervisor logic
+- daemon and worker pool logic
 - task and mission substrate
 - durable project and org state
 - routing and stable agent identity

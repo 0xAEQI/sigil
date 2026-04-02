@@ -101,7 +101,7 @@ But it is still mostly:
 
 It is not naturally:
 
-- project-supervisor-centric
+- project-worker_pool-centric
 - task-DAG-centric
 - org-control-plane-centric
 

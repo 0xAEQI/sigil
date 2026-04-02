@@ -29,7 +29,7 @@ sigil-cli
 - `sigil-memory`: SQLite memory with FTS5, embedding cache, hybrid ranking
 - `sigil-providers`: OpenRouter, Anthropic, Ollama clients plus model pricing
 - `sigil-tools`: shell, file, git, task, skill, and other agent tools
-- `sigil-orchestrator`: daemon, supervisors, workers, dispatch bus, cost ledger, audit log, blackboard, schedules
+- `sigil-orchestrator`: daemon, worker pools, workers, dispatch bus, cost ledger, audit log, blackboard, schedules
 - `sigil-gates`: channel adapters such as Telegram
 
 ## Runtime Path 1: One-Shot CLI Execution
@@ -70,7 +70,7 @@ daemon start
 
 The daemon owns:
 
-- Project registration and per-project supervisors
+- Project registration and per-project worker pools
 - Advisor-agent registration
 - Audit log, blackboard, dispatch bus, cost ledger, schedule store
 - Telegram ingress and council routing
@@ -99,7 +99,7 @@ In practice, the daemon code is set up to use Claude Code for the long-running w
 ### Claude Code Flow
 
 ```text
-Supervisor
+WorkerPool
   -> AgentWorker
   -> ClaudeCodeExecutor
   -> external `claude` process
@@ -226,6 +226,6 @@ For the proposed terminal operator shell that builds on these primitives, see [d
 - Provider routing: `sigil-cli/src/helpers.rs`
 - New tools: `crates/sigil-tools/` plus the relevant tool builders
 - Worker behavior: `crates/sigil-orchestrator/src/agent_worker.rs` and `executor.rs`
-- Orchestration policy: `crates/sigil-orchestrator/src/supervisor.rs` and `registry.rs`
+- Orchestration policy: `crates/sigil-orchestrator/src/worker_pool.rs` and `registry.rs`
 - Identity assembly: `crates/sigil-core/src/identity.rs`
 - CLI surface: `sigil-cli/src/cli.rs` and `sigil-cli/src/cmd/`

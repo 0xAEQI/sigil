@@ -156,7 +156,7 @@ For complex orchestration, read `subagents/pipeline-orchestrator.md` for the ful
 If you genuinely cannot determine something from the codebase:
 1. First try harder — check docs, configs, related code, git history
 2. If truly stuck, respond with `BLOCKED:` and a specific question
-3. The Supervisor will attempt project-level resolution (spawn another worker with your question)
+3. The WorkerPool will attempt project-level resolution (spawn another worker with your question)
 4. If still stuck, escalates to Lead Agent (cross-project knowledge)
 5. If Lead Agent can't resolve, escalates to human via Telegram
 

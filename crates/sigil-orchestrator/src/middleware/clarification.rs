@@ -4,7 +4,7 @@
 //! options, or a simple confirmation), it can invoke the `ask_clarification`
 //! tool. This middleware intercepts that tool call, parses the structured
 //! request, stores it in [`WorkerContext::metadata`], and halts execution
-//! cleanly so the supervisor can surface the question to the user.
+//! cleanly so the worker pool can surface the question to the user.
 //!
 //! Implements Priority 7 from the Sigil v4 synthesis: "Clarification Interruption."
 //! Inspired by Deer Flow's structured agent-to-human handoff pattern.
@@ -114,7 +114,7 @@ impl Middleware for ClarificationMiddleware {
         let request = Self::parse_request(&call.input);
         let question = request.question.clone();
 
-        // Serialize the structured request into metadata for the supervisor.
+        // Serialize the structured request into metadata for the worker_pool.
         match serde_json::to_string(&request) {
             Ok(json) => {
                 ctx.metadata.insert("clarification_request".into(), json);

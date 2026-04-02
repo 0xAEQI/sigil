@@ -187,7 +187,7 @@ Route tasks to the right agent at the right time.
 Task DAG
     ↓
 ┌──────────────────────────────────┐
-│ Supervisor                        │
+│ WorkerPool                        │
 │                                   │
 │ 1. Expertise routing              │  Match task domain → agent expertise scores
 │    - weighted by recency          │  Recent success on similar tasks scores higher
@@ -219,7 +219,7 @@ Task DAG
 ```
 
 **Key insight from DeerFlow:** Hard limit on delegation depth. Workers cannot
-recursively spawn sub-agents. The Supervisor is the only entity that creates tasks.
+recursively spawn sub-agents. The WorkerPool is the only entity that creates tasks.
 This prevents cascade failures. DeerFlow also limits parallel sub-agents to 3-4
 with a middleware clamping layer — Sigil should enforce similar limits.
 
@@ -474,7 +474,7 @@ showing 0 failures — agent claims alone are insufficient.
 **Key insight from Superpowers:** Three fix attempts, then stop and question
 whether the architecture is wrong rather than continuing to patch symptoms.
 
-**Key insight from GitNexus:** Confidence metadata on outcomes. The supervisor
+**Key insight from GitNexus:** Confidence metadata on outcomes. The worker pool
 uses confidence to decide auto-close vs. human review. Confidence propagates
 into the memory system — verified memories are more trustworthy.
 
@@ -995,7 +995,7 @@ results with terminal colors/formatting.
 ### Phase 2: Verification & Safety
 6. Verification pipeline: artifact check, test runner, spec compliance
 7. Confidence scoring: aggregate signals into f32
-8. Three-strikes escalation in supervisor
+8. Three-strikes escalation in worker pool
 9. Safety-net artifact preservation on failure
 10. Git worktree isolation for parallel workers on same repo
 

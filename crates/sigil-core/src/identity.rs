@@ -62,7 +62,7 @@ impl Identity {
                 .map(|d| load_optional(d, "WORKFLOW.md"))
                 .transpose()?
                 .flatten(),
-            // Injected at runtime by supervisor when task has a skill.
+            // Injected at runtime by worker_pool when task has a skill.
             skill_prompt: None,
         })
     }

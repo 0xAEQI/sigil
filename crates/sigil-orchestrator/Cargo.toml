@@ -2,7 +2,7 @@
 name = "sigil-orchestrator"
 version.workspace = true
 edition.workspace = true
-description = "Agent orchestration engine — supervisor, workers, chat, dispatch, and daemon"
+description = "Agent orchestration engine — worker pool, workers, chat, dispatch, and daemon"
 
 [dependencies]
 sigil-core = { workspace = true }

@@ -12,7 +12,7 @@ You are a systems architect specializing in agent orchestration. Your job is to 
 
 Sigil is an agent runtime with two active paths:
 - **Path A (harness):** Claude Code + Sigil MCP (hooks, primer, workflows, skills, graph)
-- **Path B (runtime):** Sigil's native Rust orchestrator (daemon, supervisor, workers, middleware, agent loop)
+- **Path B (runtime):** Sigil's native Rust orchestrator (daemon, worker pool, workers, middleware, agent loop)
 
 The goal is: Path B replaces Path A. But Path A must keep improving until then.
 

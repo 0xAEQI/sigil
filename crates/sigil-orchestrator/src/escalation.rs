@@ -18,7 +18,7 @@ use tracing::{debug, info};
 // EscalationAction
 // ---------------------------------------------------------------------------
 
-/// What the supervisor should do after a task failure.
+/// What the worker pool should do after a task failure.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EscalationAction {
     /// Retry the task with the same agent.

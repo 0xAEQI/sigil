@@ -41,9 +41,9 @@ struct TrackedWorker {
     timeout_secs: u64,
 }
 
-/// Supervisor: per-rig supervisor. Runs patrol cycles, manages workers,
+/// WorkerPool: per-rig worker pool. Runs patrol cycles, manages workers,
 /// detects stuck/orphaned tasks, handles escalation, reports to Leader Agent.
-pub struct Supervisor {
+pub struct WorkerPool {
     pub project_name: String,
     pub max_workers: u32,
     pub patrol_interval_secs: u64,
@@ -129,7 +129,7 @@ pub struct Supervisor {
     pub conversation_store: Option<Arc<crate::ConversationStore>>,
 }
 
-impl Supervisor {
+impl WorkerPool {
     pub fn new(
         project: &Project,
         provider: Arc<dyn Provider>,
@@ -620,7 +620,7 @@ impl Supervisor {
                             .with_task_id(&task_id)
                             .with_worker_name(format!("timeout-{}", task_id))
                             .with_progress_notes(format!(
-                                "Worker timed out after {}s — checkpoint captured externally by supervisor",
+                                "Worker timed out after {}s — checkpoint captured externally by worker_pool",
                                 self.worker_timeout_secs
                             ));
 
@@ -648,7 +648,7 @@ impl Supervisor {
             }
             self.dispatch_bus
                 .send(Dispatch::new_typed(
-                    &format!("supervisor-{}", self.project_name),
+                    &format!("pool-{}", self.project_name),
                     &self.escalation_target,
                     DispatchKind::DelegateRequest {
                         prompt: format!(
@@ -1161,7 +1161,7 @@ impl Supervisor {
                                         // Also send dispatch so delegate_from agent gets notified.
                                         dispatch_bus_worker
                                             .send(Dispatch::new_typed(
-                                                &format!("supervisor-{project_name_task}"),
+                                                &format!("pool-{project_name_task}"),
                                                 &outcome_recipient,
                                                 DispatchKind::DelegateResponse {
                                                     reply_to: reply_to_id,
@@ -1175,7 +1175,7 @@ impl Supervisor {
                                     _ => {
                                         dispatch_bus_worker
                                             .send(Dispatch::new_typed(
-                                                &format!("supervisor-{project_name_task}"),
+                                                &format!("pool-{project_name_task}"),
                                                 &outcome_recipient,
                                                 DispatchKind::DelegateResponse {
                                                     reply_to: reply_to_id,
@@ -1358,7 +1358,7 @@ impl Supervisor {
                             } => {
                                 dispatch_bus_worker
                                     .send(Dispatch::new_typed(
-                                        &format!("supervisor-{project_name_task}"),
+                                        &format!("pool-{project_name_task}"),
                                         &outcome_recipient,
                                         DispatchKind::DelegateRequest {
                                             prompt: format!(
@@ -1376,7 +1376,7 @@ impl Supervisor {
                             TaskOutcome::Failed(error) => {
                                 dispatch_bus_worker
                                     .send(Dispatch::new_typed(
-                                        &format!("supervisor-{project_name_task}"),
+                                        &format!("pool-{project_name_task}"),
                                         &outcome_recipient,
                                         DispatchKind::DelegateRequest {
                                             prompt: format!(
@@ -1494,7 +1494,7 @@ impl Supervisor {
         }
 
         // 3.5. Detect stalled missions and spawn redecomposition as a background task.
-        // Runs outside the supervisor lock to avoid blocking IPC and next patrol.
+        // Runs outside the worker_pool lock to avoid blocking IPC and next patrol.
         if self.auto_redecompose && !self.decomposition_model.is_empty() {
             let store = self.tasks.lock().await;
             let active_missions = store.active_missions(None);
@@ -1626,7 +1626,7 @@ impl Supervisor {
             self.last_report = current;
             self.dispatch_bus
                 .send(Dispatch::new_typed(
-                    &format!("supervisor-{}", self.project_name),
+                    &format!("pool-{}", self.project_name),
                     &self.escalation_target,
                     DispatchKind::DelegateResponse {
                         reply_to: format!("patrol-{}", self.project_name),
@@ -1657,11 +1657,11 @@ impl Supervisor {
     /// Handle blocked tasks: attempt project-level resolution or escalate to Leader Agent.
     ///
     /// Escalation chain:
-    ///   1. Worker BLOCKED → Supervisor spawns resolver worker (same project, has full codebase access)
-    ///   2. Resolver answers → Supervisor appends answer to task, resets to Pending for re-attempt
-    ///   3. Resolver also blocked → Supervisor escalates to Leader Agent via dispatch
+    ///   1. Worker BLOCKED → WorkerPool spawns resolver worker (same project, has full codebase access)
+    ///   2. Resolver answers → WorkerPool appends answer to task, resets to Pending for re-attempt
+    ///   3. Resolver also blocked → WorkerPool escalates to Leader Agent via dispatch
     ///   4. Leader Agent tries (has KNOWLEDGE.md + cross-project context)
-    ///   5. Leader Agent resolves → sends RESOLVED dispatch back → Supervisor re-opens task
+    ///   5. Leader Agent resolves → sends RESOLVED dispatch back → WorkerPool re-opens task
     ///   6. Leader Agent stuck → routes to human via Telegram
     // Phase 8: Clarification routing now goes through the department hierarchy
     // via `escalate_to_leader()` which uses `escalation_chain_target()` (Phase 6).
@@ -1815,7 +1815,7 @@ impl Supervisor {
             // Send HumanEscalation dispatch for internal tracking.
             self.dispatch_bus
                 .send(Dispatch::new_typed(
-                    &format!("supervisor-{}", self.project_name),
+                    &format!("pool-{}", self.project_name),
                     "human",
                     DispatchKind::HumanEscalation {
                         project: self.project_name.clone(),
@@ -1899,7 +1899,7 @@ impl Supervisor {
 
         self.dispatch_bus
             .send(Dispatch::new_typed(
-                &format!("supervisor-{}", self.project_name),
+                &format!("pool-{}", self.project_name),
                 target,
                 DispatchKind::DelegateRequest {
                     prompt: format!(
@@ -2166,13 +2166,13 @@ impl Supervisor {
 
 #[cfg(test)]
 mod tests {
-    use super::Supervisor;
+    use super::WorkerPool;
 
     #[test]
     fn cap_description_handles_unicode_without_panicking() {
         let mut description = format!("{}\n{}", "alpha ".repeat(120), "🙂".repeat(200),);
 
-        Supervisor::cap_description_with_limit(&mut description, 160);
+        WorkerPool::cap_description_with_limit(&mut description, 160);
 
         assert!(description.starts_with("[... "));
         assert!(description.is_char_boundary(description.len()));
