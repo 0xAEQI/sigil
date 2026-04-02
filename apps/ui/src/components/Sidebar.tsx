@@ -63,7 +63,7 @@ function DeptGroupView({
   selectedAgent: string | null;
   collapsed: Record<string, boolean>;
   onSelectAgent: (name: string) => void;
-  onSelectDept: (id: string) => void;
+  onSelectDept: (id: string, name: string) => void;
   onToggle: (id: string, e: React.MouseEvent) => void;
 }) {
   const isCollapsed = collapsed[node.dept.id] ?? false;
@@ -76,7 +76,7 @@ function DeptGroupView({
     <div className="dept-group" style={{ background: bg }}>
       <div
         className={`dept-name${isDeptActive ? " active" : ""}`}
-        onClick={() => onSelectDept(node.dept.id)}
+        onClick={() => onSelectDept(node.dept.id, node.dept.name)}
       >
         <span className="dept-name-label">{node.dept.name}</span>
         <span className="dept-chevron" onClick={(e) => onToggle(node.dept.id, e)}>
@@ -162,23 +162,26 @@ export default function AgentNav() {
     setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleSelectAgent = (name: string) => {
-    setSelectedAgent(name);
-    const currentPath = window.location.pathname;
-    const base = currentPath === "/login" ? "/" : currentPath;
-    navigate(`${base}?agent=${encodeURIComponent(name)}`);
+  const currentPath = () => {
+    const p = window.location.pathname;
+    return p === "/login" ? "/" : p;
   };
 
-  const handleSelectDept = (id: string) => {
+  const handleSelectAgent = (name: string) => {
+    setSelectedAgent(name);
+    navigate(`${currentPath()}?agent=${encodeURIComponent(name)}`);
+  };
+
+  const handleSelectDept = (id: string, name: string) => {
     setSelectedAgent(`dept:${id}`);
-    navigate(`/departments/${id}`);
+    navigate(`${currentPath()}?dept=${encodeURIComponent(name)}`);
   };
 
   return (
     <nav className="agent-nav">
       <div
         className={`agent-row scope-header${!selectedAgent ? " active" : ""}`}
-        onClick={() => { setSelectedAgent(null); navigate(window.location.pathname); }}
+        onClick={() => { setSelectedAgent(null); navigate(currentPath()); }}
       >
         {scopeName}
       </div>
