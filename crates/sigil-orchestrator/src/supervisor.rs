@@ -136,12 +136,7 @@ impl Supervisor {
     /// Select which agent runs a task. In the current architecture tasks are
     /// always agent-bound (one supervisor per project), so we simply return the
     /// project name as the agent identity.
-    async fn select_agent_for_task(
-        &self,
-        _task: &sigil_tasks::Task,
-    ) -> (String, Option<String>, Vec<String>) {
-        (self.project_name.clone(), None, Vec::new())
-    }
+
 
     pub fn new(
         project: &Project,
@@ -745,19 +740,18 @@ impl Supervisor {
             }
 
             let worker_idx = self.running_tasks.len() + 1;
-            let (agent_name, domain, ranking_info) = self.select_agent_for_task(&task).await;
+            // Use task.agent_id if set (agent-bound), otherwise fall back to project name.
+            let agent_name = task
+                .agent_id
+                .clone()
+                .unwrap_or_else(|| self.project_name.clone());
             let worker_name = format!("{}:{}:{}", self.project_name, agent_name, worker_idx);
 
             if let Some(ref audit) = self.audit_log {
-                let ranking_info = if ranking_info.is_empty() {
-                    "no expertise data".to_string()
+                let routing_summary = if task.agent_id.is_some() {
+                    format!("Agent-bound → {agent_name}")
                 } else {
-                    ranking_info.join(", ")
-                };
-                let routing_summary = if let Some(domain) = domain {
-                    format!("Domain '{domain}' → {agent_name} [rankings: {ranking_info}]")
-                } else {
-                    format!("Selected {agent_name} [rankings: {ranking_info}]")
+                    format!("Project default → {agent_name}")
                 };
                 let _ = audit.record(
                     &AuditEvent::new(
