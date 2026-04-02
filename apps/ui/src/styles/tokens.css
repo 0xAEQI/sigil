@@ -431,6 +431,7 @@ a:hover {
   padding: 2px;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .dept-name {
