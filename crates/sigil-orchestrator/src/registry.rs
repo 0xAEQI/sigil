@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use sigil_core::traits::{ChatRequest, Message, MessageContent, Provider, Role};
 
@@ -39,6 +39,8 @@ pub struct ProjectRegistry {
     pub conversation_store: Option<Arc<ConversationStore>>,
     /// Names from [[projects]] config (to distinguish from agent entries).
     pub config_project_names: Vec<String>,
+    /// Agent registry for global per-agent concurrency enforcement.
+    agent_registry: RwLock<Option<Arc<crate::agent_registry::AgentRegistry>>>,
 }
 
 impl ProjectRegistry {
@@ -57,6 +59,7 @@ impl ProjectRegistry {
             blackboard: None,
             conversation_store: None,
             config_project_names: Vec::new(),
+            agent_registry: RwLock::new(None),
         }
     }
 
@@ -107,6 +110,9 @@ impl ProjectRegistry {
         trigger_store: Arc<crate::trigger::TriggerStore>,
         conversation_store: Option<Arc<crate::ConversationStore>>,
     ) {
+        // Store registry reference for global concurrency enforcement.
+        *self.agent_registry.write().await = Some(agent_registry.clone());
+
         let sups = self.worker_pools.write().await;
         for (_name, sup) in sups.iter() {
             let mut s = sup.lock().await;
@@ -355,7 +361,6 @@ impl ProjectRegistry {
             }
         }
 
-        // Parallel patrol: collect Arc clones, drop read lock, then join_all.
         let pool_entries: Vec<(String, Arc<Mutex<WorkerPool>>)> = {
             let pools = self.worker_pools.read().await;
             pools
@@ -364,21 +369,89 @@ impl ProjectRegistry {
                 .collect()
         };
 
-        let futures: Vec<_> = pool_entries
+        // Phase 1: Reap completed workers + reload tasks (parallel per pool).
+        let reap_futures: Vec<_> = pool_entries
             .iter()
-            .map(|(name, sup)| {
+            .map(|(name, pool)| {
                 let name = name.clone();
-                let sup = sup.clone();
+                let pool = pool.clone();
                 async move {
-                    let mut s = sup.lock().await;
-                    if let Err(e) = s.patrol().await {
-                        warn!(project = %name, error = %e, "worker_pool patrol failed");
+                    let mut p = pool.lock().await;
+                    if let Err(e) = p.reap_and_reload().await {
+                        warn!(project = %name, error = %e, "reap_and_reload failed");
                     }
                 }
             })
             .collect();
+        futures::future::join_all(reap_futures).await;
 
-        futures::future::join_all(futures).await;
+        // Phase 2: Collect all ready tasks + running agent counts across all projects.
+        let mut all_ready: Vec<(String, sigil_tasks::Task, String)> = Vec::new();
+        let mut global_agent_counts: HashMap<String, u32> = HashMap::new();
+
+        for (name, pool) in &pool_entries {
+            let p = pool.lock().await;
+            // Accumulate running counts globally.
+            for (agent, count) in p.running_agent_counts() {
+                *global_agent_counts.entry(agent).or_default() += count;
+            }
+            // Collect ready tasks.
+            let ready = p.ready_for_spawn().await;
+            for (task, agent) in ready {
+                all_ready.push((name.clone(), task, agent));
+            }
+        }
+
+        // Phase 3: Spawn with global per-agent limits.
+        let agent_reg = self.agent_registry.read().await;
+        for (project, task, agent_name) in &all_ready {
+            // Per-agent concurrency check (global across projects).
+            let max_concurrent = if let Some(ref ar) = *agent_reg {
+                ar.get_max_concurrent_by_name(agent_name)
+                    .await
+                    .unwrap_or(1)
+            } else {
+                1
+            };
+            let current = global_agent_counts.get(agent_name).copied().unwrap_or(0);
+            if current >= max_concurrent {
+                debug!(
+                    agent = %agent_name,
+                    running = current,
+                    max = max_concurrent,
+                    "agent at global max concurrency, deferring"
+                );
+                continue;
+            }
+
+            // Per-project worker limit.
+            let pool = match pool_entries.iter().find(|(n, _)| n == project) {
+                Some((_, p)) => p,
+                None => continue,
+            };
+            {
+                let p = pool.lock().await;
+                if p.active_worker_count() >= p.max_workers as usize {
+                    continue;
+                }
+            }
+
+            // Spawn via the project's pool.
+            {
+                let mut p = pool.lock().await;
+                p.spawn_worker(task, agent_name).await;
+            }
+            *global_agent_counts.entry(agent_name.clone()).or_default() += 1;
+        }
+        drop(agent_reg);
+
+        // Phase 4: Per-pool reporting + stalled mission detection.
+        for (name, pool) in &pool_entries {
+            let mut p = pool.lock().await;
+            if let Err(e) = p.patrol_report().await {
+                warn!(project = %name, error = %e, "patrol report failed");
+            }
+        }
 
         Ok(())
     }

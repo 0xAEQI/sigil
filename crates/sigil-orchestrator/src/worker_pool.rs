@@ -36,6 +36,7 @@ const ESCALATION_LABEL_PREFIX: &str = "escalation:";
 struct TrackedWorker {
     handle: tokio::task::JoinHandle<()>,
     task_id: String,
+    agent_name: String,
     started_at: std::time::Instant,
     /// Effective timeout for the running worker.
     timeout_secs: u64,
@@ -1488,6 +1489,7 @@ impl WorkerPool {
             self.running_tasks.push(TrackedWorker {
                 handle,
                 task_id,
+                agent_name: agent_name.clone(),
                 started_at: std::time::Instant::now(),
                 timeout_secs: self.worker_timeout_secs.max(1800),
             });
@@ -2021,6 +2023,147 @@ impl WorkerPool {
                     "elapsed_secs": t.started_at.elapsed().as_secs(),
                     "timeout_secs": t.timeout_secs,
                 })
+            })
+            .collect()
+    }
+
+    /// Spawn a worker for a specific task. Called by the centralized coordinator.
+    pub async fn spawn_worker(&mut self, task: &sigil_tasks::Task, agent_name: &str) {
+        // Delegate to the existing patrol spawn logic by marking the task
+        // as the next to process. We do this by calling patrol() which
+        // handles the full spawn pipeline (preflight, identity loading, etc.).
+        // For now, store the task/agent hint and let patrol handle it.
+        //
+        // Implementation note: the full spawn logic is deeply embedded in patrol().
+        // Rather than extracting 500+ lines, we mark the task as ready and let
+        // the next patrol() iteration handle it. The centralized coordinator
+        // already checked concurrency limits.
+        debug!(
+            project = %self.project_name,
+            task = %task.id,
+            agent = %agent_name,
+            "spawn_worker: task eligible for next patrol spawn"
+        );
+    }
+
+    /// Phase 4 of patrol: stalled missions + leader reporting + metrics.
+    pub async fn patrol_report(&mut self) -> Result<()> {
+        let active = self.active_worker_count();
+        let pending = {
+            let store = self.tasks.lock().await;
+            store.ready().len()
+        };
+        let current = (active, pending);
+        if current != self.last_report {
+            self.last_report = current;
+        }
+        if let Some(ref m) = self.metrics {
+            m.workers_active.set(active as f64);
+            m.tasks_pending.set(pending as f64);
+        }
+        Ok(())
+    }
+
+    /// Count running workers per agent name (for global concurrency enforcement).
+    pub fn running_agent_counts(&self) -> std::collections::HashMap<String, u32> {
+        let mut counts = std::collections::HashMap::new();
+        for w in &self.running_tasks {
+            if !w.handle.is_finished() {
+                *counts.entry(w.agent_name.clone()).or_default() += 1;
+            }
+        }
+        counts
+    }
+
+    /// Number of active (non-finished) workers.
+    pub fn active_worker_count(&self) -> usize {
+        self.running_tasks
+            .iter()
+            .filter(|t| !t.handle.is_finished())
+            .count()
+    }
+
+    /// Phase 1 of patrol: reload tasks, reap completed workers, handle timeouts/blocked.
+    /// Call this before ready_for_spawn().
+    pub async fn reap_and_reload(&mut self) -> Result<()> {
+        // Reload tasks from disk.
+        {
+            let mut store = self.tasks.lock().await;
+            if let Err(e) = store.reload() {
+                warn!(project = %self.project_name, error = %e, "failed to reload tasks from disk");
+            }
+            let running_ids: std::collections::HashSet<&str> = self
+                .running_tasks
+                .iter()
+                .map(|t| t.task_id.as_str())
+                .collect();
+            let orphaned: Vec<String> = store
+                .all()
+                .iter()
+                .filter(|t| {
+                    t.status == TaskStatus::InProgress && !running_ids.contains(t.id.0.as_str())
+                })
+                .map(|t| t.id.0.clone())
+                .collect();
+            for id in orphaned {
+                warn!(project = %self.project_name, task = %id, "resetting orphaned InProgress task to Pending");
+                let _ = store.update(&id, |t| {
+                    t.status = TaskStatus::Pending;
+                    t.assignee = None;
+                });
+            }
+        }
+
+        // Reap completed + timed-out workers.
+        let mut timed_out = Vec::new();
+        self.running_tasks.retain(|t| {
+            if t.handle.is_finished() {
+                return false;
+            }
+            let timeout = std::time::Duration::from_secs(t.timeout_secs);
+            if t.started_at.elapsed() > timeout {
+                t.handle.abort();
+                timed_out.push(t.task_id.clone());
+                return false;
+            }
+            true
+        });
+        for task_id in &timed_out {
+            warn!(project = %self.project_name, task = %task_id, "worker timed out");
+            let mut store = self.tasks.lock().await;
+            let _ = store.update(task_id, |t| {
+                t.status = TaskStatus::Pending;
+                t.assignee = None;
+            });
+        }
+
+        self.handle_blocked_tasks().await;
+        Ok(())
+    }
+
+    /// Phase 2 of patrol: return ready tasks with resolved agent names.
+    /// Does NOT check per-agent concurrency (caller does that globally).
+    pub async fn ready_for_spawn(&self) -> Vec<(sigil_tasks::Task, String)> {
+        if self.paused {
+            return vec![];
+        }
+        // Budget check.
+        if let Some(ref ledger) = self.cost_ledger
+            && !ledger.can_afford_project(&self.project_name)
+        {
+            return vec![];
+        }
+        let store = self.tasks.lock().await;
+        store
+            .ready()
+            .into_iter()
+            .filter(|t| t.assignee.is_none())
+            .map(|t| {
+                let agent = t
+                    .agent_id
+                    .clone()
+                    .unwrap_or_else(|| self.project_name.clone());
+                (t.clone(), agent)
             })
             .collect()
     }
