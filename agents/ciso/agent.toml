@@ -1,0 +1,10 @@
+name = "ciso"
+prefix = "ci"
+model = "stepfun/step-3.5-flash:free"
+role = "executive"
+voice = "vocal"
+runtime = "openrouter_agent"
+execution_mode = "agent"
+max_workers = 2
+max_turns = 25
+expertise = ["security", "compliance", "threat-modeling", "vulnerability", "audit", "incident-response"]
