@@ -931,11 +931,7 @@ impl AgentRegistry {
     }
 
     /// Check budget: returns amount_usd if a policy exists for the given scope.
-    pub async fn check_budget(
-        &self,
-        scope_type: &str,
-        scope_id: &str,
-    ) -> Result<Option<f64>> {
+    pub async fn check_budget(&self, scope_type: &str, scope_id: &str) -> Result<Option<f64>> {
         let db = self.db.lock().await;
         let amount: Option<f64> = db
             .query_row(

@@ -66,8 +66,7 @@ pub(crate) async fn cmd_trigger(
                     cooldown_secs,
                 }
             } else if webhook {
-                let public_id =
-                    sigil_orchestrator::trigger::generate_webhook_public_id();
+                let public_id = sigil_orchestrator::trigger::generate_webhook_public_id();
                 sigil_orchestrator::trigger::TriggerType::Webhook {
                     public_id,
                     signing_secret,

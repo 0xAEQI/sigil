@@ -1441,7 +1441,8 @@ impl WorkerPool {
                                 }
 
                                 // Per-task transcript channel (findable by task_id).
-                                let task_channel_name = format!("transcript:task:{}", task_id_clone);
+                                let task_channel_name =
+                                    format!("transcript:task:{}", task_id_clone);
                                 let task_chat_id = crate::conversation_store::named_channel_chat_id(
                                     &task_channel_name,
                                 );
@@ -1458,7 +1459,12 @@ impl WorkerPool {
                                     let text = msg.content.to_transcript_text();
                                     if !text.is_empty() {
                                         let _ = cs
-                                            .record_with_source(task_chat_id, role, &text, Some("agent"))
+                                            .record_with_source(
+                                                task_chat_id,
+                                                role,
+                                                &text,
+                                                Some("agent"),
+                                            )
                                             .await;
                                     }
                                 }

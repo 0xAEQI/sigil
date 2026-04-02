@@ -771,10 +771,8 @@ pub fn build_orchestration_tools(
     event_broadcaster: Option<Arc<crate::EventBroadcaster>>,
 ) -> Vec<Arc<dyn Tool>> {
     let leader_name = registry.leader_agent_name.clone();
-    let mut delegate_tool = crate::unified_delegate::UnifiedDelegateTool::new(
-        dispatch_bus,
-        leader_name.clone(),
-    );
+    let mut delegate_tool =
+        crate::unified_delegate::UnifiedDelegateTool::new(dispatch_bus, leader_name.clone());
     if let Some(broadcaster) = event_broadcaster {
         delegate_tool = delegate_tool.with_event_broadcaster(broadcaster);
     }

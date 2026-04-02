@@ -283,7 +283,8 @@ impl ProjectRegistry {
                 Ok(response) if response.content.is_some() => {
                     let mut result =
                         DecompositionResult::parse(response.content.as_deref().unwrap());
-                    let task_ids = result.materialize(&mut store, &project.prefix, &mission.id, None)?;
+                    let task_ids =
+                        result.materialize(&mut store, &project.prefix, &mission.id, None)?;
                     info!(
                         project = %project_name,
                         mission = %mission.id,
@@ -363,10 +364,7 @@ impl ProjectRegistry {
 
         let pool_entries: Vec<(String, Arc<Mutex<WorkerPool>>)> = {
             let pools = self.worker_pools.read().await;
-            pools
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
+            pools.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
         };
 
         // Phase 1: Reap completed workers + reload tasks (parallel per pool).
@@ -407,9 +405,7 @@ impl ProjectRegistry {
         for (project, task, agent_name) in &all_ready {
             // Per-agent concurrency check (global across projects).
             let max_concurrent = if let Some(ref ar) = *agent_reg {
-                ar.get_max_concurrent_by_name(agent_name)
-                    .await
-                    .unwrap_or(1)
+                ar.get_max_concurrent_by_name(agent_name).await.unwrap_or(1)
             } else {
                 1
             };

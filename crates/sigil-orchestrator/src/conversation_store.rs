@@ -379,7 +379,11 @@ impl ConversationStore {
     }
 
     /// Get transcript for a specific task.
-    pub async fn task_transcript(&self, task_id: &str, limit: usize) -> Result<Vec<ConversationMessage>> {
+    pub async fn task_transcript(
+        &self,
+        task_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ConversationMessage>> {
         let channel_name = format!("transcript:task:{}", task_id);
         let chat_id = named_channel_chat_id(&channel_name);
         self.recent(chat_id, limit).await

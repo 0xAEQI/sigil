@@ -251,7 +251,9 @@ mod tests {
 
         let text = "TASK: Step A\nDESC: First\nDEPS:\nLABELS:\n---\nTASK: Step B\nDESC: Second\nDEPS: 0\nLABELS:";
         let mut result = DecompositionResult::parse(text);
-        let ids = result.materialize(&mut board, "ts", "ts-m001", None).unwrap();
+        let ids = result
+            .materialize(&mut board, "ts", "ts-m001", None)
+            .unwrap();
 
         assert_eq!(ids.len(), 2);
         let t1 = board.get(&ids[0].0).unwrap();
@@ -296,7 +298,11 @@ mod tests {
             cost_usd: 0.0,
         };
 
-        assert!(result.materialize(&mut board, "ts", "ts-m001", None).is_err());
+        assert!(
+            result
+                .materialize(&mut board, "ts", "ts-m001", None)
+                .is_err()
+        );
     }
 
     #[test]
@@ -306,7 +312,9 @@ mod tests {
 
         let text = "TASK: Only task\nDESC: solo\nDEPS:\nLABELS:";
         let mut result = DecompositionResult::parse(text);
-        let ids = result.materialize(&mut board, "ts", "ts-m042", None).unwrap();
+        let ids = result
+            .materialize(&mut board, "ts", "ts-m042", None)
+            .unwrap();
 
         let task = board.get(&ids[0].0).unwrap();
         assert_eq!(task.mission_id.as_deref(), Some("ts-m042"));

@@ -40,12 +40,12 @@ pub mod project;
 pub mod registry;
 pub mod runtime;
 pub mod session_tracker;
-pub mod worker_pool;
 pub mod template;
 pub mod tools;
 pub mod trigger;
 pub mod unified_delegate;
 pub mod verification;
+pub mod worker_pool;
 
 pub use agent_registry::Department;
 pub use agent_router::{AgentRouter, RouteDecision};
@@ -74,6 +74,6 @@ pub use runtime::{
     RuntimeSession, RuntimeSessionStatus, VerificationReport,
 };
 pub use session_tracker::SessionTracker;
-pub use worker_pool::WorkerPool;
 pub use template::Template;
 pub use trigger::{EventPattern, Trigger, TriggerStore, TriggerType};
+pub use worker_pool::WorkerPool;
