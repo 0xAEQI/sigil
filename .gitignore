@@ -25,7 +25,6 @@ apps/ui/.env*.local
 
 # Agent runtime state (ignore), but track agent templates (ship with Sigil)
 agents/*/.sigil/
-!agents/*/agent.md
 !agents/*/agent.toml
 
 # Project directories (personal — create your own)
