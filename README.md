@@ -7,13 +7,23 @@
 
 **Persistent agent orchestration in Rust.** Agents that remember, coordinate, and act autonomously.
 
-Sigil is a runtime for persistent AI agents -- not one-shot sessions that forget everything, but identities with memory, hierarchy, and scheduled behaviors. Agents communicate through channels, delegate through dispatch, and evolve through triggers and skills.
+Sigil is a runtime for persistent AI agents -- not one-shot sessions that forget everything, but identities with memory, departments, and scheduled behaviors. Agents communicate through a unified delegate tool, coordinate through a department-scoped blackboard, and evolve through triggers and skills.
 
-## Core Model
+## Four Primitives
+
+**Agent** -- persistent identity with UUID, system prompt, entity-scoped memory. Belongs to a department. Not a running process -- loaded into fresh sessions on demand. Accumulated knowledge persists across sessions.
+
+**Department** -- UUID-identified organizational unit with its own hierarchy. Has a name, project scope, manager (an agent), and parent department. Escalation follows the department chain. Blackboard visibility is department-scoped.
+
+**Task** -- always agent-bound. Every task has an `agent_id` that determines which agent executes it. Tasks are never free-floating -- they're created by triggers, delegation, or direct assignment.
+
+**Delegation** -- unified `delegate` tool for all inter-agent interaction. One tool replaces messaging, task assignment, subagent spawning, and department broadcasts.
+
+## Triggers + Skills
 
 Everything in Sigil flows through two primitives:
 
-**Triggers** define *when* -- a cron schedule (`0 9 * * *`), an interval (`every 1h`), a one-shot time, or a runtime event (task completed, dispatch received, channel message).
+**Triggers** define *when* -- a cron schedule (`0 9 * * *`), an interval (`every 1h`), a one-shot time, or a runtime event (task completed, dispatch received, department message).
 
 **Skills** define *what* -- a TOML file with a system prompt and tool restrictions that gets loaded into the agent session when a trigger fires.
 
@@ -21,8 +31,6 @@ Everything in Sigil flows through two primitives:
 # Agent template with triggers
 ---
 name: engineer
-parent: lead
-project: sigil
 capabilities: [manage_triggers]
 triggers:
   - name: on-dispatch
@@ -39,30 +47,44 @@ You are the Sigil systems engineer...
 
 An agent's "subconscious" -- health checks, memory consolidation, self-reflection -- is just triggers and skills in the template. No special subsystems.
 
-## Persistent Agents
+## Departments
 
-Agents live in a SQLite registry (`~/.sigil/agents.db`). Each has a stable UUID, system prompt, project scope, and entity-scoped memory that accumulates across sessions. They're not running processes -- they're identities loaded into fresh sessions on demand.
-
-**Org tree**: every agent has an optional `parent_id`. Shadow (the system leader) is the root. Department = leader + direct reports. Escalation walks up the tree. No config files needed -- the hierarchy is the data.
+Agents are organized into departments stored in SQLite (`~/.sigil/agents.db`). Each department has a UUID, a manager, and a parent department. Agents belong to a department via `department_id`.
 
 ```
-Shadow (root)
-  +-- sigil-lead
-  |     +-- engineer
-  |     +-- reviewer
-  +-- algo-lead
-        +-- trader
+Root Department (manager: Shadow)
+  +-- "Sigil Core" (manager: CTO)
+  |     +-- "Backend" (manager: BackendLead)
+  |     |     members: API Engineer, DB Engineer
+  |     +-- "Frontend" (manager: FrontendLead)
+  |           members: UI Engineer
+  +-- "Trading" (manager: TradingLead)
+        members: StrategyBot, RiskBot
 ```
 
-## Agent Communication
+Escalation follows the department chain: agent blocked -> department manager -> parent department manager -> ... -> Shadow -> user.
 
-**1:1 directed** -- dispatch bus. Agent sends a typed message (delegation, escalation, advice) to another agent. `DispatchReceived` event fires the target's trigger.
+## Unified Delegate Tool
 
-**1:many broadcast** -- conversation channels. Agent posts to a department or project channel via `channel_post`. All participating agents can react. Full conversation history persists in the ConversationStore.
+One tool for all inter-agent interaction:
 
-**Shared knowledge** -- blackboard. Scoped entries (project, department, agent) for findings, decisions, and claims. Agents read it for context, post to it for coordination.
+```
+delegate(to, prompt, response, create_task, skill, tools)
+```
 
-Every persistent agent gets `dispatch_read`, `dispatch_send`, and `channel_post` tools automatically.
+| `to` | What happens |
+|------|-------------|
+| Agent name | Message or task delegation to a persistent agent |
+| `"dept:Engineering"` | Broadcast to all department members |
+| `"subagent"` | Spawn an ephemeral subagent |
+
+| `response` mode | Where the response goes |
+|-----------------|------------------------|
+| `"origin"` | Back into the calling session |
+| `"perpetual"` | Into the agent's perpetual session |
+| `"async"` | Fresh async session for the sender |
+| `"department"` | Posted to the department channel |
+| `"none"` | Fire and forget |
 
 ## Architecture
 
@@ -74,7 +96,7 @@ CHAT SESSION (CLI / Telegram / Slack / Web)
     User sends message
         |
         v
-    Agent session (identity + memory + tools + org context)
+    Agent session (identity + memory + tools + dept context)
         |
         v
     Agent loop: LLM --> tool calls --> LLM --> ... --> response
@@ -83,21 +105,18 @@ CHAT SESSION (CLI / Telegram / Slack / Web)
     Conversation persists in ConversationStore
 
 
-ASYNC TASK (trigger fires / task assigned / dispatch received)
+ASYNC TASK (trigger fires / delegation / dispatch)
 
-    Trigger or task creation
+    Trigger or delegate creates agent-bound task
         |
         v
-    Supervisor assigns to worker
-        |
-        v
-    Worker loads: agent identity + skill + memory + org context + blackboard
+    Worker loads: agent identity + skill + memory + dept context + blackboard
         |
         v
     Agent loop: LLM --> tool calls --> LLM --> ... --> done
         |
         v
-    Outcome: DONE / BLOCKED (escalate) / FAILED (retry)
+    Outcome: DONE / BLOCKED (escalate via dept chain) / FAILED (retry)
         |
         v
     Transcript saved (FTS5 searchable)
@@ -107,8 +126,8 @@ ASYNC TASK (trigger fires / task assigned / dispatch received)
 
 The daemon runs every 30 seconds:
 
-1. Assign pending tasks to workers
-2. Fire due triggers (schedule + once)
+1. Spawn workers for agent-bound pending tasks
+2. Fire due triggers (bind to owning agent)
 3. Hot-reload config on SIGHUP
 4. Persist dispatch bus + cost ledger
 5. Retry unacked dispatches
@@ -132,7 +151,7 @@ Every agent session runs through 9 safety layers:
 | Guardrails | Block `rm -rf`, force push, `DROP TABLE` |
 | Context Compression | Compact at 50% context window |
 | Memory Refresh | Re-search memory every N tool calls |
-| Clarification | Structured questions that halt execution |
+| Clarification | Structured questions, routes via department chain |
 | Safety Net | Preserve partial work on failure |
 
 ## Quick Start
@@ -193,12 +212,14 @@ system = """Your instructions here..."""
 
 **Add a channel** -- implement the `Channel` trait for any messaging platform.
 
+**Add a department** -- via `AgentRegistry::create_department()` through IPC or agent tool.
+
 ## Crates
 
 | Crate | Purpose |
 |-------|---------|
 | `sigil-cli` | CLI binary, daemon process, TUI chat |
-| `sigil-orchestrator` | Supervisor, workers, triggers, chat engine, dispatch, blackboard, middleware |
+| `sigil-orchestrator` | Workers, triggers, chat engine, dispatch, departments, blackboard, unified delegate, middleware |
 | `sigil-core` | Agent loop, config, identity, traits |
 | `sigil-web` | Axum REST API + WebSocket + SPA serving |
 | `sigil-memory` | SQLite+FTS5, vector search, hybrid ranking, query planning |
@@ -214,11 +235,11 @@ All state lives in `~/.sigil/`:
 
 | File | What |
 |------|------|
-| `agents.db` | Persistent agent registry + triggers |
+| `agents.db` | Agent registry + departments + triggers |
 | `conversations.db` | Chat history + session transcripts (FTS5) |
 | `memory.db` | Entity, domain, and system memories |
-| `blackboard.db` | Shared coordination entries |
-| `dispatches.db` | Agent-to-agent message queue |
+| `blackboard.db` | Department-scoped coordination entries |
+| `dispatches.db` | Agent-to-agent dispatch queue |
 | `audit.db` | Decision audit trail |
 | `expertise.db` | Agent performance per domain |
 | `cost_ledger.jsonl` | Token spend tracking |
@@ -227,7 +248,7 @@ All state lives in `~/.sigil/`:
 ## Development
 
 ```bash
-cargo test              # ~600 tests
+cargo test              # 654+ tests
 cargo clippy -- -D warnings
 cargo fmt --check
 ```
@@ -236,11 +257,11 @@ Pre-push hook runs all three automatically.
 
 ## Docs
 
+- [Orchestration redesign](docs/orchestration-redesign.md) -- full architecture spec
 - [Architecture overview](docs/architecture.md)
 - [Vision](docs/vision.md)
 - [Deployment model](docs/deployment.md)
 - [Project setup](docs/project-setup.md)
-- [Contributing](CONTRIBUTING.md)
 
 ## License
 
