@@ -5,7 +5,7 @@ import AgentNav from "./Sidebar";
 
 const NAV_ITEMS = [
   { to: "/", label: "home", end: true },
-  { to: "/inbox", label: "inbox" },
+  { to: "/sessions", label: "sessions" },
   { to: "/issues", label: "issues" },
   { to: "/automations", label: "automations" },
   { to: "/knowledge", label: "knowledge" },

@@ -251,6 +251,21 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  // Chat channels & history
+  getChatChannels: () => request<any>("/chat/channels"),
+  getChatHistory: (params: { chat_id?: number; project?: string; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params.chat_id) query.set("chat_id", String(params.chat_id));
+    if (params.project) query.set("project", params.project);
+    if (params.limit) query.set("limit", String(params.limit));
+    const qs = query.toString();
+    return request<any>(`/chat/history${qs ? `?${qs}` : ""}`);
+  },
+
+  // Worker events (live sessions)
+  getWorkerEvents: (cursor?: number) =>
+    request<any>(`/worker/events${cursor ? `?cursor=${cursor}` : ""}`),
+
   // Notes
   getNotes: () => request<any>("/notes"),
   getNote: (channel: string) => request<any>(`/notes/${encodeURIComponent(channel)}`),

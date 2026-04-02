@@ -3,7 +3,7 @@ import { useAuthStore } from "@/store/auth";
 import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
 import DashboardPage from "@/pages/DashboardPage";
-import InboxPage from "@/pages/InboxPage";
+import SessionsPage from "@/pages/SessionsPage";
 import TasksPage from "@/pages/TasksPage";
 import DepartmentsPage from "@/pages/DepartmentsPage";
 import MemoryPage from "@/pages/MemoryPage";
@@ -29,28 +29,25 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        {/* 5 main views */}
         <Route index element={<DashboardPage />} />
-        <Route path="inbox" element={<InboxPage />} />
+        <Route path="sessions" element={<SessionsPage />} />
         <Route path="issues" element={<TasksPage />} />
         <Route path="automations" element={<TriggersPage />} />
         <Route path="knowledge" element={<MemoryPage />} />
         <Route path="finance" element={<FinancePage />} />
-
-        {/* Contextual routes */}
         <Route path="departments/:id" element={<DepartmentsPage />} />
 
         {/* Redirects */}
+        <Route path="inbox" element={<Navigate to="/sessions" replace />} />
         <Route path="tasks" element={<Navigate to="/issues" replace />} />
         <Route path="triggers" element={<Navigate to="/automations" replace />} />
         <Route path="memory" element={<Navigate to="/knowledge" replace />} />
         <Route path="skills" element={<Navigate to="/knowledge" replace />} />
         <Route path="blackboard" element={<Navigate to="/knowledge" replace />} />
-        <Route path="cost" element={<Navigate to="/" replace />} />
+        <Route path="cost" element={<Navigate to="/finance" replace />} />
         <Route path="audit" element={<Navigate to="/" replace />} />
         <Route path="dashboard" element={<Navigate to="/" replace />} />
         <Route path="agents" element={<Navigate to="/" replace />} />
-        <Route path="agents/:name" element={<Navigate to="/" replace />} />
         <Route path="settings" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
