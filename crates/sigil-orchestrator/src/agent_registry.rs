@@ -19,6 +19,20 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
+/// A department — a named group of agents within a project.
+///
+/// Departments form a hierarchy (via `parent_id`) used for escalation chains.
+/// Each department may have a manager agent and belongs to an optional project.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Department {
+    pub id: String,
+    pub name: String,
+    pub project: Option<String>,
+    pub manager_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// A persistent agent identity — one record = one agent ready to go.
 ///
 /// Created from a template with YAML frontmatter:
@@ -52,7 +66,10 @@ pub struct PersistentAgent {
     /// Project scope. None = root (cross-project).
     pub project: Option<String>,
     /// Department scope within project. None = project-level.
+    /// (Legacy string field — kept for backward compat; prefer department_id.)
     pub department: Option<String>,
+    /// Foreign key to departments table. None = unassigned.
+    pub department_id: Option<String>,
     /// Parent agent UUID — defines org tree. None = root (Shadow).
     pub parent_id: Option<String>,
     /// Preferred model.
@@ -343,8 +360,32 @@ impl AgentRegistry {
                  UNIQUE(agent_id, name)
              );
              CREATE INDEX IF NOT EXISTS idx_triggers_agent ON triggers(agent_id);
-             CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON triggers(enabled);",
+             CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON triggers(enabled);
+             CREATE TABLE IF NOT EXISTS departments (
+                 id TEXT PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 project TEXT,
+                 manager_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+                 parent_id TEXT REFERENCES departments(id) ON DELETE SET NULL,
+                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+             );
+             CREATE INDEX IF NOT EXISTS idx_departments_project ON departments(project);
+             CREATE INDEX IF NOT EXISTS idx_departments_parent ON departments(parent_id);",
         )?;
+
+        // Step 2: Add department_id column to agents table if missing.
+        {
+            let has_col = conn
+                .prepare("PRAGMA table_info(agents)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|col| col == "department_id");
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE agents ADD COLUMN department_id TEXT REFERENCES departments(id) ON DELETE SET NULL;",
+                )?;
+            }
+        }
 
         info!(path = %db_path.display(), "agent registry opened");
         Ok(Self {
@@ -465,6 +506,7 @@ impl AgentRegistry {
             system_prompt: system_prompt.to_string(),
             project: project.map(|s| s.to_string()),
             department: department.map(|s| s.to_string()),
+            department_id: None,
             parent_id: parent_id.map(|s| s.to_string()),
             model: model.map(|s| s.to_string()),
             capabilities: capabilities.to_vec(),
@@ -758,6 +800,178 @@ impl AgentRegistry {
 
         Ok(agent)
     }
+
+    // -----------------------------------------------------------------------
+    // Department operations
+    // -----------------------------------------------------------------------
+
+    /// Create a new department.
+    pub async fn create_department(
+        &self,
+        name: &str,
+        project: Option<&str>,
+        manager_id: Option<&str>,
+        parent_id: Option<&str>,
+    ) -> Result<Department> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = Utc::now();
+
+        let dept = Department {
+            id: id.clone(),
+            name: name.to_string(),
+            project: project.map(|s| s.to_string()),
+            manager_id: manager_id.map(|s| s.to_string()),
+            parent_id: parent_id.map(|s| s.to_string()),
+            created_at: now,
+        };
+
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT INTO departments (id, name, project, manager_id, parent_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                dept.id,
+                dept.name,
+                dept.project,
+                dept.manager_id,
+                dept.parent_id,
+                dept.created_at.to_rfc3339(),
+            ],
+        )?;
+
+        info!(id = %dept.id, name = %dept.name, "department created");
+        Ok(dept)
+    }
+
+    /// Get a department by UUID.
+    pub async fn get_department(&self, id: &str) -> Result<Option<Department>> {
+        let db = self.db.lock().await;
+        let dept = db
+            .query_row(
+                "SELECT * FROM departments WHERE id = ?1",
+                params![id],
+                |row| Ok(row_to_department(row)),
+            )
+            .optional()?;
+        Ok(dept)
+    }
+
+    /// Get a department by name (and optionally project).
+    pub async fn get_department_by_name(
+        &self,
+        name: &str,
+        project: Option<&str>,
+    ) -> Result<Option<Department>> {
+        let db = self.db.lock().await;
+        let dept = match project {
+            Some(p) => db
+                .query_row(
+                    "SELECT * FROM departments WHERE name = ?1 AND project = ?2 LIMIT 1",
+                    params![name, p],
+                    |row| Ok(row_to_department(row)),
+                )
+                .optional()?,
+            None => db
+                .query_row(
+                    "SELECT * FROM departments WHERE name = ?1 AND project IS NULL LIMIT 1",
+                    params![name],
+                    |row| Ok(row_to_department(row)),
+                )
+                .optional()?,
+        };
+        Ok(dept)
+    }
+
+    /// List departments, optionally filtered by project.
+    pub async fn list_departments(&self, project: Option<&str>) -> Result<Vec<Department>> {
+        let db = self.db.lock().await;
+        match project {
+            Some(p) => {
+                let mut stmt = db.prepare(
+                    "SELECT * FROM departments WHERE project = ?1 ORDER BY name ASC",
+                )?;
+                let depts = stmt
+                    .query_map(params![p], |row| Ok(row_to_department(row)))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(depts)
+            }
+            None => {
+                let mut stmt =
+                    db.prepare("SELECT * FROM departments ORDER BY name ASC")?;
+                let depts = stmt
+                    .query_map([], |row| Ok(row_to_department(row)))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(depts)
+            }
+        }
+    }
+
+    /// Set (or clear) the manager of a department.
+    pub async fn set_department_manager(
+        &self,
+        dept_id: &str,
+        manager_id: Option<&str>,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let updated = db.execute(
+            "UPDATE departments SET manager_id = ?1 WHERE id = ?2",
+            params![manager_id, dept_id],
+        )?;
+        if updated == 0 {
+            anyhow::bail!("department '{dept_id}' not found");
+        }
+        info!(dept_id = %dept_id, manager_id = ?manager_id, "department manager updated");
+        Ok(())
+    }
+
+    /// Get all agents assigned to a department.
+    pub async fn department_members(&self, dept_id: &str) -> Result<Vec<PersistentAgent>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT * FROM agents WHERE department_id = ?1 ORDER BY name ASC",
+        )?;
+        let agents = stmt
+            .query_map(params![dept_id], |row| Ok(row_to_agent(row)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(agents)
+    }
+
+    /// Walk the parent_id chain from a department up to the root.
+    /// Returns the chain starting from the given department.
+    pub async fn department_chain(&self, dept_id: &str) -> Result<Vec<Department>> {
+        let mut chain = Vec::new();
+        let mut current_id = Some(dept_id.to_string());
+
+        while let Some(id) = current_id {
+            match self.get_department(&id).await? {
+                Some(dept) => {
+                    current_id = dept.parent_id.clone();
+                    chain.push(dept);
+                }
+                None => break,
+            }
+        }
+
+        Ok(chain)
+    }
+
+    /// Assign an agent to a department (or remove from department with None).
+    pub async fn set_agent_department(
+        &self,
+        agent_id: &str,
+        dept_id: Option<&str>,
+    ) -> Result<()> {
+        let db = self.db.lock().await;
+        let updated = db.execute(
+            "UPDATE agents SET department_id = ?1 WHERE id = ?2",
+            params![dept_id, agent_id],
+        )?;
+        if updated == 0 {
+            anyhow::bail!("agent '{agent_id}' not found");
+        }
+        info!(agent_id = %agent_id, department_id = ?dept_id, "agent department updated");
+        Ok(())
+    }
 }
 
 /// Convert a template trigger definition to a TriggerType.
@@ -809,6 +1023,22 @@ fn template_trigger_to_type(t: &TemplateTrigger) -> Result<crate::trigger::Trigg
     )
 }
 
+fn row_to_department(row: &rusqlite::Row) -> Department {
+    Department {
+        id: row.get("id").unwrap_or_default(),
+        name: row.get("name").unwrap_or_default(),
+        project: row.get("project").ok(),
+        manager_id: row.get("manager_id").ok(),
+        parent_id: row.get("parent_id").ok(),
+        created_at: row
+            .get::<_, String>("created_at")
+            .ok()
+            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+            .map(|d| d.with_timezone(&Utc))
+            .unwrap_or_default(),
+    }
+}
+
 fn row_to_agent(row: &rusqlite::Row) -> PersistentAgent {
     let status_str: String = row.get("status").unwrap_or_default();
     let status = match status_str.as_str() {
@@ -828,6 +1058,7 @@ fn row_to_agent(row: &rusqlite::Row) -> PersistentAgent {
         system_prompt: row.get("system_prompt").unwrap_or_default(),
         project: row.get("project").ok(),
         department: row.get("department").ok(),
+        department_id: row.get("department_id").ok(),
         parent_id: row.get("parent_id").ok(),
         model: row.get("model").ok(),
         capabilities,
@@ -1302,5 +1533,259 @@ You are an engineer.
 
         let parent = reg.parent(&agent.id).await.unwrap().unwrap();
         assert_eq!(parent.name, "shadow");
+    }
+
+    // -----------------------------------------------------------------------
+    // Department tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn create_department() {
+        let reg = test_registry().await;
+        let dept = reg
+            .create_department("engineering", Some("sigil"), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(dept.name, "engineering");
+        assert_eq!(dept.project.as_deref(), Some("sigil"));
+        assert!(dept.manager_id.is_none());
+        assert!(dept.parent_id.is_none());
+        assert!(!dept.id.is_empty());
+
+        // Fetch by ID.
+        let fetched = reg.get_department(&dept.id).await.unwrap().unwrap();
+        assert_eq!(fetched.id, dept.id);
+        assert_eq!(fetched.name, "engineering");
+    }
+
+    #[tokio::test]
+    async fn list_departments_by_project() {
+        let reg = test_registry().await;
+        reg.create_department("engineering", Some("sigil"), None, None)
+            .await
+            .unwrap();
+        reg.create_department("design", Some("sigil"), None, None)
+            .await
+            .unwrap();
+        reg.create_department("ops", Some("other"), None, None)
+            .await
+            .unwrap();
+        reg.create_department("global", None, None, None)
+            .await
+            .unwrap();
+
+        let sigil_depts = reg.list_departments(Some("sigil")).await.unwrap();
+        assert_eq!(sigil_depts.len(), 2);
+        let names: Vec<&str> = sigil_depts.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"engineering"));
+        assert!(names.contains(&"design"));
+
+        let other_depts = reg.list_departments(Some("other")).await.unwrap();
+        assert_eq!(other_depts.len(), 1);
+        assert_eq!(other_depts[0].name, "ops");
+
+        // None returns all departments.
+        let all = reg.list_departments(None).await.unwrap();
+        assert_eq!(all.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn set_and_change_department_manager() {
+        let reg = test_registry().await;
+        let agent = reg
+            .spawn("lead", None, "t", "Lead.", None, None, None, None, &[])
+            .await
+            .unwrap();
+        let agent2 = reg
+            .spawn("lead2", None, "t", "Lead2.", None, None, None, None, &[])
+            .await
+            .unwrap();
+
+        let dept = reg
+            .create_department("engineering", None, None, None)
+            .await
+            .unwrap();
+        assert!(dept.manager_id.is_none());
+
+        // Set manager.
+        reg.set_department_manager(&dept.id, Some(&agent.id))
+            .await
+            .unwrap();
+        let fetched = reg.get_department(&dept.id).await.unwrap().unwrap();
+        assert_eq!(fetched.manager_id.as_deref(), Some(agent.id.as_str()));
+
+        // Change manager.
+        reg.set_department_manager(&dept.id, Some(&agent2.id))
+            .await
+            .unwrap();
+        let fetched = reg.get_department(&dept.id).await.unwrap().unwrap();
+        assert_eq!(fetched.manager_id.as_deref(), Some(agent2.id.as_str()));
+
+        // Clear manager.
+        reg.set_department_manager(&dept.id, None).await.unwrap();
+        let fetched = reg.get_department(&dept.id).await.unwrap().unwrap();
+        assert!(fetched.manager_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn department_members_returns_correct_agents() {
+        let reg = test_registry().await;
+        let dept = reg
+            .create_department("engineering", Some("sigil"), None, None)
+            .await
+            .unwrap();
+        let dept2 = reg
+            .create_department("design", Some("sigil"), None, None)
+            .await
+            .unwrap();
+
+        let a1 = reg
+            .spawn("eng1", None, "t", "Eng1.", Some("sigil"), None, None, None, &[])
+            .await
+            .unwrap();
+        let a2 = reg
+            .spawn("eng2", None, "t", "Eng2.", Some("sigil"), None, None, None, &[])
+            .await
+            .unwrap();
+        let a3 = reg
+            .spawn("designer", None, "t", "Des.", Some("sigil"), None, None, None, &[])
+            .await
+            .unwrap();
+
+        reg.set_agent_department(&a1.id, Some(&dept.id))
+            .await
+            .unwrap();
+        reg.set_agent_department(&a2.id, Some(&dept.id))
+            .await
+            .unwrap();
+        reg.set_agent_department(&a3.id, Some(&dept2.id))
+            .await
+            .unwrap();
+
+        let members = reg.department_members(&dept.id).await.unwrap();
+        assert_eq!(members.len(), 2);
+        let names: Vec<&str> = members.iter().map(|a| a.name.as_str()).collect();
+        assert!(names.contains(&"eng1"));
+        assert!(names.contains(&"eng2"));
+
+        let design_members = reg.department_members(&dept2.id).await.unwrap();
+        assert_eq!(design_members.len(), 1);
+        assert_eq!(design_members[0].name, "designer");
+    }
+
+    #[tokio::test]
+    async fn department_chain_walks_hierarchy() {
+        let reg = test_registry().await;
+
+        // Create hierarchy: company → engineering → backend
+        let company = reg
+            .create_department("company", None, None, None)
+            .await
+            .unwrap();
+        let engineering = reg
+            .create_department("engineering", None, None, Some(&company.id))
+            .await
+            .unwrap();
+        let backend = reg
+            .create_department("backend", None, None, Some(&engineering.id))
+            .await
+            .unwrap();
+
+        // Chain from backend should be: backend → engineering → company
+        let chain = reg.department_chain(&backend.id).await.unwrap();
+        assert_eq!(chain.len(), 3);
+        assert_eq!(chain[0].name, "backend");
+        assert_eq!(chain[1].name, "engineering");
+        assert_eq!(chain[2].name, "company");
+
+        // Chain from engineering: engineering → company
+        let chain = reg.department_chain(&engineering.id).await.unwrap();
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].name, "engineering");
+        assert_eq!(chain[1].name, "company");
+
+        // Chain from company (root): just company
+        let chain = reg.department_chain(&company.id).await.unwrap();
+        assert_eq!(chain.len(), 1);
+        assert_eq!(chain[0].name, "company");
+    }
+
+    #[tokio::test]
+    async fn set_agent_department_moves_between_departments() {
+        let reg = test_registry().await;
+        let dept_a = reg
+            .create_department("alpha", None, None, None)
+            .await
+            .unwrap();
+        let dept_b = reg
+            .create_department("beta", None, None, None)
+            .await
+            .unwrap();
+
+        let agent = reg
+            .spawn("mover", None, "t", "Mover.", None, None, None, None, &[])
+            .await
+            .unwrap();
+
+        // Initially no department.
+        let fetched = reg.get(&agent.id).await.unwrap().unwrap();
+        assert!(fetched.department_id.is_none());
+        assert!(reg.department_members(&dept_a.id).await.unwrap().is_empty());
+
+        // Assign to dept_a.
+        reg.set_agent_department(&agent.id, Some(&dept_a.id))
+            .await
+            .unwrap();
+        let members_a = reg.department_members(&dept_a.id).await.unwrap();
+        assert_eq!(members_a.len(), 1);
+        assert_eq!(members_a[0].id, agent.id);
+        assert!(reg.department_members(&dept_b.id).await.unwrap().is_empty());
+
+        // Move to dept_b.
+        reg.set_agent_department(&agent.id, Some(&dept_b.id))
+            .await
+            .unwrap();
+        assert!(reg.department_members(&dept_a.id).await.unwrap().is_empty());
+        let members_b = reg.department_members(&dept_b.id).await.unwrap();
+        assert_eq!(members_b.len(), 1);
+        assert_eq!(members_b[0].id, agent.id);
+
+        // Remove from department.
+        reg.set_agent_department(&agent.id, None).await.unwrap();
+        assert!(reg.department_members(&dept_b.id).await.unwrap().is_empty());
+        let fetched = reg.get(&agent.id).await.unwrap().unwrap();
+        assert!(fetched.department_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_department_by_name() {
+        let reg = test_registry().await;
+        reg.create_department("engineering", Some("sigil"), None, None)
+            .await
+            .unwrap();
+        reg.create_department("engineering", Some("other"), None, None)
+            .await
+            .unwrap();
+
+        let dept = reg
+            .get_department_by_name("engineering", Some("sigil"))
+            .await
+            .unwrap();
+        assert!(dept.is_some());
+        assert_eq!(dept.unwrap().project.as_deref(), Some("sigil"));
+
+        let dept = reg
+            .get_department_by_name("engineering", Some("other"))
+            .await
+            .unwrap();
+        assert!(dept.is_some());
+        assert_eq!(dept.unwrap().project.as_deref(), Some("other"));
+
+        let nope = reg
+            .get_department_by_name("nonexistent", Some("sigil"))
+            .await
+            .unwrap();
+        assert!(nope.is_none());
     }
 }

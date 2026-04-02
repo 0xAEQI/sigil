@@ -46,6 +46,7 @@ pub mod tools;
 pub mod trigger;
 pub mod verification;
 
+pub use agent_registry::Department;
 pub use agent_router::{AgentRouter, RouteDecision};
 pub use agent_worker::{AgentWorker, WorkerState};
 pub use audit::{AuditEvent, AuditLog, DecisionType};
