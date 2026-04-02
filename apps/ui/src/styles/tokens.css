@@ -389,7 +389,7 @@ a:hover {
 
 .agent-row {
   height: 40px;
-  padding: 0 12px;
+  padding: 0 14px;
   font-size: 13px;
   color: rgba(255,255,255,0.35);
   background: rgba(255,255,255,0.02);
@@ -398,7 +398,7 @@ a:hover {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-radius: 12px;
+  border-radius: 20px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -530,7 +530,7 @@ a:hover {
 
 .agent-nav-add {
   height: 40px;
-  border-radius: 12px;
+  border-radius: 20px;
   background: rgba(255,255,255,0.03);
   border: none;
   display: flex;
