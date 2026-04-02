@@ -313,7 +313,7 @@ a:hover {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding-bottom: 10px;
+  padding-bottom: 12px;
   flex-shrink: 0;
   margin-top: auto;
 }
@@ -553,26 +553,31 @@ a:hover {
 }
 
 .agent-nav-text-btn {
-  text-align: center;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   font-family: var(--font-mono);
   font-size: 11px;
   color: rgba(255,255,255,0.12);
   cursor: pointer;
-  padding: 4px 0;
-  transition: color 0.1s ease;
+  border-radius: 14px;
+  transition: all 0.12s ease;
 }
 
 .agent-nav-text-btn:hover {
   color: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.03);
 }
 
 .rail-settings {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 14px;
   color: rgba(255,255,255,0.15);
   cursor: pointer;
   transition: all 0.12s ease;
@@ -587,8 +592,9 @@ a:hover {
   margin-top: auto;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
-  padding-bottom: 10px;
+  padding-bottom: 12px;
 }
 
 .agent-nav-footer {
