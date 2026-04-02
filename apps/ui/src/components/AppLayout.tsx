@@ -7,8 +7,9 @@ const NAV_ITEMS = [
   { to: "/", label: "home", end: true },
   { to: "/sessions", label: "sessions" },
   { to: "/issues", label: "tasks" },
-  { to: "/automations", label: "automations" },
-  { to: "/knowledge", label: "memories" },
+  { to: "/triggers", label: "triggers" },
+  { to: "/skills", label: "skills" },
+  { to: "/memories", label: "memories" },
   { to: "/finance", label: "financials" },
 ];
 

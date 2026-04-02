@@ -32,8 +32,9 @@ export default function App() {
         <Route index element={<DashboardPage />} />
         <Route path="sessions" element={<SessionsPage />} />
         <Route path="issues" element={<TasksPage />} />
-        <Route path="automations" element={<TriggersPage />} />
-        <Route path="knowledge" element={<MemoryPage />} />
+        <Route path="triggers" element={<TriggersPage />} />
+        <Route path="skills" element={<SkillsPage />} />
+        <Route path="memories" element={<MemoryPage />} />
         <Route path="finance" element={<FinancePage />} />
         <Route path="departments/:id" element={<DepartmentsPage />} />
 
@@ -41,9 +42,10 @@ export default function App() {
         <Route path="inbox" element={<Navigate to="/sessions" replace />} />
         <Route path="tasks" element={<Navigate to="/issues" replace />} />
         <Route path="triggers" element={<Navigate to="/automations" replace />} />
-        <Route path="memory" element={<Navigate to="/knowledge" replace />} />
-        <Route path="skills" element={<Navigate to="/knowledge" replace />} />
-        <Route path="blackboard" element={<Navigate to="/knowledge" replace />} />
+        <Route path="automations" element={<Navigate to="/triggers" replace />} />
+        <Route path="knowledge" element={<Navigate to="/memories" replace />} />
+        <Route path="memory" element={<Navigate to="/memories" replace />} />
+        <Route path="blackboard" element={<Navigate to="/memories" replace />} />
         <Route path="cost" element={<Navigate to="/finance" replace />} />
         <Route path="audit" element={<Navigate to="/" replace />} />
         <Route path="dashboard" element={<Navigate to="/" replace />} />
