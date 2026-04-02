@@ -19,6 +19,7 @@ pub enum TaskOutcomeKind {
     Failed,
     Handoff,
     Blocked,
+    Cancelled,
 }
 
 /// A single performance record for an agent on a task domain.

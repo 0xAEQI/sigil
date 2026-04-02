@@ -146,6 +146,8 @@ pub struct WorkerContext {
     /// When true, the agent loop handles context compaction directly;
     /// ContextCompressionMiddleware defers to avoid conflicting recovery.
     pub agent_compaction_active: bool,
+    /// Model name for accurate cost estimation via pricing table.
+    pub model: String,
 }
 
 impl WorkerContext {
@@ -165,6 +167,7 @@ impl WorkerContext {
             cost_usd: 0.0,
             metadata: HashMap::new(),
             agent_compaction_active: false,
+            model: String::new(),
         }
     }
 }

@@ -1330,10 +1330,27 @@ impl Agent {
                             })
                             .await;
 
-                        let _ = self
+                        match self
                             .observer
                             .after_tool(&name, &tr.output, tr.is_error)
-                            .await;
+                            .await
+                        {
+                            LoopAction::Halt(reason) => {
+                                warn!(agent = %self.config.name, tool = %name, reason = %reason, "after_tool halted");
+                                final_text = format!("HALTED by middleware (after_tool): {reason}");
+                                stop_reason = AgentStopReason::Halted(reason);
+                                // Push what we have so far, then break out.
+                                processed.push(ProcessedToolResult {
+                                    id,
+                                    name,
+                                    output: tr.output,
+                                    is_error: tr.is_error,
+                                });
+                                loop_halted = true;
+                                break;
+                            }
+                            LoopAction::Inject(_) | LoopAction::Continue => {}
+                        }
 
                         self.emit(crate::chat_stream::ChatStreamEvent::ToolComplete {
                             tool_use_id: id.clone(),
@@ -1365,7 +1382,22 @@ impl Agent {
                             })
                             .await;
 
-                        let _ = self.observer.after_tool(&name, &e.to_string(), true).await;
+                        match self.observer.after_tool(&name, &e.to_string(), true).await {
+                            LoopAction::Halt(reason) => {
+                                warn!(agent = %self.config.name, tool = %name, reason = %reason, "after_tool halted (error path)");
+                                final_text = format!("HALTED by middleware (after_tool): {reason}");
+                                stop_reason = AgentStopReason::Halted(reason);
+                                processed.push(ProcessedToolResult {
+                                    id,
+                                    name,
+                                    output: format!("Tool execution error: {e}"),
+                                    is_error: true,
+                                });
+                                loop_halted = true;
+                                break;
+                            }
+                            LoopAction::Inject(_) | LoopAction::Continue => {}
+                        }
 
                         processed.push(ProcessedToolResult {
                             id,
@@ -1375,6 +1407,24 @@ impl Agent {
                         });
                     }
                 }
+            }
+
+            // after_tool halt: push results so far and break outer loop.
+            if loop_halted {
+                for r in &processed {
+                    tool_result_parts.push(ContentPart::ToolResult {
+                        tool_use_id: r.id.clone(),
+                        content: r.output.clone(),
+                        is_error: r.is_error,
+                    });
+                }
+                if !tool_result_parts.is_empty() {
+                    messages.push(Message {
+                        role: Role::Tool,
+                        content: MessageContent::Parts(tool_result_parts),
+                    });
+                }
+                break;
             }
 
             // --- Persist or truncate oversized results ---

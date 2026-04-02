@@ -136,7 +136,12 @@ impl ContextCompressionMiddleware {
                 if trimmed.len() <= 200 {
                     trimmed.to_string()
                 } else {
-                    format!("{}...", &trimmed[..200])
+                    let end = trimmed
+                        .char_indices()
+                        .nth(200)
+                        .map(|(i, _)| i)
+                        .unwrap_or(trimmed.len());
+                    format!("{}...", &trimmed[..end])
                 }
             })
             .collect();

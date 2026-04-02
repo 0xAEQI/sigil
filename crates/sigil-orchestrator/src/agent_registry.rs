@@ -795,11 +795,17 @@ impl AgentRegistry {
 
     /// Walk the parent_id chain from a department up to the root.
     /// Returns the chain starting from the given department.
+    /// Includes cycle detection via visited set to prevent infinite loops.
     pub async fn department_chain(&self, dept_id: &str) -> Result<Vec<Department>> {
         let mut chain = Vec::new();
         let mut current_id = Some(dept_id.to_string());
+        let mut visited = std::collections::HashSet::new();
 
         while let Some(id) = current_id {
+            if !visited.insert(id.clone()) {
+                tracing::warn!(dept_id = %id, "cycle detected in department hierarchy");
+                break;
+            }
             match self.get_department(&id).await? {
                 Some(dept) => {
                     current_id = dept.parent_id.clone();

@@ -239,36 +239,45 @@ impl TaskBoard {
             .all(|cid| self.tasks.get(cid).is_some_and(|b| b.is_closed()));
 
         if all_closed {
+            // Check if ALL children were cancelled — parent should be Cancelled, not Done.
+            let all_cancelled = children
+                .iter()
+                .all(|cid| self.tasks.get(cid).is_some_and(|b| b.status == TaskStatus::Cancelled));
+
+            let (outcome_status, outcome_kind, verb) = if all_cancelled {
+                (TaskStatus::Cancelled, TaskOutcomeKind::Cancelled, "cancelled")
+            } else {
+                (TaskStatus::Done, TaskOutcomeKind::Done, "completed")
+            };
+
             let child_summaries: Vec<String> = children
                 .iter()
                 .filter_map(|cid| {
                     self.tasks.get(cid).map(|b| {
-                        let reason = b.closed_reason.as_deref().unwrap_or("completed");
+                        let reason = b.closed_reason.as_deref().unwrap_or(verb);
                         format!("  {} — {}", b.subject, reason)
                     })
                 })
                 .collect();
 
             let reason = format!(
-                "All {} steps completed:\n{}",
+                "All {} steps {}:\n{}",
                 children.len(),
+                verb,
                 child_summaries.join("\n")
             );
 
             if let Err(e) = self.update(&parent_id.0, |b| {
-                b.status = TaskStatus::Done;
+                b.status = outcome_status;
                 b.closed_at = Some(chrono::Utc::now());
                 b.closed_reason = Some(reason.clone());
-                b.set_task_outcome(&TaskOutcomeRecord::new(
-                    TaskOutcomeKind::Done,
-                    reason.clone(),
-                ));
+                b.set_task_outcome(&TaskOutcomeRecord::new(outcome_kind, reason.clone()));
             }) {
                 debug!(parent = %parent_id, error = %e, "failed to auto-close parent task");
                 return;
             }
 
-            debug!(parent = %parent_id, children = children.len(), "auto-closed parent (all children done)");
+            debug!(parent = %parent_id, children = children.len(), status = ?outcome_status, "auto-closed parent (all children closed)");
 
             self.cascade_parent_close(&parent_id);
         }

@@ -166,21 +166,21 @@ async fn find_task_snapshot(
     project_hint: Option<&str>,
     task_id: &str,
 ) -> Option<serde_json::Value> {
+    // Use try_lock() to avoid blocking on patrol — this is a read path.
     if let Some(project_name) = project_hint
         && let Some(board) = registry.get_task_board(project_name).await
+        && let Ok(board) = board.try_lock()
+        && let Some(task) = board.get(task_id)
     {
-        let board = board.lock().await;
-        if let Some(task) = board.get(task_id) {
-            return Some(task_snapshot(task));
-        }
+        return Some(task_snapshot(task));
     }
 
     for project_name in registry.project_names().await {
-        if let Some(board) = registry.get_task_board(&project_name).await {
-            let board = board.lock().await;
-            if let Some(task) = board.get(task_id) {
-                return Some(task_snapshot(task));
-            }
+        if let Some(board) = registry.get_task_board(&project_name).await
+            && let Ok(board) = board.try_lock()
+            && let Some(task) = board.get(task_id)
+        {
+            return Some(task_snapshot(task));
         }
     }
 
@@ -483,7 +483,15 @@ impl Daemon {
             tokio::spawn(async move {
                 let mut cooldowns: std::collections::HashMap<String, chrono::DateTime<Utc>> =
                     std::collections::HashMap::new();
-                while let Ok(event) = rx.recv().await {
+                loop {
+                    let event = match rx.recv().await {
+                        Ok(event) => event,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(skipped = n, "event trigger listener lagged — events dropped");
+                            continue;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    };
                     let event_triggers = match ts.list_event_triggers().await {
                         Ok(t) => t,
                         Err(_) => continue,
@@ -557,9 +565,18 @@ impl Daemon {
             let event_buffer = self.event_buffer.clone();
             let mut rx = self.event_broadcaster.subscribe();
             tokio::spawn(async move {
-                while let Ok(event) = rx.recv().await {
-                    let mut buffer = event_buffer.lock().await;
-                    buffer.push(event);
+                loop {
+                    match rx.recv().await {
+                        Ok(event) => {
+                            let mut buffer = event_buffer.lock().await;
+                            buffer.push(event);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(skipped = n, "event buffer subscriber lagged — events dropped");
+                            continue;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
                 }
             });
         }
@@ -917,11 +934,25 @@ impl Daemon {
         event_buffer: Arc<Mutex<EventBuffer>>,
         readiness: ReadinessContext,
     ) -> Result<()> {
+        const MAX_IPC_LINE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
         let (reader, mut writer) = stream.into_split();
-        let mut lines = BufReader::new(reader).lines();
+        let mut buf_reader = BufReader::new(reader);
+        let mut line = String::new();
 
-        while let Some(line) = lines.next_line().await? {
-            let request: serde_json::Value = serde_json::from_str(&line)
+        loop {
+            line.clear();
+            let n = buf_reader.read_line(&mut line).await?;
+            if n == 0 {
+                break; // EOF
+            }
+            if n > MAX_IPC_LINE_BYTES {
+                let resp = serde_json::json!({"ok": false, "error": "request too large"});
+                writer.write_all(resp.to_string().as_bytes()).await?;
+                writer.write_all(b"\n").await?;
+                continue;
+            }
+            let line = line.trim_end();
+            let request: serde_json::Value = serde_json::from_str(line)
                 .unwrap_or_else(|_| serde_json::json!({"cmd": "unknown"}));
 
             let cmd = request
@@ -1405,9 +1436,11 @@ impl Daemon {
                     };
 
                     let mut all_tasks = Vec::new();
+                    let mut partial = false;
                     for name in &project_names {
                         if let Some(board) = registry.get_task_board(name).await {
                             let Ok(board) = board.try_lock() else {
+                                partial = true;
                                 continue;
                             };
                             for task in board.all() {
@@ -1438,7 +1471,7 @@ impl Daemon {
                             }
                         }
                     }
-                    serde_json::json!({"ok": true, "tasks": all_tasks})
+                    serde_json::json!({"ok": true, "tasks": all_tasks, "partial": partial})
                 }
 
                 "missions" => {
@@ -1451,9 +1484,11 @@ impl Daemon {
                     };
 
                     let mut all_missions = Vec::new();
+                    let mut partial = false;
                     for name in &project_names {
                         if let Some(board) = registry.get_task_board(name).await {
                             let Ok(board) = board.try_lock() else {
+                                partial = true;
                                 continue;
                             };
                             let prefix = name.clone(); // prefix lookup from project
@@ -1476,7 +1511,7 @@ impl Daemon {
                             }
                         }
                     }
-                    serde_json::json!({"ok": true, "missions": all_missions})
+                    serde_json::json!({"ok": true, "missions": all_missions, "partial": partial})
                 }
 
                 "create_task" => {

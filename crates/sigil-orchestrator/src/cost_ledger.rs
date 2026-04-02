@@ -270,13 +270,19 @@ impl CostLedger {
         }
 
         // Project-specific check.
-        let budgets = self
-            .project_budgets
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(&project_budget) = budgets.get(project) {
+        // Copy the budget value and drop the lock BEFORE calling project_spend(),
+        // which acquires the entries lock. This maintains consistent lock ordering
+        // (entries before project_budgets) with record().
+        let project_budget = {
+            let budgets = self
+                .project_budgets
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            budgets.get(project).copied()
+        };
+        if let Some(budget) = project_budget {
             let spent = self.project_spend(project, 24);
-            if spent >= project_budget {
+            if spent >= budget {
                 return false;
             }
         }

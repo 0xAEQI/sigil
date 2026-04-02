@@ -1296,6 +1296,9 @@ impl AgentWorker {
             );
             // Signal to ContextCompressionMiddleware that the agent loop handles compaction.
             worker_ctx.agent_compaction_active = true;
+            if let WorkerExecution::Agent { ref model, .. } = self.execution {
+                worker_ctx.model = model.clone();
+            }
             Arc::new(MiddlewareObserver::from_arc(
                 Arc::clone(chain),
                 worker_ctx,
@@ -1696,12 +1699,12 @@ impl Observer for MiddlewareObserver {
     async fn after_model(
         &self,
         _iteration: u32,
-        _prompt_tokens: u32,
+        prompt_tokens: u32,
         completion_tokens: u32,
     ) -> LoopAction {
         let mut ctx = self.ctx.lock().await;
-        // Update cost estimate (rough: $3/MTok output for sonnet-class)
-        ctx.cost_usd += completion_tokens as f64 * 3.0 / 1_000_000.0;
+        ctx.cost_usd +=
+            sigil_providers::estimate_cost(&ctx.model, prompt_tokens, completion_tokens);
         Self::map_action(self.chain.run_after_model(&mut ctx).await)
     }
 

@@ -570,10 +570,12 @@ impl Supervisor {
                     task = %id,
                     "resetting orphaned InProgress task to Pending"
                 );
-                let _ = store.update(&id, |t| {
+                if let Err(e) = store.update(&id, |t| {
                     t.status = TaskStatus::Pending;
                     t.assignee = None;
-                });
+                }) {
+                    warn!(project = %self.project_name, task = %id, error = %e, "failed to reset orphaned task");
+                }
             }
         }
 
@@ -645,10 +647,12 @@ impl Supervisor {
 
             {
                 let mut store = self.tasks.lock().await;
-                let _ = store.update(&task_id, |q| {
+                if let Err(e) = store.update(&task_id, |q| {
                     q.status = TaskStatus::Pending;
                     q.assignee = None;
-                });
+                }) {
+                    warn!(project = %self.project_name, task = %task_id, error = %e, "failed to reset timed-out task");
+                }
             }
             self.dispatch_bus
                 .send(Dispatch::new_typed(
@@ -1357,10 +1361,12 @@ impl Supervisor {
             });
         }
 
-        // 3.5. Detect stalled missions (all tasks blocked/cancelled) and redecompose.
+        // 3.5. Detect stalled missions and spawn redecomposition as a background task.
+        // Runs outside the supervisor lock to avoid blocking IPC and next patrol.
         if self.auto_redecompose && !self.decomposition_model.is_empty() {
             let store = self.tasks.lock().await;
             let active_missions = store.active_missions(None);
+            let mut stalled: Option<(String, String, String)> = None;
             for mission in &active_missions {
                 let tasks = store.mission_tasks(&mission.id);
                 if tasks.is_empty() {
@@ -1370,21 +1376,37 @@ impl Supervisor {
                     .iter()
                     .all(|t| t.status == TaskStatus::Blocked || t.status == TaskStatus::Cancelled);
                 if all_stalled {
-                    info!(
-                        project = %self.project_name,
-                        mission = %mission.id,
-                        "stalled mission detected — all tasks blocked/cancelled"
-                    );
-                    // Drop store lock before async LLM call.
-                    let mission_id = mission.id.clone();
-                    let mission_name = mission.name.clone();
-                    let mission_desc = mission.description.clone();
-                    drop(store);
+                    stalled = Some((
+                        mission.id.clone(),
+                        mission.name.clone(),
+                        mission.description.clone(),
+                    ));
+                    break;
+                }
+            }
+            drop(store);
 
+            if let Some((mission_id, mission_name, mission_desc)) = stalled {
+                info!(
+                    project = %self.project_name,
+                    mission = %mission_id,
+                    "stalled mission detected — spawning background redecomposition"
+                );
+                let tasks = self.tasks.clone();
+                let provider = self
+                    .reflect_provider
+                    .clone()
+                    .unwrap_or_else(|| self.provider.clone());
+                let model = self.decomposition_model.clone();
+                let infer_threshold = self.infer_deps_threshold;
+                let audit_log = self.audit_log.clone();
+                let project_name = self.project_name.clone();
+
+                tokio::spawn(async move {
                     let prompt =
                         DecompositionResult::decomposition_prompt(&mission_name, &mission_desc);
                     let request = ChatRequest {
-                        model: self.decomposition_model.clone(),
+                        model,
                         messages: vec![Message {
                             role: Role::User,
                             content: MessageContent::text(&prompt),
@@ -1393,54 +1415,48 @@ impl Supervisor {
                         max_tokens: 2048,
                         temperature: 0.0,
                     };
-                    let provider = self.reflect_provider.as_ref().unwrap_or(&self.provider);
                     if let Ok(response) = provider.chat(&request).await
                         && let Some(ref text) = response.content
                     {
                         let mut result = DecompositionResult::parse(text);
-                        let mut store = self.tasks.lock().await;
+                        let mut store = tasks.lock().await;
                         let prefix = mission_id.split('-').next().unwrap_or("xx");
                         match result.materialize(&mut store, prefix, &mission_id) {
                             Ok(task_ids) => {
                                 info!(
-                                    project = %self.project_name,
+                                    project = %project_name,
                                     mission = %mission_id,
                                     new_tasks = task_ids.len(),
                                     "redecomposed stalled mission"
                                 );
-                                // Infer dependencies between newly created tasks.
-                                if self.infer_deps_threshold > 0.0 {
-                                    match store
-                                        .apply_inferred_dependencies(self.infer_deps_threshold)
-                                    {
-                                        Ok(n) if n > 0 => {
-                                            info!(
-                                                project = %self.project_name,
-                                                mission = %mission_id,
-                                                inferred = n,
-                                                "inferred task dependencies"
-                                            );
-                                            if let Some(ref audit) = self.audit_log {
-                                                let _ = audit.record(
-                                                    &AuditEvent::new(
-                                                        &self.project_name,
-                                                        DecisionType::DependencyInferred,
-                                                        format!(
-                                                            "Inferred {n} dependencies in mission {mission_id}"
-                                                        ),
-                                                    )
-                                                    .with_task(&mission_id),
-                                                );
-                                            }
-                                        }
-                                        _ => {}
+                                if infer_threshold > 0.0
+                                    && let Ok(n) =
+                                        store.apply_inferred_dependencies(infer_threshold)
+                                    && n > 0
+                                {
+                                    info!(
+                                        project = %project_name,
+                                        mission = %mission_id,
+                                        inferred = n,
+                                        "inferred task dependencies"
+                                    );
+                                    if let Some(ref audit) = audit_log {
+                                        let _ = audit.record(
+                                            &AuditEvent::new(
+                                                &project_name,
+                                                DecisionType::DependencyInferred,
+                                                format!(
+                                                    "Inferred {n} dependencies in mission {mission_id}"
+                                                ),
+                                            )
+                                            .with_task(&mission_id),
+                                        );
                                     }
                                 }
-
-                                if let Some(ref audit) = self.audit_log {
+                                if let Some(ref audit) = audit_log {
                                     let _ = audit.record(
                                         &AuditEvent::new(
-                                            &self.project_name,
+                                            &project_name,
                                             DecisionType::MissionDecomposed,
                                             format!(
                                                 "Redecomposed stalled mission {} into {} tasks",
@@ -1454,7 +1470,7 @@ impl Supervisor {
                             }
                             Err(e) => {
                                 warn!(
-                                    project = %self.project_name,
+                                    project = %project_name,
                                     mission = %mission_id,
                                     error = %e,
                                     "redecomposition materialization failed"
@@ -1462,9 +1478,7 @@ impl Supervisor {
                             }
                         }
                     }
-                    // Only redecompose one mission per patrol to avoid thrashing.
-                    break;
-                }
+                });
             }
         }
 
