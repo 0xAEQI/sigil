@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# CI/CD deploy script — build release binary and restart services.
-# Called manually or by git post-merge hook.
+# Production deploy script — build + restart services.
+# Only runs on the production server. Skips gracefully elsewhere.
 #
 # Usage: ./scripts/deploy.sh [--no-restart]
 
@@ -9,16 +9,23 @@ set -euo pipefail
 AEQI_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$AEQI_ROOT"
 
+# Guard: only run on production (check for systemd units or deploy marker).
+if [ ! -f /etc/systemd/system/aeqi-daemon.service ] && [ ! -f "$HOME/.aeqi-production" ]; then
+    echo "[deploy] Not a production server, skipping."
+    exit 0
+fi
+
 echo "[deploy] Building release binary..."
 cargo build --release -p aeqi 2>&1 | tail -3
 
-# Build and deploy landing page if changed.
+# Build and deploy landing page.
 LANDING_DIR="$AEQI_ROOT/apps/landing"
-if [ -d "$LANDING_DIR" ] && [ -f "$LANDING_DIR/package.json" ]; then
+LANDING_DEST="/var/www/aeqi-ai"
+if [ -d "$LANDING_DIR" ] && [ -f "$LANDING_DIR/package.json" ] && [ -d "$LANDING_DEST" ]; then
     echo "[deploy] Building landing page..."
     (cd "$LANDING_DIR" && npm run build --silent 2>&1 | tail -3)
-    echo "[deploy] Deploying landing page to /var/www/aeqi-ai..."
-    sudo rsync -a --delete "$LANDING_DIR/dist/" /var/www/aeqi-ai/
+    echo "[deploy] Deploying landing page to $LANDING_DEST..."
+    sudo rsync -a --delete "$LANDING_DIR/dist/" "$LANDING_DEST/"
 fi
 
 if [[ "${1:-}" == "--no-restart" ]]; then
