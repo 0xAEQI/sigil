@@ -54,6 +54,8 @@ pub fn api_routes() -> Router<AppState> {
         .route("/rate-limit", get(rate_limit))
         .route("/agents/{name}/identity", get(agent_identity))
         .route("/agents/{name}/files", post(save_agent_file))
+        .route("/approvals", get(approvals))
+        .route("/approvals/{id}/resolve", post(resolve_approval))
 }
 
 // --- Status ---
@@ -582,6 +584,30 @@ async fn post_blackboard_entry(
     ipc_proxy(state, "post_blackboard", body).await
 }
 
+// --- Approvals ---
+
+#[derive(Deserialize, Default)]
+struct ApprovalsQuery {
+    status: Option<String>,
+}
+
+async fn approvals(State(state): State<AppState>, Query(q): Query<ApprovalsQuery>) -> Response {
+    let mut params = serde_json::json!({});
+    if let Some(status) = &q.status {
+        params["status"] = serde_json::Value::String(status.clone());
+    }
+    ipc_proxy(state, "approvals", params).await
+}
+
+async fn resolve_approval(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let mut params = body;
+    params["approval_id"] = serde_json::Value::String(id);
+    ipc_proxy(state, "resolve_approval", params).await
+}
 // --- Webhook (public, no auth) ---
 
 async fn webhook_handler(

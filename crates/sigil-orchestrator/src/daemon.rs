@@ -3080,6 +3080,65 @@ impl Daemon {
                     }
                 },
 
+                // ── Budget Policies ──
+                "budget_policies" => match &agent_registry {
+                    Some(reg) => match reg.list_budget_policies().await {
+                        Ok(policies) => serde_json::json!({"ok": true, "policies": policies}),
+                        Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                    },
+                    None => serde_json::json!({"ok": false, "error": "agent registry not available"}),
+                },
+
+                "create_budget_policy" => match &agent_registry {
+                    Some(reg) => {
+                        let scope_type = request_field(&request, "scope_type").unwrap_or("");
+                        let scope_id = request_field(&request, "scope_id").unwrap_or("");
+                        let window = request_field(&request, "window").unwrap_or("");
+                        let amount_usd = request.get("amount_usd").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+                        if scope_type.is_empty() || scope_id.is_empty() || window.is_empty() || amount_usd <= 0.0 {
+                            serde_json::json!({"ok": false, "error": "scope_type, scope_id, window, and positive amount_usd are required"})
+                        } else {
+                            match reg.create_budget_policy(scope_type, scope_id, window, amount_usd).await {
+                                Ok(id) => serde_json::json!({"ok": true, "id": id}),
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        }
+                    }
+                    None => serde_json::json!({"ok": false, "error": "agent registry not available"}),
+                },
+
+                // ── Approval Queue ──
+                "approvals" => match &agent_registry {
+                    Some(reg) => {
+                        let status = request_field(&request, "status");
+                        match reg.list_approvals(status).await {
+                            Ok(approvals) => serde_json::json!({"ok": true, "approvals": approvals}),
+                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                        }
+                    }
+                    None => serde_json::json!({"ok": false, "error": "agent registry not available"}),
+                },
+
+                "resolve_approval" => match &agent_registry {
+                    Some(reg) => {
+                        let approval_id = request_field(&request, "approval_id").unwrap_or("");
+                        let status = request_field(&request, "status").unwrap_or("");
+                        let decided_by = request_field(&request, "decided_by").unwrap_or("");
+                        let note = request_field(&request, "note");
+
+                        if approval_id.is_empty() || status.is_empty() || decided_by.is_empty() {
+                            serde_json::json!({"ok": false, "error": "approval_id, status, and decided_by are required"})
+                        } else {
+                            match reg.resolve_approval(approval_id, status, decided_by, note).await {
+                                Ok(()) => serde_json::json!({"ok": true}),
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        }
+                    }
+                    None => serde_json::json!({"ok": false, "error": "agent registry not available"}),
+                },
+
                 _ => serde_json::json!({"ok": false, "error": format!("unknown command: {cmd}")}),
             };
 

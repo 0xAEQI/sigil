@@ -88,6 +88,13 @@ pub struct PersistentAgent {
     /// Emotional faces shown during different states.
     /// Keys: "greeting", "thinking", "working", "error", "complete", "idle"
     pub faces: Option<std::collections::HashMap<String, String>>,
+    /// Maximum concurrent workers for this agent (default: 1).
+    #[serde(default = "default_max_concurrent")]
+    pub max_concurrent: u32,
+}
+
+fn default_max_concurrent() -> u32 {
+    1
 }
 
 /// Frontmatter parsed from a template file.
@@ -365,7 +372,32 @@ impl AgentRegistry {
                  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
              );
              CREATE INDEX IF NOT EXISTS idx_departments_project ON departments(project);
-             CREATE INDEX IF NOT EXISTS idx_departments_parent ON departments(parent_id);",
+             CREATE INDEX IF NOT EXISTS idx_departments_parent ON departments(parent_id);
+
+             CREATE TABLE IF NOT EXISTS budget_policies (
+                 id TEXT PRIMARY KEY,
+                 scope_type TEXT NOT NULL,
+                 scope_id TEXT NOT NULL,
+                 window TEXT NOT NULL,
+                 amount_usd REAL NOT NULL,
+                 warn_pct REAL DEFAULT 0.8,
+                 hard_stop INTEGER DEFAULT 1,
+                 paused INTEGER DEFAULT 0,
+                 created_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS approvals (
+                 id TEXT PRIMARY KEY,
+                 agent_id TEXT NOT NULL,
+                 task_id TEXT,
+                 request_type TEXT NOT NULL,
+                 payload_json TEXT NOT NULL,
+                 status TEXT NOT NULL DEFAULT 'pending',
+                 decided_by TEXT,
+                 decision_note TEXT,
+                 created_at TEXT NOT NULL,
+                 decided_at TEXT
+             );",
         )?;
 
         // Step 2: Add department_id column to agents table if missing.
@@ -378,6 +410,20 @@ impl AgentRegistry {
             if !has_col {
                 conn.execute_batch(
                     "ALTER TABLE agents ADD COLUMN department_id TEXT REFERENCES departments(id) ON DELETE SET NULL;",
+                )?;
+            }
+        }
+
+        // Step 3: Add max_concurrent column to agents table if missing.
+        {
+            let has_col = conn
+                .prepare("PRAGMA table_info(agents)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|col| col == "max_concurrent");
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE agents ADD COLUMN max_concurrent INTEGER NOT NULL DEFAULT 1;",
                 )?;
             }
         }
@@ -494,6 +540,7 @@ impl AgentRegistry {
             color: None,
             avatar: None,
             faces: None,
+            max_concurrent: 1,
         };
 
         let db = self.db.lock().await;
@@ -833,6 +880,190 @@ impl AgentRegistry {
         info!(agent_id = %agent_id, department_id = ?dept_id, "agent department updated");
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Budget policy operations
+    // -----------------------------------------------------------------------
+
+    /// List all budget policies.
+    pub async fn list_budget_policies(&self) -> Result<Vec<serde_json::Value>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT id, scope_type, scope_id, window, amount_usd, warn_pct, hard_stop, paused, created_at \
+             FROM budget_policies ORDER BY created_at DESC",
+        )?;
+        let policies = stmt
+            .query_map([], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "scope_type": row.get::<_, String>(1)?,
+                    "scope_id": row.get::<_, String>(2)?,
+                    "window": row.get::<_, String>(3)?,
+                    "amount_usd": row.get::<_, f64>(4)?,
+                    "warn_pct": row.get::<_, f64>(5)?,
+                    "hard_stop": row.get::<_, i32>(6)? != 0,
+                    "paused": row.get::<_, i32>(7)? != 0,
+                    "created_at": row.get::<_, String>(8)?,
+                }))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(policies)
+    }
+
+    /// Create a new budget policy.
+    pub async fn create_budget_policy(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+        window: &str,
+        amount_usd: f64,
+    ) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT INTO budget_policies (id, scope_type, scope_id, window, amount_usd, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, scope_type, scope_id, window, amount_usd, now],
+        )?;
+        info!(id = %id, scope_type = %scope_type, scope_id = %scope_id, "budget policy created");
+        Ok(id)
+    }
+
+    /// Check budget: returns amount_usd if a policy exists for the given scope.
+    pub async fn check_budget(
+        &self,
+        scope_type: &str,
+        scope_id: &str,
+    ) -> Result<Option<f64>> {
+        let db = self.db.lock().await;
+        let amount: Option<f64> = db
+            .query_row(
+                "SELECT amount_usd FROM budget_policies \
+                 WHERE scope_type = ?1 AND scope_id = ?2 AND paused = 0 \
+                 ORDER BY created_at DESC LIMIT 1",
+                params![scope_type, scope_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(amount)
+    }
+
+    /// Pause or unpause a budget policy.
+    pub async fn set_budget_paused(&self, policy_id: &str, paused: bool) -> Result<()> {
+        let db = self.db.lock().await;
+        let updated = db.execute(
+            "UPDATE budget_policies SET paused = ?1 WHERE id = ?2",
+            params![paused as i32, policy_id],
+        )?;
+        if updated == 0 {
+            anyhow::bail!("budget policy '{policy_id}' not found");
+        }
+        info!(policy_id = %policy_id, paused = paused, "budget policy paused state updated");
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Approval queue operations
+    // -----------------------------------------------------------------------
+
+    /// Create a new approval request.
+    pub async fn create_approval(
+        &self,
+        agent_id: &str,
+        task_id: Option<&str>,
+        request_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let payload_json = serde_json::to_string(payload)?;
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT INTO approvals (id, agent_id, task_id, request_type, payload_json, status, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6)",
+            params![id, agent_id, task_id, request_type, payload_json, now],
+        )?;
+        info!(id = %id, agent_id = %agent_id, request_type = %request_type, "approval request created");
+        Ok(id)
+    }
+
+    /// List approvals, optionally filtered by status.
+    pub async fn list_approvals(&self, status: Option<&str>) -> Result<Vec<serde_json::Value>> {
+        let db = self.db.lock().await;
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match status {
+            Some(s) => (
+                "SELECT id, agent_id, task_id, request_type, payload_json, status, decided_by, decision_note, created_at, decided_at \
+                 FROM approvals WHERE status = ?1 ORDER BY created_at DESC"
+                    .to_string(),
+                vec![Box::new(s.to_string())],
+            ),
+            None => (
+                "SELECT id, agent_id, task_id, request_type, payload_json, status, decided_by, decision_note, created_at, decided_at \
+                 FROM approvals ORDER BY created_at DESC"
+                    .to_string(),
+                vec![],
+            ),
+        };
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = db.prepare(&sql)?;
+        let approvals = stmt
+            .query_map(params_refs.as_slice(), |row| {
+                let payload_str: String = row.get(4)?;
+                let payload: serde_json::Value =
+                    serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "agent_id": row.get::<_, String>(1)?,
+                    "task_id": row.get::<_, Option<String>>(2)?,
+                    "request_type": row.get::<_, String>(3)?,
+                    "payload": payload,
+                    "status": row.get::<_, String>(5)?,
+                    "decided_by": row.get::<_, Option<String>>(6)?,
+                    "decision_note": row.get::<_, Option<String>>(7)?,
+                    "created_at": row.get::<_, String>(8)?,
+                    "decided_at": row.get::<_, Option<String>>(9)?,
+                }))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(approvals)
+    }
+
+    /// Resolve an approval request (approve/reject).
+    pub async fn resolve_approval(
+        &self,
+        approval_id: &str,
+        status: &str,
+        decided_by: &str,
+        note: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let db = self.db.lock().await;
+        let updated = db.execute(
+            "UPDATE approvals SET status = ?1, decided_by = ?2, decision_note = ?3, decided_at = ?4 \
+             WHERE id = ?5",
+            params![status, decided_by, note, now, approval_id],
+        )?;
+        if updated == 0 {
+            anyhow::bail!("approval '{approval_id}' not found");
+        }
+        info!(approval_id = %approval_id, status = %status, decided_by = %decided_by, "approval resolved");
+        Ok(())
+    }
+
+    /// Get max_concurrent for an agent by name. Returns 1 if not found.
+    pub async fn get_max_concurrent_by_name(&self, name: &str) -> Result<u32> {
+        let db = self.db.lock().await;
+        let max_concurrent: Option<u32> = db
+            .query_row(
+                "SELECT max_concurrent FROM agents WHERE name = ?1 AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+                params![name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(max_concurrent.unwrap_or(1))
+    }
 }
 
 /// Convert a template trigger definition to a TriggerType.
@@ -943,6 +1174,7 @@ fn row_to_agent(row: &rusqlite::Row) -> PersistentAgent {
             .get::<_, String>("faces")
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok()),
+        max_concurrent: row.get::<_, u32>("max_concurrent").unwrap_or(1),
     }
 }
 

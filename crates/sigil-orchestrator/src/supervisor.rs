@@ -743,6 +743,42 @@ impl Supervisor {
                 .agent_id
                 .clone()
                 .unwrap_or_else(|| self.project_name.clone());
+
+            // Per-agent concurrency control: skip if max_concurrent reached.
+            if let Some(ref registry) = self.agent_registry {
+                let max_concurrent = registry
+                    .get_max_concurrent_by_name(&agent_name)
+                    .await
+                    .unwrap_or(1);
+
+                // Count running tasks for this agent by checking each running worker's
+                // task in the task board to match agent_id.
+                let store = self.tasks.lock().await;
+                let running_for_agent = self
+                    .running_tasks
+                    .iter()
+                    .filter(|w| !w.handle.is_finished())
+                    .filter(|w| {
+                        store
+                            .get(&w.task_id)
+                            .and_then(|t| t.agent_id.as_ref())
+                            .is_some_and(|a| a == &agent_name)
+                    })
+                    .count() as u32;
+                drop(store);
+
+                if running_for_agent >= max_concurrent {
+                    debug!(
+                        project = %self.project_name,
+                        agent = %agent_name,
+                        running = running_for_agent,
+                        max_concurrent = max_concurrent,
+                        "agent at max concurrency, skipping task"
+                    );
+                    continue;
+                }
+            }
+
             let worker_name = format!("{}:{}:{}", self.project_name, agent_name, worker_idx);
 
             if let Some(ref audit) = self.audit_log {
@@ -1389,6 +1425,7 @@ impl Supervisor {
                                 && let Ok(state) =
                                     serde_json::from_str::<sigil_core::SessionState>(&content)
                             {
+                                // Per-agent transcript channel (backwards compat).
                                 let chat_id = crate::conversation_store::named_channel_chat_id(
                                     &format!("transcript:{}", agent_name_for_records),
                                 );
@@ -1406,6 +1443,29 @@ impl Supervisor {
                                     if !text.is_empty() {
                                         let _ = cs
                                             .record_with_source(chat_id, role, &text, Some("agent"))
+                                            .await;
+                                    }
+                                }
+
+                                // Per-task transcript channel (findable by task_id).
+                                let task_channel_name = format!("transcript:task:{}", task_id_clone);
+                                let task_chat_id = crate::conversation_store::named_channel_chat_id(
+                                    &task_channel_name,
+                                );
+                                let _ = cs
+                                    .ensure_channel(task_chat_id, "transcript", &task_channel_name)
+                                    .await;
+                                for msg in &state.messages {
+                                    let role = match msg.role {
+                                        sigil_core::traits::Role::User => "user",
+                                        sigil_core::traits::Role::Assistant => "assistant",
+                                        sigil_core::traits::Role::System => "system",
+                                        sigil_core::traits::Role::Tool => "tool",
+                                    };
+                                    let text = msg.content.to_transcript_text();
+                                    if !text.is_empty() {
+                                        let _ = cs
+                                            .record_with_source(task_chat_id, role, &text, Some("agent"))
                                             .await;
                                     }
                                 }
