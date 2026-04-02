@@ -1,59 +1,64 @@
-# Agents Directory
+# Agents
 
-Each subdirectory in `agents/` defines who does the work.
+Each subdirectory defines a persistent agent identity.
 
-## Layout
+## Format
 
-```text
-agents/
-  shared/
-    WORKFLOW.md
-  <agent>/
-    agent.toml
-    PERSONA.md
-    IDENTITY.md
-    OPERATIONAL.md
-    PREFERENCES.md
-    MEMORY.md
-    EVOLUTION.md
-    .tasks/
-```
-
-Only files that exist are loaded. Empty files are ignored.
-
-## `agent.toml`
-
-Typical fields:
+One file per agent: `agent.toml`. Contains all config + system prompt.
 
 ```toml
-name = "reviewer"
-prefix = "rv"
-role = "advisor"       # orchestrator | worker | advisor
-voice = "vocal"        # vocal | silent
-model = "xiaomi/mimo-v2-pro"
-expertise = ["sigil"]
-max_workers = 1
-max_budget_usd = 1.0
+display_name = "CTO"
+model_tier = "capable"           # resolved via [models] in sigil.toml
+max_workers = 2
+max_turns = 30
+expertise = ["architecture", "systems", "rust"]
+capabilities = ["spawn_agents", "manage_triggers"]
+color = "#00BFFF"
+avatar = "⚙"
+
+[faces]
+greeting = "(⌐■_■)"
+thinking = "(¬_¬ )"
+
+[[triggers]]
+name = "memory-consolidation"
+schedule = "every 6h"
+skill = "memory-consolidation"
+
+[prompt]
+system = """
+You are CTO — the technology executive...
+"""
 ```
 
-Agents are discovered from disk and merged with any legacy `[[agents]]` blocks in `sigil.toml`.
+## Shipped Agents
 
-## Identity Assembly
+| Agent | Directory | Function |
+|-------|-----------|----------|
+| Shadow | `shadow/` | Personal assistant, default identity |
+| CEO | `ceo/` | Strategic coordination |
+| CTO | `cto/` | Architecture, engineering |
+| CPO | `cpo/` | Product, UX |
+| CFO | `cfo/` | Financial ops, trading, risk |
+| COO | `coo/` | Deployment, reliability |
+| GC | `gc/` | Legal, compliance |
+| CISO | `ciso/` | Security, threat modeling |
 
-Agent-side identity comes from:
+## Model Tiers
 
-- `agents/shared/WORKFLOW.md`
-- `PERSONA.md`
-- `IDENTITY.md`
-- `OPERATIONAL.md`
-- `PREFERENCES.md`
-- `MEMORY.md`
-- `EVOLUTION.md`
+Agents declare `model_tier` instead of hardcoding model names:
 
-Project context is layered on top separately from `projects/<name>/`.
+- `capable` — architecture, security, complex decisions
+- `balanced` — standard work, review, implementation
+- `fast` — simple queries, formatting
+- `cheapest` — health checks, memory consolidation
 
-## Notes
+Central `[models]` config in `sigil.toml` resolves tiers to actual models.
 
-- Advisor agents can receive tasks from the daemon and therefore may have their own `.tasks/` store.
-- Use `sigil agent list` to see discovered agents.
-- Use `sigil agent migrate` to write disk `agent.toml` files from legacy config entries.
+## Creating an Agent
+
+1. Create a directory under `agents/`
+2. Add `agent.toml` with config + system prompt
+3. Spawn via `sigil agent spawn <directory_name>`
+
+The directory name is the template identifier. Spawned agents get a UUID in the registry.

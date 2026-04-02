@@ -27,22 +27,24 @@ Everything in Sigil flows through two primitives:
 
 **Skills** define *what* -- a TOML file with a system prompt and tool restrictions that gets loaded into the agent session when a trigger fires.
 
-```yaml
-# Agent template with triggers
----
-name: engineer
-capabilities: [manage_triggers]
-triggers:
-  - name: on-dispatch
-    event: dispatch_received
-    cooldown_secs: 60
-    skill: process-dispatch
-  - name: evolution
-    schedule: every 24h
-    skill: evolution
----
+```toml
+# agents/cto/agent.toml
+display_name = "CTO"
+model_tier = "capable"
+max_workers = 2
+max_turns = 30
+expertise = ["architecture", "systems", "rust"]
+capabilities = ["spawn_agents", "manage_triggers"]
 
-You are the Sigil systems engineer...
+[[triggers]]
+name = "memory-consolidation"
+schedule = "every 6h"
+skill = "memory-consolidation"
+
+[prompt]
+system = """
+You are CTO — the technology executive...
+"""
 ```
 
 An agent's "subconscious" -- health checks, memory consolidation, self-reflection -- is just triggers and skills in the template. No special subsystems.
@@ -85,6 +87,45 @@ delegate(to, prompt, response, create_task, skill, tools)
 | `"async"` | Fresh async session for the sender |
 | `"department"` | Posted to the department channel |
 | `"none"` | Fire and forget |
+
+## Agent Roster
+
+Sigil ships with a C-suite of persistent agent identities. Each declares a `model_tier` (resolved centrally) instead of hardcoding a model name.
+
+| Agent | Tier | Function |
+|-------|------|----------|
+| **Shadow** | balanced | Personal assistant, default identity, first-use experience |
+| **CEO** | capable | Strategic coordination, cross-functional decisions |
+| **CTO** | capable | Architecture, engineering quality, technical strategy |
+| **CPO** | balanced | Product strategy, UX, feature prioritization |
+| **CFO** | capable | Financial ops, quantitative strategy, risk |
+| **COO** | balanced | Deployment, monitoring, reliability |
+| **GC** | capable | Legal, compliance, contracts |
+| **CISO** | capable | Security, threat modeling, incident response |
+
+### Model Tiers
+
+Agents declare capability intent. The `[models]` config resolves to actual models:
+
+```toml
+[models]
+capable = "anthropic/claude-sonnet-4-6"
+balanced = "anthropic/claude-sonnet-4-6"
+fast = "anthropic/claude-haiku-4-5"
+cheapest = "anthropic/claude-haiku-4-5"
+```
+
+Change once, applies to all agents. Per-project overrides via `[[projects]]` config.
+
+## Skills & Subagents
+
+**Workflow skills** (11): feature, bugfix, refactor, research, synthesis, security-audit, plan-review, orchestrate, incident-response, release, migration
+
+**Subagent templates** (9): explore, implement, spec-review, quality-review, verify, plan-review, test-generator, build-resolver, doc-writer, language-reviewer
+
+**Reference skills**: scope-decision-framework, model-tier-routing, observation-learning
+
+All skills live in `projects/shared/skills/`. Agent templates in `agents/*/agent.toml`.
 
 ## Architecture
 
@@ -248,7 +289,7 @@ All state lives in `~/.sigil/`:
 ## Development
 
 ```bash
-cargo test              # 654+ tests
+cargo test              # 659+ tests
 cargo clippy -- -D warnings
 cargo fmt --check
 ```
