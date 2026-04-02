@@ -2972,6 +2972,60 @@ impl Daemon {
                     }
                 }
 
+                "departments" => match &agent_registry {
+                    Some(reg) => {
+                        let project = request.get("project").and_then(|v| v.as_str());
+                        match reg.list_departments(project).await {
+                            Ok(depts) => {
+                                let items: Vec<serde_json::Value> = depts
+                                    .iter()
+                                    .map(|d| {
+                                        serde_json::json!({
+                                            "id": d.id,
+                                            "name": d.name,
+                                            "project": d.project,
+                                            "manager_id": d.manager_id,
+                                            "parent_id": d.parent_id,
+                                            "created_at": d.created_at,
+                                        })
+                                    })
+                                    .collect();
+                                serde_json::json!({"ok": true, "departments": items})
+                            }
+                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                        }
+                    }
+                    None => serde_json::json!({"ok": true, "departments": []}),
+                },
+
+                "create_department" => match &agent_registry {
+                    Some(reg) => {
+                        let name = request_field(&request, "name").unwrap_or("");
+                        let project = request.get("project").and_then(|v| v.as_str());
+                        if name.is_empty() {
+                            serde_json::json!({"ok": false, "error": "name is required"})
+                        } else {
+                            let project_str = project.map(String::from);
+                            match reg
+                                .create_department(name, project_str.as_deref(), None, None)
+                                .await
+                            {
+                                Ok(dept) => serde_json::json!({
+                                    "ok": true,
+                                    "id": dept.id,
+                                    "name": dept.name,
+                                }),
+                                Err(e) => {
+                                    serde_json::json!({"ok": false, "error": e.to_string()})
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        serde_json::json!({"ok": false, "error": "agent registry not available"})
+                    }
+                },
+
                 "agent_spawn" => match &agent_registry {
                     Some(reg) => {
                         let template = request

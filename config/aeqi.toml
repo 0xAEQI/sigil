@@ -1,6 +1,6 @@
 [aeqi]
 name = "emperor-system"
-data_dir = "~/.aeqi"
+data_dir = "~/.sigil"
 
 [web]
 enabled = true

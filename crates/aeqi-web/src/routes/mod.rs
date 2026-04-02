@@ -54,6 +54,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/rate-limit", get(rate_limit))
         .route("/agents/{name}/identity", get(agent_identity))
         .route("/agents/{name}/files", post(save_agent_file))
+        .route("/departments", get(departments))
         .route("/approvals", get(approvals))
         .route("/approvals/{id}/resolve", post(resolve_approval))
 }
@@ -582,6 +583,14 @@ async fn post_blackboard_entry(
     Json(body): Json<serde_json::Value>,
 ) -> Response {
     ipc_proxy(state, "post_blackboard", body).await
+}
+
+// --- Approvals ---
+
+// --- Departments ---
+
+async fn departments(State(state): State<AppState>) -> Response {
+    ipc_proxy(state, "departments", serde_json::json!({})).await
 }
 
 // --- Approvals ---
