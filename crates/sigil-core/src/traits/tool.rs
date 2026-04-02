@@ -3,11 +3,27 @@ use serde::{Deserialize, Serialize};
 
 use super::provider::ToolSpec;
 
+/// Modification to apply to the agent context after a tool executes.
+/// Tools return these to evolve the agent's capabilities mid-session.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContextModifier {
+    /// System message to inject before the next turn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inject_system_message: Option<String>,
+    /// Tool specs to add to the agent's available tools for subsequent turns.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub add_tool_specs: Vec<ToolSpec>,
+}
+
 /// Result of executing a tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
     pub output: String,
     pub is_error: bool,
+    /// Optional context modifier applied after this tool completes.
+    /// Only honored for non-concurrent tools (to avoid race conditions).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub context_modifier: Option<ContextModifier>,
 }
 
 impl ToolResult {
@@ -15,6 +31,7 @@ impl ToolResult {
         Self {
             output: output.into(),
             is_error: false,
+            context_modifier: None,
         }
     }
 
@@ -22,7 +39,14 @@ impl ToolResult {
         Self {
             output: output.into(),
             is_error: true,
+            context_modifier: None,
         }
+    }
+
+    /// Attach a context modifier to this result.
+    pub fn with_context_modifier(mut self, modifier: ContextModifier) -> Self {
+        self.context_modifier = Some(modifier);
+        self
     }
 }
 

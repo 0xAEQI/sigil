@@ -853,6 +853,7 @@ impl Tool for TriggerManageTool {
                         return Ok(ToolResult {
                             output: "cooldown_secs must be >= 60".to_string(),
                             is_error: true,
+                            context_modifier: None,
                         });
                     }
                     let pattern = match event {
@@ -878,6 +879,7 @@ impl Tool for TriggerManageTool {
                             return Ok(ToolResult {
                                 output: format!("unknown event pattern: {other}"),
                                 is_error: true,
+                                context_modifier: None,
                             });
                         }
                     };
@@ -889,6 +891,7 @@ impl Tool for TriggerManageTool {
                     return Ok(ToolResult {
                         output: "provide 'schedule' or 'event_pattern'".to_string(),
                         is_error: true,
+                        context_modifier: None,
                     });
                 };
 
@@ -912,10 +915,12 @@ impl Tool for TriggerManageTool {
                             trigger.trigger_type.type_str()
                         ),
                         is_error: false,
+                        context_modifier: None,
                     }),
                     Err(e) => Ok(ToolResult {
                         output: format!("Failed to create trigger: {e}"),
                         is_error: true,
+                        context_modifier: None,
                     }),
                 }
             }
@@ -947,6 +952,7 @@ impl Tool for TriggerManageTool {
                         items.join("\n")
                     },
                     is_error: false,
+                    context_modifier: None,
                 })
             }
 
@@ -963,10 +969,12 @@ impl Tool for TriggerManageTool {
                             if enabled { "enabled" } else { "disabled" }
                         ),
                         is_error: false,
+                        context_modifier: None,
                     }),
                     Err(e) => Ok(ToolResult {
                         output: format!("Failed: {e}"),
                         is_error: true,
+                        context_modifier: None,
                     }),
                 }
             }
@@ -980,10 +988,12 @@ impl Tool for TriggerManageTool {
                     Ok(()) => Ok(ToolResult {
                         output: format!("Trigger {id} deleted."),
                         is_error: false,
+                        context_modifier: None,
                     }),
                     Err(e) => Ok(ToolResult {
                         output: format!("Failed: {e}"),
                         is_error: true,
+                        context_modifier: None,
                     }),
                 }
             }
@@ -993,6 +1003,7 @@ impl Tool for TriggerManageTool {
                     "Unknown action: {other}. Use: create, list, enable, disable, delete"
                 ),
                 is_error: true,
+                context_modifier: None,
             }),
         }
     }
@@ -1157,6 +1168,7 @@ impl Tool for ChannelPostTool {
         Ok(ToolResult {
             output: format!("Posted to channel '{channel_name}' (chat_id: {chat_id})"),
             is_error: false,
+            context_modifier: None,
         })
     }
 
@@ -1224,6 +1236,7 @@ impl Tool for TranscriptSearchTool {
                     return Ok(ToolResult {
                         output: "No transcript matches found.".to_string(),
                         is_error: false,
+                        context_modifier: None,
                     });
                 }
                 let results: Vec<String> = messages
@@ -1241,11 +1254,13 @@ impl Tool for TranscriptSearchTool {
                 Ok(ToolResult {
                     output: format!("{} matches:\n{}", results.len(), results.join("\n\n")),
                     is_error: false,
+                    context_modifier: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 output: format!("Transcript search failed: {e}"),
                 is_error: true,
+                context_modifier: None,
             }),
         }
     }

@@ -177,6 +177,7 @@ impl Tool for ExecutePlanTool {
             Ok(ToolResult {
                 output: summary,
                 is_error: false, // Plan itself succeeded even if individual steps had errors.
+                context_modifier: None,
             })
         } else {
             Ok(ToolResult::success(summary))
