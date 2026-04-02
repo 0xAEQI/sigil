@@ -2215,6 +2215,135 @@ impl Daemon {
                     None => serde_json::json!({"ok": true, "triggers": []}),
                 },
 
+                "webhook_fire" => {
+                    let public_id = request
+                        .get("public_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let signature = request
+                        .get("signature")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let body_b64 = request
+                        .get("body_b64")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+
+                    if public_id.is_empty() {
+                        serde_json::json!({"ok": false, "error": "public_id is required"})
+                    } else {
+                        match &trigger_store {
+                            Some(store) => {
+                                match store.find_by_public_id(public_id).await {
+                                    Ok(Some(trigger)) => {
+                                        // Verify HMAC signature if signing_secret is set.
+                                        let sig_error =
+                                            if let crate::trigger::TriggerType::Webhook {
+                                                signing_secret: Some(secret),
+                                                ..
+                                            } = &trigger.trigger_type
+                                            {
+                                                let raw_body = base64::Engine::decode(
+                                                    &base64::engine::general_purpose::STANDARD,
+                                                    body_b64,
+                                                )
+                                                .unwrap_or_default();
+                                                match &signature {
+                                                    Some(sig) => {
+                                                        if !crate::trigger::verify_webhook_signature(
+                                                            secret, &raw_body, sig,
+                                                        ) {
+                                                            Some(
+                                                                serde_json::json!({"ok": false, "error": "invalid signature"}),
+                                                            )
+                                                        } else {
+                                                            None
+                                                        }
+                                                    }
+                                                    None => Some(
+                                                        serde_json::json!({"ok": false, "error": "signature required but not provided"}),
+                                                    ),
+                                                }
+                                            } else {
+                                                None
+                                            };
+
+                                        if let Some(err_resp) = sig_error {
+                                            err_resp
+                                        } else {
+                                            // Look up agent to get project.
+                                            let project = match &agent_registry {
+                                                Some(reg) => match reg.get(&trigger.agent_id).await
+                                                {
+                                                    Ok(Some(agent)) => agent.project.clone(),
+                                                    _ => None,
+                                                },
+                                                None => None,
+                                            };
+
+                                            match project {
+                                                Some(project) => {
+                                                    // Advance before execute.
+                                                    let _ = store
+                                                        .advance_before_execute(&trigger.id)
+                                                        .await;
+
+                                                    let subject = format!(
+                                                        "[webhook:{}] {}",
+                                                        trigger.name, trigger.skill
+                                                    );
+                                                    let description = format!(
+                                                        "Webhook '{}' fired. Run skill '{}' for agent {}.",
+                                                        trigger.name,
+                                                        trigger.skill,
+                                                        trigger.agent_id
+                                                    );
+
+                                                    match registry
+                                                        .assign_with_skill_and_agent(
+                                                            &project,
+                                                            &subject,
+                                                            &description,
+                                                            &trigger.skill,
+                                                            Some(&trigger.agent_id),
+                                                        )
+                                                        .await
+                                                    {
+                                                        Ok(task) => {
+                                                            let _ = store
+                                                                .record_fire(&trigger.id, 0.0)
+                                                                .await;
+                                                            serde_json::json!({
+                                                                "ok": true,
+                                                                "task_id": task.id
+                                                            })
+                                                        }
+                                                        Err(e) => {
+                                                            serde_json::json!({"ok": false, "error": format!("failed to create task: {e}")})
+                                                        }
+                                                    }
+                                                }
+                                                None => {
+                                                    serde_json::json!({"ok": false, "error": "trigger agent has no project scope"})
+                                                }
+                                            }
+                                        } // else (no signature error)
+                                    }
+                                    Ok(None) => {
+                                        serde_json::json!({"ok": false, "error": "webhook not found"})
+                                    }
+                                    Err(e) => {
+                                        serde_json::json!({"ok": false, "error": format!("lookup failed: {e}")})
+                                    }
+                                }
+                            }
+                            None => {
+                                serde_json::json!({"ok": false, "error": "trigger store not initialized"})
+                            }
+                        }
+                    }
+                }
+
                 "agent_identity" => {
                     let agent_name = request.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     if agent_name.is_empty() {

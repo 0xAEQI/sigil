@@ -53,6 +53,14 @@ pub enum TriggerType {
         pattern: EventPattern,
         cooldown_secs: u64,
     },
+    /// Webhook: externally triggered via HTTP POST.
+    #[serde(rename = "webhook")]
+    Webhook {
+        /// Public ID used in the URL path (not the internal trigger UUID).
+        public_id: String,
+        /// Optional HMAC-SHA256 signing secret for payload verification.
+        signing_secret: Option<String>,
+    },
 }
 
 /// Event patterns that can fire triggers.
@@ -120,6 +128,30 @@ pub enum EventPattern {
     },
 }
 
+/// Verify HMAC-SHA256 signature for webhook payloads.
+///
+/// Supports signatures with or without the `sha256=` prefix (GitHub-style).
+pub fn verify_webhook_signature(secret: &str, body: &[u8], signature: &str) -> bool {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let sig = signature.strip_prefix("sha256=").unwrap_or(signature);
+    let Ok(sig_bytes) = hex::decode(sig) else {
+        return false;
+    };
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(body);
+    mac.verify_slice(&sig_bytes).is_ok()
+}
+
+/// Generate a URL-friendly public ID for webhooks (12 hex chars).
+pub fn generate_webhook_public_id() -> String {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let bytes: [u8; 6] = rng.random();
+    hex::encode(bytes)
+}
+
 /// Input for creating a new trigger.
 pub struct NewTrigger {
     pub agent_id: String,
@@ -139,6 +171,7 @@ impl TriggerType {
             TriggerType::Schedule { .. } => "schedule",
             TriggerType::Once { .. } => "once",
             TriggerType::Event { .. } => "event",
+            TriggerType::Webhook { .. } => "webhook",
         }
     }
 
@@ -173,6 +206,18 @@ impl TriggerType {
                     cooldown_secs,
                 })
             }
+            "webhook" => {
+                let v: serde_json::Value = serde_json::from_str(config_json).ok()?;
+                let public_id = v.get("public_id")?.as_str()?.to_string();
+                let signing_secret = v
+                    .get("signing_secret")
+                    .and_then(|s| s.as_str())
+                    .map(String::from);
+                Some(TriggerType::Webhook {
+                    public_id,
+                    signing_secret,
+                })
+            }
             _ => None,
         }
     }
@@ -188,6 +233,7 @@ impl Trigger {
             TriggerType::Schedule { expr } => is_schedule_due(expr, self.last_fired.as_ref()),
             TriggerType::Once { at } => self.last_fired.is_none() && Utc::now() >= *at,
             TriggerType::Event { .. } => false, // Events are checked separately
+            TriggerType::Webhook { .. } => false, // Webhooks are externally triggered
         }
     }
 }
@@ -508,6 +554,20 @@ impl TriggerStore {
             })
             .optional()?;
         Ok(trigger)
+    }
+
+    /// Find a webhook trigger by its public_id.
+    pub async fn find_by_public_id(&self, public_id: &str) -> Result<Option<Trigger>> {
+        let db = self.db.lock().await;
+        let mut stmt =
+            db.prepare("SELECT * FROM triggers WHERE trigger_type = 'webhook' AND enabled = 1")?;
+        let triggers = stmt
+            .query_map([], |row| Ok(row_to_trigger(row)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        // Filter in Rust since public_id is stored in the JSON config column.
+        Ok(triggers.into_iter().find(|t| {
+            matches!(&t.trigger_type, TriggerType::Webhook { public_id: pid, .. } if pid == public_id)
+        }))
     }
 
     /// List all triggers for a specific agent.

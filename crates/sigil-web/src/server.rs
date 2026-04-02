@@ -19,7 +19,7 @@ use tracing::info;
 
 use crate::auth;
 use crate::ipc::IpcClient;
-use crate::routes::api_routes;
+use crate::routes::{api_routes, webhook_routes};
 use crate::ws;
 
 /// Shared application state.
@@ -71,7 +71,7 @@ pub async fn start(config: &SigilConfig) -> Result<()> {
         auth::require_auth,
     ));
 
-    // Public routes (health + login + ws).
+    // Public routes (health + login + ws + webhooks).
     let public = Router::new()
         .route("/api/health", axum::routing::get(health_handler))
         .route("/api/auth/login", axum::routing::post(login_handler))
@@ -79,7 +79,8 @@ pub async fn start(config: &SigilConfig) -> Result<()> {
         .route(
             "/api/chat/stream",
             axum::routing::get(crate::chat_ws::handler),
-        );
+        )
+        .nest("/api", webhook_routes());
 
     let mut app = Router::new()
         .nest("/api", protected)
