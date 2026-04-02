@@ -1,0 +1,17 @@
+{
+  "task_id": "sg-034",
+  "worker_name": "engineer",
+  "modified_files": [
+    "crates/sigil-core/src/config.rs",
+    "crates/sigil-orchestrator/src/daemon.rs",
+    "crates/sigil-web/src/routes/mod.rs",
+    "sigil-cli/src/helpers.rs",
+    ".sigil/"
+  ],
+  "last_commit": "316c7fb441f5d97d917676d05bd4d025d06326a3",
+  "branch": "main",
+  "worktree_path": "/home/claudedev/sigil",
+  "timestamp": "2026-04-01T13:46:08.461385324Z",
+  "session_id": null,
+  "progress_notes": "FAILED: Worker returned empty response"
+}

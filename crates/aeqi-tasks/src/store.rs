@@ -565,11 +565,15 @@ mod tests {
     #[test]
     fn test_create_and_get() {
         let (mut store, _dir) = temp_store();
-        let task = store.create_with_agent("as", "Fix login bug", None).unwrap();
+        let task = store
+            .create_with_agent("as", "Fix login bug", None)
+            .unwrap();
         assert_eq!(task.id.0, "as-001");
         assert_eq!(task.subject, "Fix login bug");
 
-        let task2 = store.create_with_agent("as", "Add logout button", None).unwrap();
+        let task2 = store
+            .create_with_agent("as", "Add logout button", None)
+            .unwrap();
         assert_eq!(task2.id.0, "as-002");
 
         assert!(store.get("as-001").is_some());
@@ -639,7 +643,9 @@ mod tests {
         {
             let mut store = TaskBoard::open(dir.path()).unwrap();
             store.create_with_agent("rd", "Price check", None).unwrap();
-            store.create_with_agent("rd", "Inventory update", None).unwrap();
+            store
+                .create_with_agent("rd", "Inventory update", None)
+                .unwrap();
         }
 
         // Reopen and verify data persisted.
@@ -724,7 +730,9 @@ mod tests {
     #[test]
     fn test_auto_close_parent_when_all_children_done() {
         let (mut store, _dir) = temp_store();
-        let parent = store.create_with_agent("as", "Pipeline: Deploy", None).unwrap();
+        let parent = store
+            .create_with_agent("as", "Pipeline: Deploy", None)
+            .unwrap();
         let c1 = store.create_child(&parent.id, "Step 1: Build").unwrap();
         let c2 = store.create_child(&parent.id, "Step 2: Test").unwrap();
         let c3 = store.create_child(&parent.id, "Step 3: Ship").unwrap();

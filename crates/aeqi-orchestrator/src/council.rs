@@ -74,7 +74,6 @@ impl Council {
     pub async fn get_topic(&self, topic_id: &str) -> Option<CouncilTopic> {
         self.topics.lock().await.get(topic_id).cloned()
     }
-
 }
 
 impl Default for Council {

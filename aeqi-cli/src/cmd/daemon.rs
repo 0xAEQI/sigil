@@ -137,8 +137,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     Some(&project.worktree_root),
                 );
                 let provider = build_provider_for_project(&config, &project_cfg.name)?;
-                let mut pool =
-                    WorkerPool::new(&project, provider.clone(), tools.clone(), dispatch_bus.clone());
+                let mut pool = WorkerPool::new(
+                    &project,
+                    provider.clone(),
+                    tools.clone(),
+                    dispatch_bus.clone(),
+                );
                 pool.event_broadcaster = Some(event_broadcaster.clone());
                 let project_orch = config.orchestrator_for_project(&project_cfg.name);
 

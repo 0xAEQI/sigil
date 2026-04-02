@@ -1,0 +1,19 @@
+{
+  "task_id": "sg-031",
+  "worker_name": "engineer",
+  "modified_files": [
+    "crates/sigil-core/src/config.rs",
+    "crates/sigil-core/src/lib.rs",
+    "scripts/check-recall.sh",
+    "scripts/mark-recall.sh",
+    "sigil-cli/src/cmd/team.rs",
+    "sigil-cli/src/helpers.rs",
+    "crates/sigil-tools/src/execute_plan.rs"
+  ],
+  "last_commit": "afc475ccaaf4be8eddd8a29bbc9e5d26d06895c6",
+  "branch": "sg-031/execute-plan",
+  "worktree_path": "/home/claudedev/sigil",
+  "timestamp": "2026-04-01T10:36:35.180278982Z",
+  "session_id": null,
+  "progress_notes": "FAILED: FAILED: claude code exited with code 1"
+}

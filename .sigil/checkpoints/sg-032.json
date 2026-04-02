@@ -1,0 +1,13 @@
+{
+  "task_id": "sg-032",
+  "worker_name": "engineer",
+  "modified_files": [
+    "sigil-cli/src/cmd/chat_tui.rs"
+  ],
+  "last_commit": "92182e2d2aa348fedc56eafe376216ff15410f35",
+  "branch": "sg-032/tui-rewrite",
+  "worktree_path": "/home/claudedev/sigil",
+  "timestamp": "2026-04-01T10:43:50.935354653Z",
+  "session_id": null,
+  "progress_notes": "FAILED: FAILED: claude code exited with code 1"
+}

@@ -1,0 +1,14 @@
+{
+  "task_id": "sg-029",
+  "worker_name": "engineer",
+  "modified_files": [
+    "scripts/check-recall.sh",
+    "scripts/mark-recall.sh"
+  ],
+  "last_commit": "723f9838eb0bc7a17e538b54145696fb359deaf0",
+  "branch": "sg-015/agent-loop-rewrite",
+  "worktree_path": "/home/claudedev/sigil",
+  "timestamp": "2026-04-01T09:40:36.543932921Z",
+  "session_id": null,
+  "progress_notes": "FAILED: FAILED: claude code exited with code 1"
+}
