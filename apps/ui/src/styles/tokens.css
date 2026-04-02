@@ -605,18 +605,20 @@ a:hover {
 }
 
 .floating-nav-item {
-  font-size: 13px;
-  color: rgba(255,255,255,0.35);
-  padding: 6px 12px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.25);
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.12s ease;
   text-decoration: none;
-  white-space: nowrap;
 }
 
 .floating-nav-item:hover {
-  color: rgba(255,255,255,0.6);
+  color: rgba(255,255,255,0.55);
   background: rgba(255,255,255,0.03);
 }
 

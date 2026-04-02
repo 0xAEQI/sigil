@@ -2,19 +2,13 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
 import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
-import ChatPage from "@/pages/ChatPage";
+import DashboardPage from "@/pages/DashboardPage";
 import InboxPage from "@/pages/InboxPage";
-import AgentsPage from "@/pages/AgentsPage";
-import AgentDetailPage from "@/pages/AgentDetailPage";
-import DepartmentsPage from "@/pages/DepartmentsPage";
 import TasksPage from "@/pages/TasksPage";
-import TriggersPage from "@/pages/TriggersPage";
+import DepartmentsPage from "@/pages/DepartmentsPage";
 import MemoryPage from "@/pages/MemoryPage";
-import BlackboardPage from "@/pages/BlackboardPage";
+import TriggersPage from "@/pages/TriggersPage";
 import SkillsPage from "@/pages/SkillsPage";
-import CostPage from "@/pages/CostPage";
-import AuditPage from "@/pages/AuditPage";
-import SettingsPage from "@/pages/SettingsPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -34,27 +28,28 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<ChatPage />} />
+        {/* 5 main views */}
+        <Route index element={<DashboardPage />} />
         <Route path="inbox" element={<InboxPage />} />
-        <Route path="agents" element={<AgentsPage />} />
-        <Route path="agents/:name" element={<AgentDetailPage />} />
-        <Route path="departments" element={<DepartmentsPage />} />
+        <Route path="issues" element={<TasksPage />} />
+        <Route path="automations" element={<TriggersPage />} />
+        <Route path="knowledge" element={<MemoryPage />} />
+
+        {/* Contextual routes */}
         <Route path="departments/:id" element={<DepartmentsPage />} />
-        <Route path="tasks" element={<TasksPage />} />
-        <Route path="triggers" element={<TriggersPage />} />
-        <Route path="memory" element={<MemoryPage />} />
-        <Route path="blackboard" element={<BlackboardPage />} />
-        <Route path="skills" element={<SkillsPage />} />
-        <Route path="cost" element={<CostPage />} />
-        <Route path="audit" element={<AuditPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        {/* Redirects for removed routes */}
+
+        {/* Redirects */}
+        <Route path="tasks" element={<Navigate to="/issues" replace />} />
+        <Route path="triggers" element={<Navigate to="/automations" replace />} />
+        <Route path="memory" element={<Navigate to="/knowledge" replace />} />
+        <Route path="skills" element={<Navigate to="/knowledge" replace />} />
+        <Route path="blackboard" element={<Navigate to="/knowledge" replace />} />
+        <Route path="cost" element={<Navigate to="/" replace />} />
+        <Route path="audit" element={<Navigate to="/" replace />} />
         <Route path="dashboard" element={<Navigate to="/" replace />} />
-        <Route path="projects" element={<Navigate to="/" replace />} />
-        <Route path="projects/:name" element={<Navigate to="/" replace />} />
-        <Route path="missions" element={<Navigate to="/" replace />} />
-        <Route path="operations" element={<Navigate to="/" replace />} />
-        <Route path="knowledge" element={<Navigate to="/memory" replace />} />
+        <Route path="agents" element={<Navigate to="/" replace />} />
+        <Route path="agents/:name" element={<Navigate to="/" replace />} />
+        <Route path="settings" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );
