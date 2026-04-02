@@ -428,37 +428,35 @@ impl Supervisor {
             let mut org_lines = Vec::new();
 
             // Show department peers if agent is in a department.
-            if let Ok(Some(agent)) = registry.get(agent_id).await {
-                if let Some(ref dept_id) = agent.department_id {
-                    if let Ok(members) = registry.department_members(dept_id).await {
-                        let names: Vec<&str> = members
-                            .iter()
-                            .filter(|m| {
-                                m.id != *agent_id
-                                    && m.status == crate::agent_registry::AgentStatus::Active
-                            })
-                            .map(|m| m.name.as_str())
-                            .collect();
-                        if !names.is_empty() {
-                            org_lines.push(format!("Department peers: {}", names.join(", ")));
-                        }
+            if let Ok(Some(agent)) = registry.get(agent_id).await
+                && let Some(ref dept_id) = agent.department_id
+            {
+                if let Ok(members) = registry.department_members(dept_id).await {
+                    let names: Vec<&str> = members
+                        .iter()
+                        .filter(|m| {
+                            m.id != *agent_id
+                                && m.status == crate::agent_registry::AgentStatus::Active
+                        })
+                        .map(|m| m.name.as_str())
+                        .collect();
+                    if !names.is_empty() {
+                        org_lines.push(format!("Department peers: {}", names.join(", ")));
                     }
-                    if let Ok(Some(dept)) = registry.get_department(dept_id).await {
-                        if let Some(ref mgr_id) = dept.manager_id {
-                            if mgr_id != agent_id {
-                                if let Ok(Some(mgr)) = registry.get(mgr_id).await {
-                                    org_lines.push(format!(
-                                        "Department manager: {}{}",
-                                        mgr.name,
-                                        mgr.display_name
-                                            .as_ref()
-                                            .map(|d| format!(" ({d})"))
-                                            .unwrap_or_default()
-                                    ));
-                                }
-                            }
-                        }
-                    }
+                }
+                if let Ok(Some(dept)) = registry.get_department(dept_id).await
+                    && let Some(ref mgr_id) = dept.manager_id
+                    && mgr_id != agent_id
+                    && let Ok(Some(mgr)) = registry.get(mgr_id).await
+                {
+                    org_lines.push(format!(
+                        "Department manager: {}{}",
+                        mgr.name,
+                        mgr.display_name
+                            .as_ref()
+                            .map(|d| format!(" ({d})"))
+                            .unwrap_or_default()
+                    ));
                 }
             }
 
@@ -1621,12 +1619,11 @@ impl Supervisor {
         for _ in 0..10 {
             let dept_id = current_dept_id.as_ref()?;
             let dept = registry.get_department(dept_id).await.ok()??;
-            if let Some(ref mgr_id) = dept.manager_id {
-                if let Ok(Some(mgr)) = registry.get(mgr_id).await {
-                    if mgr.name != agent_name {
-                        return Some(mgr.name);
-                    }
-                }
+            if let Some(ref mgr_id) = dept.manager_id
+                && let Ok(Some(mgr)) = registry.get(mgr_id).await
+                && mgr.name != agent_name
+            {
+                return Some(mgr.name);
             }
             // Walk up to parent department.
             current_dept_id = dept.parent_id;

@@ -37,3 +37,4 @@ projects/*/
 .env
 .env.local
 .sigil/sessions/
+.claude/worktrees/
