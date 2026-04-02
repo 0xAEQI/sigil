@@ -23,8 +23,8 @@ pub use agent::{
 };
 pub use chat_stream::{ChatStreamEvent, ChatStreamSender};
 pub use config::{
-    AgentPromptConfig, AgentTriggerConfig, AgentVoice, ContextBudgetConfig, ExecutionMode,
-    MissionDef, ModelTierConfig, PeerAgentConfig, ProjectConfig, ProviderKind, RuntimePresetConfig,
+    AgentPromptConfig, AgentTriggerConfig, ContextBudgetConfig, ExecutionMode, MissionDef,
+    ModelTierConfig, PeerAgentConfig, ProjectConfig, ProviderKind, RuntimePresetConfig,
     SigilConfig, TeamConfig, discover_agents, load_agent_config,
 };
 pub use identity::Identity;

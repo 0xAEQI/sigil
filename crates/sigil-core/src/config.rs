@@ -253,18 +253,6 @@ fn default_agent_role() -> String {
     "orchestrator".to_string()
 }
 
-/// Whether an agent speaks in group channels.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum AgentVoice {
-    /// Speaks in channels (Telegram, etc.).
-    #[default]
-    Vocal,
-    /// Silent — injects context but doesn't post visible replies.
-    Silent,
-}
-
 /// Model tier mapping. Agents declare capability intent, config resolves to model names.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelTierConfig {
@@ -343,7 +331,7 @@ pub struct PeerAgentConfig {
     #[serde(default = "default_agent_role")]
     pub role: String,
     #[serde(default)]
-    pub voice: AgentVoice,
+    pub voice: Option<String>,
     #[serde(default)]
     pub execution_mode: ExecutionMode,
     #[serde(default = "default_agent_max_workers")]
@@ -1805,7 +1793,7 @@ role = "orchestrator"
             model: Some("claude-opus-4-6".to_string()),
             runtime: Some("anthropic_agent".to_string()),
             role: "advisor".to_string(),
-            voice: AgentVoice::Vocal,
+            voice: None,
             execution_mode: ExecutionMode::Agent,
             max_workers: 2,
             max_turns: Some(15),
