@@ -11,7 +11,7 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  token: localStorage.getItem("sigil_token"),
+  token: localStorage.getItem("aeqi_token"),
   loading: false,
   error: null,
 
@@ -20,7 +20,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const resp = await api.login(secret);
       if (resp.ok && resp.token) {
-        localStorage.setItem("sigil_token", resp.token);
+        localStorage.setItem("aeqi_token", resp.token);
         set({ token: resp.token, loading: false });
         return true;
       }
@@ -33,7 +33,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
-    localStorage.removeItem("sigil_token");
+    localStorage.removeItem("aeqi_token");
     set({ token: null });
   },
 

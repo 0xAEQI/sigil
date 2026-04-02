@@ -16,16 +16,11 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="login-avatar">
-          <svg width="28" height="28" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 5l5-3 5 3" />
-            <path d="M3 5v6l5 3 5-3V5" />
-            <path d="M8 8v6" />
-            <circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none" />
-          </svg>
+        <div className="login-mark">
+          <span className="login-mark-text">A</span>
         </div>
         <h1 className="login-title">AEQI</h1>
-        <p className="login-subtitle">Your shadow awaits</p>
+        <p className="login-subtitle">Agent Orchestration</p>
         <form className="login-form" onSubmit={handleSubmit}>
           <input
             className="login-input"
@@ -37,9 +32,12 @@ export default function LoginPage() {
           />
           {error && <div className="login-error">{error}</div>}
           <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? "..." : "Enter"}
+            {loading ? "Connecting..." : "Enter System"}
           </button>
         </form>
+        <p className="login-hint">
+          Enter your instance access key to connect.
+        </p>
       </div>
     </div>
   );

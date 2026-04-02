@@ -6,7 +6,7 @@ data_dir = "~/.aeqi"
 enabled = true
 bind = "0.0.0.0:8400"
 ui_dist_dir = "/home/claudedev/aeqi/apps/ui/dist"
-cors_origins = ["https://entity.business", "http://localhost:5173"]
+cors_origins = ["https://aeqi.ai", "https://app.aeqi.ai", "http://localhost:5173"]
 auth_secret = "${AEQI_WEB_SECRET}"
 
 [providers.openrouter]
