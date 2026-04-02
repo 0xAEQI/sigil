@@ -125,7 +125,7 @@ pub struct Supervisor {
     pub agent_registry: Option<Arc<crate::agent_registry::AgentRegistry>>,
     /// Trigger store — when set, agents with manage_triggers capability get the tool.
     pub trigger_store: Option<Arc<crate::trigger::TriggerStore>>,
-    /// Conversation store — for channel_post tool and org context.
+    /// Conversation store — for transcript search tool and org context.
     pub conversation_store: Option<Arc<crate::ConversationStore>>,
 }
 
@@ -407,16 +407,8 @@ impl Supervisor {
             && let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } =
                 worker.execution
         {
-            // channel_post for department/project conversation channels.
             // transcript_search for cross-session recall.
-            if let (Some(convs), Some(broadcaster)) =
-                (&self.conversation_store, &self.event_broadcaster)
-            {
-                tools.push(Arc::new(crate::tools::ChannelPostTool::new(
-                    convs.clone(),
-                    broadcaster.clone(),
-                    agent_name.clone(),
-                )));
+            if let Some(convs) = &self.conversation_store {
                 tools.push(Arc::new(crate::tools::TranscriptSearchTool::new(
                     convs.clone(),
                 )));
@@ -1561,7 +1553,7 @@ impl Supervisor {
                         let mut result = DecompositionResult::parse(text);
                         let mut store = tasks.lock().await;
                         let prefix = mission_id.split('-').next().unwrap_or("xx");
-                        match result.materialize(&mut store, prefix, &mission_id) {
+                        match result.materialize(&mut store, prefix, &mission_id, None) {
                             Ok(task_ids) => {
                                 info!(
                                     project = %project_name,

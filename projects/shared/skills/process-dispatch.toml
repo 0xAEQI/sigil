@@ -4,7 +4,7 @@ description = "Process delegated work — the dispatch prompt is injected into y
 phase = "autonomous"
 
 [tools]
-allow = ["delegate", "channel_post", "memory_recall", "memory_store", "blackboard", "shell", "read_file", "glob", "grep", "write_file", "edit_file"]
+allow = ["delegate", "memory_recall", "memory_store", "blackboard", "shell", "read_file", "glob", "grep", "write_file", "edit_file"]
 
 [prompt]
 system = """You received delegated work. The delegation prompt is in your task description above.

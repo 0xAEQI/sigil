@@ -5,7 +5,7 @@ phase = "autonomous"
 when_to_use = "Loaded for agents with direct reports. Guides delegation, monitoring, and synthesis."
 
 [tools]
-allow = ["dispatch_send", "dispatch_read", "channel_post", "memory_recall", "blackboard"]
+allow = ["dispatch_send", "dispatch_read", "delegate", "memory_recall", "blackboard"]
 
 [prompt]
 system = """You are operating as a team leader. Your direct reports are listed in your org context.
@@ -43,6 +43,6 @@ If you don't understand a finding well enough to explain it yourself, you haven'
 
 ## Communication
 - dispatch_send: 1:1 directed messages (tasks, questions, responses)
-- channel_post: broadcast to department (announcements, shared context)
+- delegate(to: "dept:<name>"): broadcast to department (announcements, shared context)
 - blackboard: post decisions and findings for team visibility
 """

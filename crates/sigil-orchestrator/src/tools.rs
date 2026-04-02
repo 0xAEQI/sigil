@@ -768,16 +768,21 @@ pub fn build_orchestration_tools(
     api_key: Option<String>,
     memory: Option<Arc<dyn Memory>>,
     blackboard: Option<Arc<crate::blackboard::Blackboard>>,
+    event_broadcaster: Option<Arc<crate::EventBroadcaster>>,
 ) -> Vec<Arc<dyn Tool>> {
     let leader_name = registry.leader_agent_name.clone();
+    let mut delegate_tool = crate::unified_delegate::UnifiedDelegateTool::new(
+        dispatch_bus,
+        leader_name.clone(),
+    );
+    if let Some(broadcaster) = event_broadcaster {
+        delegate_tool = delegate_tool.with_event_broadcaster(broadcaster);
+    }
     let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(QuestDetailTool::new(registry.clone())),
         Arc::new(QuestCancelTool::new(registry.clone())),
         Arc::new(QuestReprioritizeTool::new(registry)),
-        Arc::new(crate::unified_delegate::UnifiedDelegateTool::new(
-            dispatch_bus,
-            leader_name.clone(),
-        )),
+        Arc::new(delegate_tool),
         Arc::new(UsageStatsTool::new(api_key)),
     ];
 
@@ -1072,135 +1077,8 @@ impl Tool for TriggerManageTool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ChannelPostTool — post messages to conversation channels
-// ---------------------------------------------------------------------------
-
-/// Tool for agents to post messages to department/project conversation channels.
-pub struct ChannelPostTool {
-    conversation_store: Arc<crate::ConversationStore>,
-    event_broadcaster: Arc<crate::EventBroadcaster>,
-    agent_name: String,
-}
-
-impl ChannelPostTool {
-    pub fn new(
-        conversation_store: Arc<crate::ConversationStore>,
-        event_broadcaster: Arc<crate::EventBroadcaster>,
-        agent_name: String,
-    ) -> Self {
-        Self {
-            conversation_store,
-            event_broadcaster,
-            agent_name,
-        }
-    }
-}
-
-#[async_trait]
-impl Tool for ChannelPostTool {
-    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
-        let channel = args
-            .get("channel")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("'channel' is required"))?;
-        let message = args
-            .get("message")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("'message' is required"))?;
-
-        // Resolve channel to chat_id.
-        // Track department info for Phase 9 DepartmentMessage events.
-        let mut dept_info: Option<(String, String)> = None; // (department_id, department_name)
-        let (chat_id, channel_name) = if let Some(rest) = channel.strip_prefix("dept:") {
-            // Format: "dept:project:department" or "dept:department" (project from context)
-            let parts: Vec<&str> = rest.splitn(2, ':').collect();
-            if parts.len() == 2 {
-                let cid = crate::conversation_store::department_chat_id(parts[0], parts[1]);
-                dept_info = Some((format!("{}:{}", parts[0], parts[1]), parts[1].to_string()));
-                (cid, format!("{}/{}", parts[0], parts[1]))
-            } else {
-                let cid = crate::conversation_store::named_channel_chat_id(channel);
-                (cid, channel.to_string())
-            }
-        } else if let Some(project) = channel.strip_prefix("project:") {
-            let cid = crate::conversation_store::project_chat_id(project);
-            (cid, project.to_string())
-        } else {
-            let cid = crate::conversation_store::named_channel_chat_id(channel);
-            (cid, channel.to_string())
-        };
-
-        // Ensure channel exists in conversation store.
-        let _ = self
-            .conversation_store
-            .ensure_channel(chat_id, "agent", &channel_name)
-            .await;
-
-        // Record the message.
-        let _ = self
-            .conversation_store
-            .record_with_source(chat_id, &self.agent_name, message, Some("agent"))
-            .await;
-
-        // Emit event for trigger system.
-        let preview: String = message.chars().take(100).collect();
-        self.event_broadcaster
-            .publish(crate::execution_events::ExecutionEvent::ChannelMessage {
-                channel_name: channel_name.clone(),
-                chat_id,
-                from_agent: self.agent_name.clone(),
-                content_preview: preview,
-            });
-
-        // Phase 9: Emit DepartmentMessage event for department broadcasts.
-        if let Some((department_id, department_name)) = dept_info {
-            self.event_broadcaster.publish(
-                crate::execution_events::ExecutionEvent::DepartmentMessage {
-                    department_id,
-                    department_name,
-                    from_agent: self.agent_name.clone(),
-                    content: message.to_string(),
-                },
-            );
-        }
-
-        Ok(ToolResult {
-            output: format!("Posted to channel '{channel_name}' (chat_id: {chat_id})"),
-            is_error: false,
-            context_modifier: None,
-        })
-    }
-
-    fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "channel_post".to_string(),
-            description: "Post a message to a conversation channel. Use 'dept:project:name' for department channels, 'project:name' for project channels, or a plain channel name.".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "channel": {
-                        "type": "string",
-                        "description": "Channel target: 'dept:project:department', 'project:name', or channel name"
-                    },
-                    "message": {
-                        "type": "string",
-                        "description": "Message content to post"
-                    }
-                },
-                "required": ["channel", "message"]
-            }),
-        }
-    }
-
-    fn name(&self) -> &str {
-        "channel_post"
-    }
-
-    fn is_concurrent_safe(&self, _input: &serde_json::Value) -> bool {
-        false
-    }
-}
+// ChannelPostTool removed — department channel posting is now handled by
+// UnifiedDelegateTool via the "dept:<name>" routing pattern.
 
 // ---------------------------------------------------------------------------
 // TranscriptSearchTool — FTS search across past session transcripts

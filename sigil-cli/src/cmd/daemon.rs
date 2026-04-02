@@ -472,6 +472,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     get_api_key(&config).ok(),
                     fa_memory,
                     registry.blackboard.clone(),
+                    Some(event_broadcaster.clone()),
                 );
                 fa_tools.extend(orch_tools);
 

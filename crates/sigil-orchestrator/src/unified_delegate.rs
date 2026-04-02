@@ -16,6 +16,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::agent_registry::AgentRegistry;
+use crate::execution_events::{EventBroadcaster, ExecutionEvent};
 use crate::message::{Dispatch, DispatchBus, DispatchKind};
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,8 @@ pub struct UnifiedDelegateTool {
     project_name: Option<String>,
     /// Fallback target when no project-default agent is found (system escalation target).
     fallback_target: Option<String>,
+    /// Optional event broadcaster for emitting DepartmentMessage events.
+    event_broadcaster: Option<Arc<EventBroadcaster>>,
 }
 
 impl UnifiedDelegateTool {
@@ -48,7 +51,14 @@ impl UnifiedDelegateTool {
             agent_registry: None,
             project_name: None,
             fallback_target: None,
+            event_broadcaster: None,
         }
+    }
+
+    /// Set the event broadcaster for emitting department message events.
+    pub fn with_event_broadcaster(mut self, broadcaster: Arc<EventBroadcaster>) -> Self {
+        self.event_broadcaster = Some(broadcaster);
+        self
     }
 
     /// Set the agent registry and project context for subagent routing.
@@ -168,6 +178,16 @@ impl UnifiedDelegateTool {
         );
 
         self.dispatch_bus.send(dispatch).await;
+
+        // Emit DepartmentMessage event for trigger system / observers.
+        if let Some(ref broadcaster) = self.event_broadcaster {
+            broadcaster.publish(ExecutionEvent::DepartmentMessage {
+                department_id: dept.to_string(),
+                department_name: dept.to_string(),
+                from_agent: self.agent_name.clone(),
+                content: prompt.to_string(),
+            });
+        }
 
         Ok(ToolResult::success(format!(
             "Delegation posted to department '{dept}' (dispatch_id: {dispatch_id}, response_mode: {response_mode})"
