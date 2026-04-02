@@ -69,6 +69,9 @@ export const api = {
   // Dashboard
   getDashboard: () => request<any>("/dashboard"),
 
+  // Departments
+  getDepartments: () => request<any>("/departments"),
+
   // Status
   getStatus: () => request<any>("/status"),
 

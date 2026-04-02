@@ -422,6 +422,33 @@ a:hover {
   text-transform: uppercase;
 }
 
+/* Department groups — bento inlay */
+.dept-group {
+  background: rgba(255,255,255,0.02);
+  border-radius: 12px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dept-name {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.25);
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.agent-row.dept-agent {
+  justify-content: flex-end;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .agent-nav-add {
   height: 40px;
   border-radius: 12px;
