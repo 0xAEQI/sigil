@@ -215,6 +215,19 @@ export default function AgentNav() {
       <div className="agent-nav-bottom">
         <div className="agent-nav-sep" />
         <div className="agent-nav-add" onClick={() => navigate("/agents")}>+</div>
+        <div className="agent-nav-bottom-actions">
+          <span className="agent-nav-action" onClick={() => navigate("/agents")} title="Agent Templates">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 1.5a3 3 0 0 1 3 3v1a3 3 0 0 1-6 0v-1a3 3 0 0 1 3-3zM3 13.5c0-2.5 2.2-4 5-4s5 1.5 5 4" />
+            </svg>
+          </span>
+          <span className="agent-nav-action" onClick={() => navigate("/settings")} title="Settings">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="8" cy="8" r="2" />
+              <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
+            </svg>
+          </span>
+        </div>
       </div>
     </nav>
   );

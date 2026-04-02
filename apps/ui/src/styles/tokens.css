@@ -552,6 +552,29 @@ a:hover {
   color: rgba(255,255,255,0.5);
 }
 
+.agent-nav-bottom-actions {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+}
+
+.agent-nav-action {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: rgba(255,255,255,0.15);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.agent-nav-action:hover {
+  color: rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.04);
+}
+
 .agent-nav-bottom {
   margin-top: auto;
   display: flex;
