@@ -45,6 +45,7 @@ export default function AppLayout() {
                     `floating-nav-item${isActive ? " active" : ""}`
                   }
                 >
+                  {item.label}
                 </NavLink>
               ))}
             </div>
