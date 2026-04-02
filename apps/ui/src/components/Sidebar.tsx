@@ -40,8 +40,8 @@ export default function AgentNav() {
         AEQI Agent
       </div>
 
-      {/* Separator — matches rail separator */}
-      {filtered.length > 0 && <div className="agent-nav-sep" />}
+      {/* Separator — always visible, matches rail separator */}
+      <div className="agent-nav-sep" />
 
       {/* Other agents */}
       {filtered.map((agent) => (
