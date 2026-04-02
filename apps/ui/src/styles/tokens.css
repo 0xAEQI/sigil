@@ -549,8 +549,14 @@ a:hover {
   color: rgba(255,255,255,0.5);
 }
 
-.agent-nav-footer {
+.agent-nav-bottom {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-nav-footer {
   padding: 10px 12px;
   font-size: 12px;
   color: rgba(255,255,255,0.2);

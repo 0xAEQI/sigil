@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "@/store/chat";
-import { useDaemonStore } from "@/store/daemon";
 import { api } from "@/lib/api";
 import ProjectPatternIcon from "./ProjectPatternIcon";
 
@@ -9,8 +8,6 @@ export default function ProjectRail() {
   const navigate = useNavigate();
   const channel = useChatStore((s) => s.channel);
   const setChannel = useChatStore((s) => s.setChannel);
-  const status = useDaemonStore((s) => s.status);
-  const daemonOk = status?.ok === true;
   const [projects, setProjects] = useState<any[]>([]);
   const [activeCounts, setActiveCounts] = useState<Record<string, number>>({});
 
@@ -53,17 +50,13 @@ export default function ProjectRail() {
 
           return (
             <div key={p.name} className="rail-project-wrapper">
-              {/* Selection pill */}
               <div className={`rail-pill${isSelected ? " rail-pill-selected" : ""}`} />
-
               <button
                 className="rail-project-btn"
                 onClick={() => { setChannel(p.name); navigate("/"); }}
                 title={p.name}
               >
                 <ProjectPatternIcon name={p.name} selected={isSelected} />
-
-                {/* Live activity indicator */}
                 {hasActive && (
                   <span className="rail-live-dot">
                     <span className="rail-live-dot-pulse" />
@@ -76,12 +69,9 @@ export default function ProjectRail() {
         })}
       </div>
 
-      {/* Add project — always last in the project list */}
-      <div className="rail-add" title="New project">+</div>
-
-      {/* Bottom status — pushed to end */}
+      {/* Add project — bottom */}
       <div className="rail-bottom">
-        <div className={`rail-status-dot ${daemonOk ? "rail-status-ok" : "rail-status-err"}`} />
+        <div className="rail-add" title="New project" onClick={() => {}}>+</div>
       </div>
     </div>
   );
