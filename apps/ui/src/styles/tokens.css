@@ -187,8 +187,8 @@ a:hover {
 }
 
 .rail-icon.active {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.88);
+  color: #0a0a0a;
   border-radius: 14px;
 }
 
@@ -410,8 +410,8 @@ a:hover {
 }
 
 .agent-row.active {
-  color: rgba(255,255,255,0.9);
-  background: rgba(255,255,255,0.06);
+  color: #0a0a0a;
+  background: rgba(255,255,255,0.88);
 }
 
 .agent-row.scope-header {
@@ -473,8 +473,8 @@ a:hover {
 }
 
 .dept-name.active {
-  color: rgba(255,255,255,0.9);
-  background: rgba(255,255,255,0.06);
+  color: #0a0a0a;
+  background: rgba(255,255,255,0.88);
 }
 
 /* Department detail page */
@@ -620,8 +620,8 @@ a:hover {
 }
 
 .floating-nav-item.active {
-  color: rgba(255,255,255,0.85);
-  background: rgba(255,255,255,0.06);
+  color: #0a0a0a;
+  background: rgba(255,255,255,0.88);
 }
 
 .floating-nav-btn {
