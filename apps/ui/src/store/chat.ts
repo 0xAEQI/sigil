@@ -47,18 +47,24 @@ function persistThreads(threads: Record<string, ChatThreadState>) {
 
 interface ChatState {
   channel: string | null;
+  selectedAgent: string | null;
   threads: Record<string, ChatThreadState>;
   setChannel: (ch: string | null) => void;
+  setSelectedAgent: (agent: string | null) => void;
   getOrCreateThread: (channel: string | null) => ChatThreadState;
   updateThread: (channel: string | null, patch: Partial<ChatThreadState>) => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
   channel: readChannel(),
+  selectedAgent: null,
   threads: readThreads(),
   setChannel: (ch) => {
     persistChannel(ch);
     set({ channel: ch });
+  },
+  setSelectedAgent: (agent) => {
+    set({ selectedAgent: agent });
   },
   getOrCreateThread: (channel): ChatThreadState => {
     const key = channelKey(channel);
