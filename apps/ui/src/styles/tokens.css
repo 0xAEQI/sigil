@@ -376,52 +376,57 @@ a:hover {
   width: 200px;
   background: rgba(255,255,255,0.01);
   border-right: 1px solid rgba(255,255,255,0.04);
-  padding: 12px 0;
+  padding: 8px;
   display: flex;
   flex-direction: column;
+  gap: 2px;
   overflow-y: auto;
   flex-shrink: 0;
 }
 
 .agent-row {
-  padding: 7px 16px;
+  height: 40px;
+  padding: 0 12px;
   font-size: 13px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.35);
   cursor: pointer;
-  transition: all 0.1s ease;
+  transition: all 0.15s ease;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
 }
 
 .agent-row:hover {
-  color: rgba(255,255,255,0.6);
-  background: rgba(255,255,255,0.02);
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.03);
 }
 
 .agent-row.active {
-  color: rgba(255,255,255,0.85);
-  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.06);
 }
 
 .agent-nav-add {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px dashed rgba(255,255,255,0.06);
+  height: 40px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255,255,255,0.05);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 15px;
   color: rgba(255,255,255,0.1);
   cursor: pointer;
-  margin: 8px 16px;
-  transition: all 0.1s ease;
+  margin-top: 2px;
+  transition: all 0.15s ease;
 }
 
 .agent-nav-add:hover {
-  border-color: rgba(255,255,255,0.12);
-  color: rgba(255,255,255,0.3);
+  border-color: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.02);
 }
 
 /* ── Content Area ── */
