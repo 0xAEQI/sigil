@@ -9,6 +9,30 @@ interface DeptGroup {
   agents: PersistentAgent[];
 }
 
+function Chevron({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      fill="none"
+      style={{
+        transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+        transition: "transform 0.15s ease",
+        flexShrink: 0,
+      }}
+    >
+      <path
+        d="M5 3.5L8.5 7L5 10.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function AgentNav() {
   const navigate = useNavigate();
   const channel = useChatStore((s) => s.channel);
@@ -16,6 +40,7 @@ export default function AgentNav() {
   const setSelectedAgent = useChatStore((s) => s.setSelectedAgent);
   const [agents, setAgents] = useState<PersistentAgent[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const load = () => {
@@ -37,7 +62,6 @@ export default function AgentNav() {
     ? agents.filter((a) => a.project === channel || !a.project)
     : agents.filter((a) => !a.project);
 
-  // Group agents by department
   const deptGroups: DeptGroup[] = departments
     .filter((d) => !channel || d.project === channel)
     .map((dept) => ({
@@ -51,6 +75,11 @@ export default function AgentNav() {
 
   const scopeName = channel || "AEQI";
 
+  const toggleDept = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
     <nav className="agent-nav">
       <div
@@ -62,28 +91,34 @@ export default function AgentNav() {
 
       <div className="agent-nav-sep" />
 
-      {/* Department groups */}
-      {deptGroups.map((group) => (
-        <div key={group.dept.id} className="dept-group">
-          <div
-            className={`dept-name${selectedAgent === `dept:${group.dept.id}` ? " active" : ""}`}
-            onClick={() => { setSelectedAgent(`dept:${group.dept.id}`); navigate(`/departments/${group.dept.id}`); }}
-          >
-            {group.dept.name}
-          </div>
-          {group.agents.map((agent) => (
-            <div
-              key={agent.id}
-              className={`agent-row dept-agent${selectedAgent === agent.name ? " active" : ""}`}
-              onClick={() => { setSelectedAgent(agent.name); navigate("/"); }}
-            >
-              {agent.display_name || agent.name}
-            </div>
-          ))}
-        </div>
-      ))}
+      {deptGroups.map((group) => {
+        const isCollapsed = collapsed[group.dept.id] ?? false;
+        const isDeptActive = selectedAgent === `dept:${group.dept.id}`;
 
-      {/* Root agents (no department) */}
+        return (
+          <div key={group.dept.id} className="dept-group">
+            <div
+              className={`dept-name${isDeptActive ? " active" : ""}`}
+              onClick={() => { setSelectedAgent(`dept:${group.dept.id}`); navigate(`/departments/${group.dept.id}`); }}
+            >
+              <span className="dept-name-label">{group.dept.name}</span>
+              <span className="dept-chevron" onClick={(e) => toggleDept(group.dept.id, e)}>
+                <Chevron expanded={!isCollapsed} />
+              </span>
+            </div>
+            {!isCollapsed && group.agents.map((agent) => (
+              <div
+                key={agent.id}
+                className={`agent-row dept-agent${selectedAgent === agent.name ? " active" : ""}`}
+                onClick={() => { setSelectedAgent(agent.name); navigate("/"); }}
+              >
+                {agent.display_name || agent.name}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
       {rootAgents.map((agent) => (
         <div
           key={agent.id}
