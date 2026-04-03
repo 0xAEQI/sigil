@@ -368,7 +368,7 @@ a:hover {
 
 /* ── Agent Nav (second column) ── */
 .agent-nav {
-  width: 200px;
+  width: 220px;
   background: var(--bg-base);
   padding: 10px 6px;
   display: flex;
@@ -381,7 +381,7 @@ a:hover {
 
 .agent-nav-panel {
   flex: 1;
-  background: var(--bg-surface);
+  background: var(--bg-elevated);
   border-radius: 12px;
   padding: 4px;
   display: flex;
