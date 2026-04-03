@@ -70,23 +70,12 @@ export default function SkillsPage() {
                 <div className="dash-panel-header">
                   <span className="dash-panel-title">{activeItem.name}{activeItem.kind === "doc" ? ".md" : ".toml"}</span>
                   {activeItem.source && (
-                    <span style={{ fontSize: "var(--font-size-xs)", color: "var(--text-muted)" }}>
+                    <span className="text-hint">
                       {activeItem.source === "shared" ? "Shared skill" : `Project: ${activeItem.source}`}
                     </span>
                   )}
                 </div>
-                <pre style={{
-                  padding: "var(--space-4)",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--text-secondary)",
-                  lineHeight: "1.6",
-                  whiteSpace: "pre-wrap",
-                  wordWrap: "break-word",
-                  margin: 0,
-                  maxHeight: "600px",
-                  overflowY: "auto",
-                }}>
+                <pre className="code-viewer" style={{ maxHeight: "600px" }}>
                   {activeItem.content}
                 </pre>
               </div>

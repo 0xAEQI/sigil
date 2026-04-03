@@ -93,7 +93,7 @@
 }
 
 html {
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -191,7 +191,7 @@ a:hover {
 }
 
 .rail-home {
-  font-size: 18px;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
@@ -219,7 +219,7 @@ a:hover {
   justify-content: center;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   transition: var(--transition-normal);
 }
 
@@ -449,7 +449,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   color: var(--text-muted);
   cursor: pointer;
   transition: var(--transition-normal);
@@ -485,7 +485,7 @@ a:hover {
 .agent-row:hover {
   color: var(--text-secondary);
   background: var(--bg-elevated);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
 }
 
 .agent-row.active {
@@ -540,7 +540,7 @@ a:hover {
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   transition: all 0.1s ease;
 }
@@ -618,7 +618,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: var(--font-size-xl);
   color: var(--text-muted);
   cursor: pointer;
   transition: var(--transition-normal);
@@ -771,7 +771,7 @@ a:hover {
   height: 32px;
   background: var(--bg-surface);
   border: 2px solid var(--text-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   outline: none;
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -1171,14 +1171,14 @@ a:hover {
   flex: 1;
   height: 4px;
   background: var(--bg-hover);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   overflow: hidden;
 }
 
 .project-progress-fill {
   height: 100%;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   transition: width 0.5s ease;
 }
 
@@ -1198,7 +1198,7 @@ a:hover {
 .progress-bar-fill {
   height: 100%;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   transition: width var(--transition-fast);
 }
 
@@ -1403,7 +1403,7 @@ a:hover {
 .task-priority-bar {
   width: 3px;
   height: 20px;
-  border-radius: 2px;
+  border-radius: var(--space-0);
   flex-shrink: 0;
 }
 
@@ -1433,7 +1433,7 @@ a:hover {
 .task-priority-indicator {
   width: 3px;
   height: 16px;
-  border-radius: 2px;
+  border-radius: var(--space-0);
   flex-shrink: 0;
 }
 
@@ -1887,7 +1887,7 @@ a:hover {
 .login-card {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   padding: 3rem 2.5rem;
   width: 380px;
   max-width: 90vw;
@@ -1939,7 +1939,7 @@ a:hover {
   padding: 0.75rem 1rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   color: rgba(255, 255, 255, 0.9);
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -2037,7 +2037,7 @@ a:hover {
 }
 
 .session-list-dot {
-  font-size: 8px;
+  font-size: 0.5rem;
   color: var(--success);
   flex-shrink: 0;
 }
@@ -2076,7 +2076,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: var(--font-size-lg);
   color: var(--text-muted);
   cursor: pointer;
   transition: var(--transition-normal);
@@ -2220,7 +2220,7 @@ a:hover {
   cursor: pointer;
   font-size: var(--font-size-base);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   transition: all 0.1s ease;
   font-family: var(--font-sans);
 }
@@ -2268,19 +2268,16 @@ a:hover {
 }
 
 .session-msg-user {
-  align-self: flex-end;
-  max-width: 80%;
+  align-self: stretch;
 }
 
 .session-msg-user .session-msg-content {
-  background: var(--text-primary);
-  color: var(--bg-base);
-  border-radius: 14px;
-  padding: 10px 14px;
+  color: var(--text-secondary);
+  padding: 2px 0;
 }
 
 .session-msg-user .session-msg-role {
-  text-align: right;
+  color: var(--text-muted);
 }
 
 .session-msg-assistant {
@@ -2288,11 +2285,8 @@ a:hover {
 }
 
 .session-msg-assistant .session-msg-content {
-  background: var(--bg-base);
   color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px 16px;
+  padding: 2px 0;
 }
 
 .session-msg-system,
@@ -2305,7 +2299,7 @@ a:hover {
 .session-msg-tool .session-msg-content {
   background: none;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-micro);
   font-family: var(--font-mono);
   padding: 4px 0;
   text-align: center;
@@ -2322,10 +2316,10 @@ a:hover {
 .session-msg-error .session-msg-content {
   background: rgba(248, 113, 113, 0.06);
   border: 1px solid rgba(248, 113, 113, 0.12);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--error);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   padding: 10px 14px;
 }
 
@@ -2339,7 +2333,7 @@ a:hover {
 }
 
 .session-msg-content {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   word-break: break-word;
   font-family: var(--font-sans);
@@ -2355,7 +2349,7 @@ a:hover {
 }
 
 .session-msg-content h1, .session-msg-content h2, .session-msg-content h3 {
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   margin: 12px 0 6px;
   color: var(--text-primary);
@@ -2369,15 +2363,15 @@ a:hover {
 
 .session-msg-content code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   background: var(--bg-base);
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .session-msg-content pre {
   background: var(--bg-base);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   overflow-x: auto;
   margin: 8px 0;
@@ -2610,7 +2604,7 @@ a:hover {
   gap: 12px;
   height: 36px;
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-surface);
   font-size: var(--font-size-xs);
 }
@@ -2727,14 +2721,14 @@ a:hover {
   flex: 1;
   height: 4px;
   background: var(--bg-elevated);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   overflow: hidden;
 }
 
 .finance-bar-fill {
   height: 100%;
   background: var(--text-muted);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   transition: width 0.3s ease;
 }
 
@@ -3886,7 +3880,7 @@ a:hover {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   overflow: hidden;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.015);
   animation: palette-slide-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -4052,14 +4046,14 @@ a:hover {
   flex: 1;
   height: 4px;
   background: var(--bg-hover);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   overflow: hidden;
 }
 
 .ctx-budget-fill {
   height: 100%;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: var(--space-0);
   transition: width 0.5s ease;
 }
 
