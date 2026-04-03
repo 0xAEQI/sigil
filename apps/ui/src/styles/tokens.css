@@ -702,7 +702,7 @@ a:hover {
   align-items: center;
   justify-content: space-between;
   height: 52px;
-  background: var(--bg-surface);
+  background: var(--bg-base);
   border-radius: 14px;
   padding: 0 6px;
   gap: 2px;
