@@ -91,18 +91,18 @@ export default function SessionsPage() {
   useEffect(() => {
     if (activeSessionId === "perpetual" && scope) {
       // Load this agent's transcript channel (channel name = lowercase internal name)
-      api.getChatHistory({ channel_name: scope.toLowerCase(), limit: 50 })
+      api.getSessionMessages({ channel_name: scope.toLowerCase(), limit: 50 })
         .then((d: any) => setMessages(d.messages || []))
         .catch(() => setMessages([]));
     } else if (activeSessionId === "perpetual") {
-      api.getChatHistory({ limit: 50 })
+      api.getSessionMessages({ limit: 50 })
         .then((d: any) => setMessages(d.messages || []))
         .catch(() => setMessages([]));
     } else if (activeSessionId.startsWith("new-")) {
       setMessages([]);
     } else {
       // Task transcript
-      api.getChatHistory({ channel_name: `transcript:task:${activeSessionId}`, limit: 50 })
+      api.getSessionMessages({ channel_name: `transcript:task:${activeSessionId}`, limit: 50 })
         .then((d: any) => setMessages(d.messages || []))
         .catch(() => setMessages([]));
     }

@@ -263,12 +263,10 @@ export const api = {
   closeSession: (sessionId: string) =>
     request<any>(`/sessions/${sessionId}/close`, { method: "POST" }),
 
-  // Chat channels & history (deprecated — use sessions)
-  getChatChannels: () => request<any>("/chat/channels"),
-  getChatHistory: (params: { chat_id?: number; company?: string; channel_name?: string; limit?: number }) => {
+  // Session messages
+  getSessionMessages: (params: { session_id?: number; channel_name?: string; limit?: number }) => {
     const query = new URLSearchParams();
-    if (params.chat_id) query.set("chat_id", String(params.chat_id));
-    if (params.company) query.set("company", params.company);
+    if (params.session_id) query.set("chat_id", String(params.session_id));
     if (params.channel_name) query.set("channel_name", params.channel_name);
     if (params.limit) query.set("limit", String(params.limit));
     const qs = query.toString();
