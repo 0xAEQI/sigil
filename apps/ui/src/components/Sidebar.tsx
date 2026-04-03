@@ -182,17 +182,7 @@ export default function AgentNav() {
 
   return (
     <nav className="agent-nav">
-      {/* Company name bar — same style as floating nav */}
-      <div className="agent-nav-bar">
-        <div
-          className="scope-header-btn"
-          onClick={() => { setSelectedAgent(null); navigate(currentPath()); }}
-        >
-          <span className="scope-header-text">{scopeName}</span>
-        </div>
-      </div>
-
-      {/* Agents list — dark base */}
+      {/* Agents list */}
       <div className="agent-nav-panel">
         <div className="agent-nav-panel-title">Agents</div>
         <div className="agent-nav-panel-add" onClick={() => navigate("/agents")}>+</div>

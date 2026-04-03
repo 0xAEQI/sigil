@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Outlet, NavLink } from "react-router-dom";
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import CompanyRail from "./CompanyRail";
 import AgentNav from "./Sidebar";
+import CompanyPatternIcon from "./CompanyPatternIcon";
+import { useChatStore } from "@/store/chat";
 
 const NAV_ITEMS = [
   { to: "/", label: "home", end: true },
@@ -14,6 +16,9 @@ const NAV_ITEMS = [
 ];
 
 export default function AppLayout() {
+  const navigate = useNavigate();
+  const channel = useChatStore((s) => s.channel);
+  const setChannel = useChatStore((s) => s.setChannel);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,8 +51,25 @@ export default function AppLayout() {
 
   return (
     <div className="shell">
-      <CompanyRail />
-      <AgentNav />
+      <div className="left-sidebar">
+        <div className="left-sidebar-bar">
+          <div
+            className={`rail-icon rail-home${!channel ? " active" : ""}`}
+            onClick={() => { setChannel(null); navigate("/"); }}
+            title="AEQI"
+          >Æ</div>
+          {channel && (
+            <div className="left-sidebar-company" onClick={() => navigate("/")}>
+              <CompanyPatternIcon name={channel} selected />
+              <span className="scope-header-text">{channel}</span>
+            </div>
+          )}
+        </div>
+        <div className="left-sidebar-body">
+          <CompanyRail />
+          <AgentNav />
+        </div>
+      </div>
       <div className="content-area">
         <div className="content-scroll">
           <div className="floating-nav">

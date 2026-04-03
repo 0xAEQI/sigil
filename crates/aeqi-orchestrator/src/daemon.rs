@@ -3333,17 +3333,43 @@ impl Daemon {
                             }
                             let prompt = prompt_parts.join("\n");
 
-                            // Build basic tools.
+                            // Build tools: file/shell + orchestration (memory, notes, delegate).
                             let workdir =
                                 std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
-                            let tools: Vec<Arc<dyn aeqi_core::traits::Tool>> = vec![
+                            let mut tools: Vec<Arc<dyn aeqi_core::traits::Tool>> = vec![
                                 Arc::new(aeqi_tools::ShellTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::FileReadTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::FileWriteTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::FileEditTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::GrepTool::new(workdir.clone())),
-                                Arc::new(aeqi_tools::GlobTool::new(workdir)),
+                                Arc::new(aeqi_tools::GlobTool::new(workdir.clone())),
+                                Arc::new(aeqi_tools::WebFetchTool),
+                                Arc::new(aeqi_tools::WebSearchTool),
                             ];
+
+                            // Add orchestration tools (memory, notes, delegate).
+                            let empty_channels: Arc<
+                                tokio::sync::RwLock<
+                                    std::collections::HashMap<
+                                        String,
+                                        Arc<dyn aeqi_core::traits::Channel>,
+                                    >,
+                                >,
+                            > = Arc::new(
+                                tokio::sync::RwLock::new(std::collections::HashMap::new()),
+                            );
+                            let orch_tools = crate::tools::build_orchestration_tools(
+                                registry.clone(),
+                                dispatch_bus.clone(),
+                                empty_channels,
+                                None,
+                                chat_engine
+                                    .as_ref()
+                                    .and_then(|e| e.memory_stores.get(&agent_hint).cloned()),
+                                registry.notes.clone(),
+                                None,
+                            );
+                            tools.extend(orch_tools);
 
                             // Build agent config.
                             let context_window =

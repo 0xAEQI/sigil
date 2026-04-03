@@ -32,16 +32,6 @@ export default function CompanyRail() {
   return (
     <div className="rail">
       <div className="rail-inner">
-        <div
-          className={`rail-icon rail-home${!channel ? " active" : ""}`}
-          onClick={() => { setChannel(null); navigate("/"); }}
-          title="AEQI"
-        >
-          Æ
-        </div>
-
-        <div className="rail-separator" />
-
         <div className="rail-add" title="New company" onClick={() => {}}>+</div>
 
         {companies.map((p) => {
