@@ -4,15 +4,23 @@ import { api } from "@/lib/api";
 import { useChatStore } from "@/store/chat";
 import { useAuthStore } from "@/store/auth";
 
+const SPINNER_VERBS = [
+  "Architecting", "Brewing", "Cascading", "Cogitating", "Composing",
+  "Computing", "Conjuring", "Contemplating", "Crafting", "Crystallizing",
+  "Deciphering", "Deliberating", "Distilling", "Forging", "Generating",
+  "Harmonizing", "Hatching", "Ideating", "Inferring", "Manifesting",
+  "Mulling", "Orchestrating", "Percolating", "Pondering", "Processing",
+  "Reasoning", "Ruminating", "Sculpting", "Synthesizing", "Weaving",
+];
+
 function ThinkingIndicator({ tools }: { tools: string[] }) {
-  const label = tools.length > 0
-    ? tools[tools.length - 1]
-    : "";
+  const [verb] = useState(() => SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)]);
+  const label = tools.length > 0 ? tools[tools.length - 1] : verb;
 
   return (
     <div className="session-thinking">
       <span className="session-thinking-dot" />
-      {label && <span className="session-thinking-word">{label}</span>}
+      <span className="session-thinking-word">{label}</span>
     </div>
   );
 }
