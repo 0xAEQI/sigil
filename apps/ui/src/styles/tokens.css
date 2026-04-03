@@ -397,19 +397,29 @@ a:hover {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  padding: 0 6px;
+}
+
+.scope-header-btn {
+  height: 40px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.12s ease;
 }
 
-.agent-nav-bar:hover {
+.scope-header-btn:hover {
   background: var(--bg-elevated);
 }
 
-.agent-nav-bar.active {
+.scope-header-btn.active {
   background: var(--text-primary);
 }
 
-.agent-nav-bar.active .scope-header-text {
+.scope-header-btn.active .scope-header-text {
   color: var(--bg-base);
 }
 
@@ -726,12 +736,15 @@ a:hover {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-muted);
-  padding: 6px 10px;
-  border-radius: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.12s ease;
   text-decoration: none;
   letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
 }
 
 .floating-nav-item:hover {
