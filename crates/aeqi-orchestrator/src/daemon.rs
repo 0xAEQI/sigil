@@ -3394,7 +3394,33 @@ impl Daemon {
                                 )));
                             }
 
-                            // Build agent config.
+                            // Resolve agent UUID for entity-scoped memory.
+                            let agent_uuid = if let Some(ref ar) = agent_registry {
+                                ar.get_active_by_name(&agent_hint)
+                                    .await
+                                    .ok()
+                                    .flatten()
+                                    .map(|a| a.id.clone())
+                            } else {
+                                None
+                            };
+
+                            // Session file for checkpoint persistence.
+                            let session_dir = std::env::var("AEQI_DATA_DIR").unwrap_or_else(|_| {
+                                dirs::home_dir()
+                                    .unwrap_or_else(|| PathBuf::from("/tmp"))
+                                    .join(".aeqi")
+                                    .to_string_lossy()
+                                    .to_string()
+                            });
+                            let session_file = PathBuf::from(&session_dir)
+                                .join("sessions")
+                                .join(format!("{}.json", agent_hint));
+                            let _ = std::fs::create_dir_all(
+                                session_file.parent().unwrap_or(&PathBuf::from("/tmp")),
+                            );
+
+                            // Build agent config with entity_id + session_file.
                             let context_window =
                                 aeqi_providers::context_window_for_model(&default_model);
                             let agent_config = aeqi_core::AgentConfig {
@@ -3402,6 +3428,8 @@ impl Daemon {
                                 max_iterations: 25,
                                 name: agent_hint.clone(),
                                 context_window,
+                                entity_id: agent_uuid.clone(),
+                                session_file: Some(session_file),
                                 ..Default::default()
                             };
 
