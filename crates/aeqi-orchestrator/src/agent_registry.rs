@@ -465,9 +465,7 @@ impl AgentRegistry {
                 .filter_map(|r| r.ok())
                 .any(|col| col == "session_id");
             if !has_col {
-                conn.execute_batch(
-                    "ALTER TABLE agents ADD COLUMN session_id TEXT DEFAULT NULL;",
-                )?;
+                conn.execute_batch("ALTER TABLE agents ADD COLUMN session_id TEXT DEFAULT NULL;")?;
             }
         }
 
