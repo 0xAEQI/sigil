@@ -3322,9 +3322,7 @@ impl Daemon {
                                         "user" | "User" => "User",
                                         _ => "Assistant",
                                     };
-                                    prompt_parts.push(
-                                        format!("[{}]: {}", role_label, msg.content),
-                                    );
+                                    prompt_parts.push(format!("[{}]: {}", role_label, msg.content));
                                 }
                                 prompt_parts.push(String::new()); // blank separator
                                 prompt_parts.push(
@@ -3336,8 +3334,8 @@ impl Daemon {
                             let prompt = prompt_parts.join("\n");
 
                             // Build basic tools.
-                            let workdir = std::env::current_dir()
-                                .unwrap_or_else(|_| PathBuf::from("/tmp"));
+                            let workdir =
+                                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
                             let tools: Vec<Arc<dyn aeqi_core::traits::Tool>> = vec![
                                 Arc::new(aeqi_tools::ShellTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::FileReadTool::new(workdir.clone())),

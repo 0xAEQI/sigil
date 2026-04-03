@@ -154,9 +154,6 @@ a:hover {
 }
 
 .rail-inner {
-  background: var(--bg-surface);
-  border-radius: var(--radius-xl);
-  padding: 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -191,6 +188,7 @@ a:hover {
 }
 
 .rail-home {
+  height: 52px;
   font-size: var(--font-size-xl);
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -1983,7 +1981,7 @@ a:hover {
   width: 220px;
   flex-shrink: 0;
   overflow-y: auto;
-  padding: 0 4px;
+  padding: 0 6px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2018,9 +2016,9 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 10px;
-  border-radius: var(--radius-lg);
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-2xl);
   cursor: pointer;
   transition: var(--transition-fast);
   font-size: var(--font-size-xs);
