@@ -391,37 +391,31 @@ a:hover {
   margin: 0 4px;
 }
 
-.agent-nav-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 36px;
-  padding: 0 10px;
-}
-
 .agent-nav-panel-title {
   font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  padding: 8px 0;
+  letter-spacing: 0.06em;
 }
 
 .agent-nav-panel-add {
-  width: 24px;
-  height: 24px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all 0.15s ease;
 }
 
 .agent-nav-panel-add:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-overlay);
   color: var(--text-secondary);
 }
 

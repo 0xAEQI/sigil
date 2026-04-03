@@ -189,10 +189,8 @@ export default function AgentNav() {
 
       {/* Agents panel — elevated inlay */}
       <div className="agent-nav-panel">
-        <div className="agent-nav-panel-header">
-          <span className="agent-nav-panel-title">Agents</span>
-          <span className="agent-nav-panel-add" onClick={() => navigate("/agents")}>+</span>
-        </div>
+        <div className="agent-nav-panel-title">Agents</div>
+        <div className="agent-nav-panel-add" onClick={() => navigate("/agents")}>+</div>
 
         {rootAgents.map((agent) => (
           <div
