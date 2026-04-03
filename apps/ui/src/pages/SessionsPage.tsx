@@ -8,24 +8,26 @@ interface Message {
   role: string;
   content: string;
   timestamp?: string;
-  source?: string;
 }
 
-interface StreamEvent {
-  type: string;
-  text?: string;
-  delta?: string;
-  message?: string;
-  tool_name?: string;
-  name?: string;
-  input?: any;
-  output?: string;
-  result?: string;
-  success?: boolean;
-  cost_usd?: number;
-  stop_reason?: string;
-  event_type?: string;
-  [key: string]: any;
+interface SessionInfo {
+  id: string;
+  name: string;
+  type: "perpetual" | "active" | "history";
+  status?: string;
+  agent?: string;
+  skill?: string;
+  time?: string;
+}
+
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
 }
 
 export default function SessionsPage() {
@@ -35,6 +37,8 @@ export default function SessionsPage() {
   const token = useAuthStore((s) => s.token);
   const scope = agentFilter || selectedAgent;
 
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>("perpetual");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -43,24 +47,61 @@ export default function SessionsPage() {
   const messagesEnd = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Load conversation history
+  // Build session list from tasks + channels
   useEffect(() => {
-    if (!scope) {
-      // No agent selected — show overview
-      setMessages([]);
-      return;
-    }
-    api.getChatHistory({ project: undefined, limit: 30 })
-      .then((d: any) => setMessages(d.messages || []))
-      .catch(() => setMessages([]));
+    const list: SessionInfo[] = [];
+
+    // Perpetual session is always first
+    list.push({
+      id: "perpetual",
+      name: scope || "Assistant",
+      type: "perpetual",
+      status: "live",
+    });
+
+    // Fetch tasks for active/history sessions
+    api.getTasks({}).then((d: any) => {
+      const tasks = d.tasks || [];
+      const filtered = scope
+        ? tasks.filter((t: any) =>
+            (t.assignee || t.agent_id || "").toLowerCase().includes(scope.toLowerCase())
+          )
+        : tasks;
+
+      for (const t of filtered) {
+        const isActive = t.status === "InProgress" || t.status === "in_progress";
+        list.push({
+          id: t.id,
+          name: t.subject,
+          type: isActive ? "active" : "history",
+          status: t.status,
+          skill: t.skill,
+          time: t.created_at,
+        });
+      }
+      setSessions([...list]);
+    }).catch(() => setSessions(list));
   }, [scope]);
 
-  // Auto-scroll on new messages
+  // Load messages for selected session
+  useEffect(() => {
+    if (activeSessionId === "perpetual") {
+      // Load perpetual session history
+      api.getChatHistory({ limit: 50 })
+        .then((d: any) => setMessages(d.messages || []))
+        .catch(() => setMessages([]));
+    } else {
+      // Load task transcript
+      // For now use chat history — task transcripts use transcript:task:{id} channels
+      setMessages([{ role: "system", content: `Session ${activeSessionId}` }]);
+    }
+  }, [activeSessionId]);
+
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText]);
 
-  // Send message via WebSocket streaming
+  // Send message via WebSocket
   const handleSend = useCallback(() => {
     if (!input.trim() || streaming || !token) return;
 
@@ -88,30 +129,21 @@ export default function SessionsPage() {
 
     ws.onmessage = (e) => {
       try {
-        const event: StreamEvent = JSON.parse(e.data);
-
+        const event = JSON.parse(e.data);
         switch (event.type) {
           case "TextDelta":
             accumulated += event.text || event.delta || "";
             setStreamText(accumulated);
             break;
-
           case "ToolCall":
           case "ToolStart":
             setActiveTools((prev) => [...prev, event.name || event.tool_name || "tool"]);
             break;
-
           case "ToolResult":
           case "ToolComplete":
             setActiveTools((prev) => prev.slice(1));
             break;
-
-          case "Status":
-            // Status messages (task started, etc.)
-            break;
-
           case "Complete":
-            // Finalize the assistant message
             if (accumulated) {
               setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
             }
@@ -120,18 +152,12 @@ export default function SessionsPage() {
             setActiveTools([]);
             ws.close();
             break;
-
           case "Error":
-            setMessages((prev) => [...prev, {
-              role: "system",
-              content: `Error: ${event.message || "Unknown error"}`,
-            }]);
+            setMessages((prev) => [...prev, { role: "system", content: `Error: ${event.message}` }]);
             setStreaming(false);
             ws.close();
             break;
-
           default:
-            // TaskCompleted, TaskFailed, Progress, etc.
             if (event.event_type === "TaskCompleted" || event.event_type === "TaskFailed") {
               if (accumulated) {
                 setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
@@ -140,87 +166,122 @@ export default function SessionsPage() {
               setStreaming(false);
               ws.close();
             }
-            break;
         }
-      } catch {
-        // ignore malformed
-      }
+      } catch {}
     };
 
-    ws.onerror = () => {
-      setStreaming(false);
-    };
-
+    ws.onerror = () => setStreaming(false);
     ws.onclose = () => {
-      if (streaming) {
-        // Unexpected close — save whatever we have
-        if (accumulated) {
-          setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
-          setStreamText("");
-        }
-        setStreaming(false);
+      if (accumulated && streaming) {
+        setMessages((prev) => [...prev, { role: "assistant", content: accumulated }]);
+        setStreamText("");
       }
+      setStreaming(false);
     };
   }, [input, streaming, token, scope]);
 
-  // No agent selected — show overview
   if (!scope) {
     return (
       <div className="sessions-page">
-        <div className="sessions-empty">
-          Select an agent to start a session
-        </div>
+        <div className="sessions-empty">Select an agent to view sessions</div>
       </div>
     );
   }
 
+  const activeSessions = sessions.filter((s) => s.type === "active");
+  const historySessions = sessions.filter((s) => s.type === "history");
+
   return (
-    <div className="session-chat">
-      <div className="session-chat-header">
-        <span className="session-chat-name">{scope}</span>
-        <span className="session-chat-status">
-          {streaming ? "streaming" : "ready"}
-        </span>
-      </div>
+    <div className="sessions-split">
+      {/* Session list */}
+      <div className="sessions-list-pane">
+        <div className="sessions-list-section">
+          {sessions.filter((s) => s.type === "perpetual").map((s) => (
+            <div
+              key={s.id}
+              className={`session-list-item${activeSessionId === s.id ? " active" : ""}`}
+              onClick={() => setActiveSessionId(s.id)}
+            >
+              <span className="session-list-dot">●</span>
+              <span className="session-list-name">{s.name}</span>
+            </div>
+          ))}
+        </div>
 
-      <div className="session-messages">
-        {messages.map((msg, i) => (
-          <div key={i} className={`session-msg session-msg-${msg.role}`}>
-            <span className="session-msg-role">{msg.role}</span>
-            <pre className="session-msg-content">{msg.content}</pre>
-          </div>
-        ))}
-
-        {/* Live streaming text */}
-        {streamText && (
-          <div className="session-msg session-msg-assistant session-msg-streaming">
-            <span className="session-msg-role">assistant</span>
-            <pre className="session-msg-content">{streamText}</pre>
-          </div>
-        )}
-
-        {/* Active tool indicators */}
-        {activeTools.length > 0 && (
-          <div className="session-tool-indicator">
-            {activeTools.map((tool, i) => (
-              <span key={i} className="session-tool-name">⟳ {tool}</span>
+        {activeSessions.length > 0 && (
+          <div className="sessions-list-section">
+            <div className="sessions-list-header">active</div>
+            {activeSessions.map((s) => (
+              <div
+                key={s.id}
+                className={`session-list-item${activeSessionId === s.id ? " active" : ""}`}
+                onClick={() => setActiveSessionId(s.id)}
+              >
+                <span className="session-list-dot">●</span>
+                <span className="session-list-name">{s.name}</span>
+                {s.time && <span className="session-list-time">{timeAgo(s.time)}</span>}
+              </div>
             ))}
           </div>
         )}
 
-        <div ref={messagesEnd} />
+        {historySessions.length > 0 && (
+          <div className="sessions-list-section">
+            <div className="sessions-list-header">history</div>
+            {historySessions.map((s) => (
+              <div
+                key={s.id}
+                className={`session-list-item${activeSessionId === s.id ? " active" : ""}`}
+                onClick={() => setActiveSessionId(s.id)}
+              >
+                <span className="session-list-dot dim">○</span>
+                <span className="session-list-name">{s.name}</span>
+                {s.time && <span className="session-list-time">{timeAgo(s.time)}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="session-input-wrap">
-        <input
-          className="session-input"
-          type="text"
-          placeholder={streaming ? "Agent is responding..." : `Message ${scope}...`}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          disabled={streaming}
-        />
+      {/* Session transcript */}
+      <div className="sessions-transcript-pane">
+        <div className="session-messages">
+          {messages.map((msg, i) => (
+            <div key={i} className={`session-msg session-msg-${msg.role}`}>
+              <span className="session-msg-role">{msg.role}</span>
+              <pre className="session-msg-content">{msg.content}</pre>
+            </div>
+          ))}
+
+          {streamText && (
+            <div className="session-msg session-msg-assistant session-msg-streaming">
+              <span className="session-msg-role">assistant</span>
+              <pre className="session-msg-content">{streamText}</pre>
+            </div>
+          )}
+
+          {activeTools.length > 0 && (
+            <div className="session-tool-indicator">
+              {activeTools.map((tool, i) => (
+                <span key={i} className="session-tool-name">⟳ {tool}</span>
+              ))}
+            </div>
+          )}
+
+          <div ref={messagesEnd} />
+        </div>
+
+        <div className="session-input-wrap">
+          <input
+            className="session-input"
+            type="text"
+            placeholder={streaming ? "Responding..." : `Message ${scope}...`}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+            disabled={streaming}
+          />
+        </div>
       </div>
     </div>
   );
