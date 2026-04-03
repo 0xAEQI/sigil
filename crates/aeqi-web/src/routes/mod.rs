@@ -61,6 +61,8 @@ pub fn api_routes() -> Router<AppState> {
         .route("/departments", get(departments))
         .route("/approvals", get(approvals))
         .route("/approvals/{id}/resolve", post(resolve_approval))
+        .route("/sessions", get(sessions).post(create_session))
+        .route("/sessions/{id}/close", post(close_session))
 }
 
 // --- Status ---
@@ -638,6 +640,40 @@ async fn resolve_approval(
     params["approval_id"] = serde_json::Value::String(id);
     ipc_proxy(state, "resolve_approval", params).await
 }
+// --- Sessions ---
+
+#[derive(Deserialize, Default)]
+struct SessionsQuery {
+    agent_id: Option<String>,
+}
+
+async fn sessions(State(state): State<AppState>, Query(q): Query<SessionsQuery>) -> Response {
+    let mut params = serde_json::json!({});
+    if let Some(agent_id) = &q.agent_id {
+        params["agent_id"] = serde_json::Value::String(agent_id.clone());
+    }
+    ipc_proxy(state, "sessions", params).await
+}
+
+async fn create_session(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    ipc_proxy(state, "create_session", body).await
+}
+
+async fn close_session(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    ipc_proxy(
+        state,
+        "close_session",
+        serde_json::json!({"session_id": id}),
+    )
+    .await
+}
+
 // --- Webhook (public, no auth) ---
 
 async fn webhook_handler(

@@ -2977,6 +2977,7 @@ impl Daemon {
                                         "color": a.color,
                                         "avatar": a.avatar,
                                         "faces": a.faces,
+                                        "session_id": a.session_id,
                                     })
                                 }).collect();
                                     serde_json::json!({"ok": true, "agents": items})
@@ -3195,6 +3196,62 @@ impl Daemon {
                                 .resolve_approval(approval_id, status, decided_by, note)
                                 .await
                             {
+                                Ok(()) => serde_json::json!({"ok": true}),
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        }
+                    }
+                    None => {
+                        serde_json::json!({"ok": false, "error": "agent registry not available"})
+                    }
+                },
+
+                // ── Sessions ──
+                "sessions" => match &agent_registry {
+                    Some(reg) => {
+                        let agent_id = request_field(&request, "agent_id").unwrap_or("");
+                        if agent_id.is_empty() {
+                            serde_json::json!({"ok": false, "error": "agent_id is required"})
+                        } else {
+                            match reg.list_sessions(agent_id).await {
+                                Ok(sessions) => {
+                                    serde_json::json!({"ok": true, "sessions": sessions})
+                                }
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        }
+                    }
+                    None => {
+                        serde_json::json!({"ok": false, "error": "agent registry not available"})
+                    }
+                },
+
+                "create_session" => match &agent_registry {
+                    Some(reg) => {
+                        let agent_id = request_field(&request, "agent_id").unwrap_or("");
+                        if agent_id.is_empty() {
+                            serde_json::json!({"ok": false, "error": "agent_id is required"})
+                        } else {
+                            match reg.create_session(agent_id).await {
+                                Ok(session_id) => {
+                                    serde_json::json!({"ok": true, "session_id": session_id})
+                                }
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        }
+                    }
+                    None => {
+                        serde_json::json!({"ok": false, "error": "agent registry not available"})
+                    }
+                },
+
+                "close_session" => match &agent_registry {
+                    Some(reg) => {
+                        let session_id = request_field(&request, "session_id").unwrap_or("");
+                        if session_id.is_empty() {
+                            serde_json::json!({"ok": false, "error": "session_id is required"})
+                        } else {
+                            match reg.close_session(session_id).await {
                                 Ok(()) => serde_json::json!({"ok": true}),
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             }

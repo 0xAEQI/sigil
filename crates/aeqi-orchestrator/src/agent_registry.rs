@@ -34,6 +34,19 @@ pub struct Department {
     pub created_at: DateTime<Utc>,
 }
 
+/// A session — an execution context owned by an agent.
+///
+/// Each agent gets a permanent session on spawn. Additional sessions can be
+/// created for triggers, delegations, etc. and closed when done.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub agent_id: String,
+    pub status: String,
+    pub created_at: String,
+    pub closed_at: Option<String>,
+}
+
 /// A persistent agent identity — one record = one agent ready to go.
 ///
 /// Created from a template with YAML frontmatter:
@@ -93,6 +106,9 @@ pub struct PersistentAgent {
     /// Maximum concurrent workers for this agent (default: 1).
     #[serde(default = "default_max_concurrent")]
     pub max_concurrent: u32,
+    /// Current session ID — links to the sessions table.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 fn default_max_concurrent() -> u32 {
@@ -400,7 +416,17 @@ impl AgentRegistry {
                  decision_note TEXT,
                  created_at TEXT NOT NULL,
                  decided_at TEXT
-             );",
+             );
+
+             CREATE TABLE IF NOT EXISTS sessions (
+                 id TEXT PRIMARY KEY,
+                 agent_id TEXT NOT NULL,
+                 status TEXT NOT NULL DEFAULT 'active',
+                 created_at TEXT NOT NULL,
+                 closed_at TEXT
+             );
+             CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+             CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);",
         )?;
 
         // Step 2: Add department_id column to agents table if missing.
@@ -427,6 +453,20 @@ impl AgentRegistry {
             if !has_col {
                 conn.execute_batch(
                     "ALTER TABLE agents ADD COLUMN max_concurrent INTEGER NOT NULL DEFAULT 1;",
+                )?;
+            }
+        }
+
+        // Step 4: Add session_id column to agents table if missing.
+        {
+            let has_col = conn
+                .prepare("PRAGMA table_info(agents)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|col| col == "session_id");
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE agents ADD COLUMN session_id TEXT DEFAULT NULL;",
                 )?;
             }
         }
@@ -525,6 +565,8 @@ impl AgentRegistry {
         let now = Utc::now();
         let caps_json = serde_json::to_string(capabilities)?;
 
+        let session_id = uuid::Uuid::new_v4().to_string();
+
         let agent = PersistentAgent {
             id: id.clone(),
             name: name.to_string(),
@@ -544,6 +586,7 @@ impl AgentRegistry {
             avatar: None,
             faces: None,
             max_concurrent: 1,
+            session_id: Some(session_id.clone()),
         };
 
         let db = self.db.lock().await;
@@ -564,7 +607,17 @@ impl AgentRegistry {
             ],
         )?;
 
-        info!(id = %agent.id, name = %agent.name, "persistent agent spawned");
+        // Create the agent's permanent session and link it.
+        db.execute(
+            "INSERT INTO sessions (id, agent_id, status, created_at) VALUES (?1, ?2, 'active', ?3)",
+            params![session_id, agent.id, now.to_rfc3339()],
+        )?;
+        db.execute(
+            "UPDATE agents SET session_id = ?1 WHERE id = ?2",
+            params![session_id, agent.id],
+        )?;
+
+        info!(id = %agent.id, name = %agent.name, session_id = %session_id, "persistent agent spawned");
         Ok(agent)
     }
 
@@ -1063,6 +1116,80 @@ impl AgentRegistry {
             .optional()?;
         Ok(max_concurrent.unwrap_or(1))
     }
+
+    // -----------------------------------------------------------------------
+    // Session operations
+    // -----------------------------------------------------------------------
+
+    /// Create a new session for an agent.
+    pub async fn create_session(&self, agent_id: &str) -> Result<String> {
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT INTO sessions (id, agent_id, status, created_at) VALUES (?1, ?2, 'active', ?3)",
+            params![session_id, agent_id, now],
+        )?;
+        info!(session_id = %session_id, agent_id = %agent_id, "session created");
+        Ok(session_id)
+    }
+
+    /// Close a session.
+    pub async fn close_session(&self, session_id: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let db = self.db.lock().await;
+        let updated = db.execute(
+            "UPDATE sessions SET status = 'closed', closed_at = ?1 WHERE id = ?2",
+            params![now, session_id],
+        )?;
+        if updated == 0 {
+            anyhow::bail!("session '{session_id}' not found");
+        }
+        info!(session_id = %session_id, "session closed");
+        Ok(())
+    }
+
+    /// List sessions for an agent.
+    pub async fn list_sessions(&self, agent_id: &str) -> Result<Vec<Session>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT id, agent_id, status, created_at, closed_at \
+             FROM sessions WHERE agent_id = ?1 ORDER BY created_at DESC",
+        )?;
+        let sessions = stmt
+            .query_map(params![agent_id], |row| {
+                Ok(Session {
+                    id: row.get(0)?,
+                    agent_id: row.get(1)?,
+                    status: row.get(2)?,
+                    created_at: row.get(3)?,
+                    closed_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(sessions)
+    }
+
+    /// Get a specific session by ID.
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
+        let db = self.db.lock().await;
+        let session = db
+            .query_row(
+                "SELECT id, agent_id, status, created_at, closed_at FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| {
+                    Ok(Session {
+                        id: row.get(0)?,
+                        agent_id: row.get(1)?,
+                        status: row.get(2)?,
+                        created_at: row.get(3)?,
+                        closed_at: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(session)
+    }
 }
 
 /// Convert a template trigger definition to a TriggerType.
@@ -1174,6 +1301,7 @@ fn row_to_agent(row: &rusqlite::Row) -> PersistentAgent {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok()),
         max_concurrent: row.get::<_, u32>("max_concurrent").unwrap_or(1),
+        session_id: row.get("session_id").ok(),
     }
 }
 
