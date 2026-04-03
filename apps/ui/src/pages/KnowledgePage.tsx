@@ -82,7 +82,7 @@ export default function KnowledgePage() {
   };
 
   const memoryCount = items.filter((i) => i.source === "memory").length;
-  const notesCount = items.filter((i) => i.source === "notes" || i.source === "blackboard").length;
+  const notesCount = items.filter((i) => i.source === "notes" || i.source === "notes").length;
 
   return (
     <>

@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { ChatThreadState } from "@/lib/types";
 
-const CHANNEL_STORAGE_KEY = "sigil_chat_channel";
-const THREADS_STORAGE_KEY = "sigil_chat_threads_v2";
+const CHANNEL_STORAGE_KEY = "aeqi_session_channel";
+const THREADS_STORAGE_KEY = "aeqi_session_threads";
 const GLOBAL_CHANNEL_KEY = "__global__";
 
 function channelKey(channel: string | null): string {

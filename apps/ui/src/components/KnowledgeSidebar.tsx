@@ -13,7 +13,7 @@ interface KnowledgeItem {
   id: string;
   key: string;
   content: string;
-  source: "memory" | "notes" | "blackboard";
+  source: "memory" | "notes" | "notes";
   category?: string;
   scope?: string;
   tags?: string[];
