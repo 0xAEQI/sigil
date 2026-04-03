@@ -2483,7 +2483,19 @@ impl Daemon {
                         serde_json::json!({"ok": true, "projects": project_memories})
                     } else if let Some(ref engine) = chat_engine {
                         if let Some(mem) = engine.memory_stores.get(project) {
-                            let mq = aeqi_core::traits::MemoryQuery::new(query, limit);
+                            let scope_param = request.get("scope").and_then(|v| v.as_str());
+                            let entity_id_param = request.get("entity_id").and_then(|v| v.as_str());
+
+                            let mut mq = aeqi_core::traits::MemoryQuery::new(query, limit);
+                            if let Some(eid) = entity_id_param {
+                                mq = mq.with_entity(eid);
+                            } else if let Some(scope_str) = scope_param {
+                                mq = mq.with_scope(match scope_str {
+                                    "system" => aeqi_core::traits::MemoryScope::System,
+                                    "entity" => aeqi_core::traits::MemoryScope::Entity,
+                                    _ => aeqi_core::traits::MemoryScope::Domain,
+                                });
+                            }
                             match mem.search(&mq).await {
                                 Ok(entries) => {
                                     let rows: Vec<serde_json::Value> = entries
@@ -2910,7 +2922,8 @@ impl Daemon {
                                 "entity" => aeqi_core::traits::MemoryScope::Entity,
                                 _ => aeqi_core::traits::MemoryScope::Domain,
                             };
-                            match mem.store(key, content, cat, sc, None).await {
+                            let entity_id = request.get("entity_id").and_then(|v| v.as_str());
+                            match mem.store(key, content, cat, sc, entity_id).await {
                                 Ok(id) => serde_json::json!({"ok": true, "id": id}),
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             }

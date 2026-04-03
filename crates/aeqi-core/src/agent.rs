@@ -1575,11 +1575,28 @@ impl Agent {
                     .join(" ");
 
                 if tool_output.len() > 200 && Self::has_novel_terms(&tool_output, prompt) {
-                    let mq = MemoryQuery::new(&tool_output, 3).with_scope(MemoryScope::Domain);
-                    if let Ok(entries) = mem.search(&mq).await
-                        && !entries.is_empty()
-                    {
-                        let ctx = entries
+                    // Search both domain and entity scopes, merge results
+                    let mut all_entries = Vec::new();
+
+                    let domain_q = MemoryQuery::new(&tool_output, 3).with_scope(MemoryScope::Domain);
+                    if let Ok(entries) = mem.search(&domain_q).await {
+                        all_entries.extend(entries);
+                    }
+
+                    if let Some(ref cid) = self.config.entity_id {
+                        let entity_q = MemoryQuery::new(&tool_output, 3).with_entity(cid.clone());
+                        if let Ok(entries) = mem.search(&entity_q).await {
+                            all_entries.extend(entries);
+                        }
+                    }
+
+                    // Deduplicate by id, keep highest score, truncate to 5
+                    all_entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+                    all_entries.dedup_by(|a, b| a.id == b.id);
+                    all_entries.truncate(5);
+
+                    if !all_entries.is_empty() {
+                        let ctx = all_entries
                             .iter()
                             .map(|e| format!("[{}] {}: {}", e.scope, e.key, e.content))
                             .collect::<Vec<_>>()
@@ -1594,7 +1611,7 @@ impl Agent {
                         debug!(
                             agent = %self.config.name,
                             recall = mid_loop_recalls,
-                            entries = entries.len(),
+                            entries = all_entries.len(),
                             "mid-loop memory recall injected"
                         );
                     }
@@ -1712,30 +1729,41 @@ impl Agent {
     async fn inject_initial_memory(&self, messages: &mut [Message], prompt: &str) {
         let Some(ref mem) = self.memory else { return };
 
-        let mq = if let Some(ref cid) = self.config.entity_id {
-            MemoryQuery::new(prompt, 5).with_entity(cid.clone())
-        } else {
-            MemoryQuery::new(prompt, 5).with_scope(MemoryScope::Domain)
-        };
+        let mut all_entries = Vec::new();
 
-        match mem.search(&mq).await {
-            Ok(entries) if !entries.is_empty() => {
-                let ctx = entries
-                    .iter()
-                    .map(|e| format!("[{}] {}: {}", e.scope, e.key, e.content))
-                    .collect::<Vec<_>>()
-                    .join("\n");
+        // Always search domain scope
+        let domain_q = MemoryQuery::new(prompt, 3).with_scope(MemoryScope::Domain);
+        if let Ok(entries) = mem.search(&domain_q).await {
+            all_entries.extend(entries);
+        }
 
-                if let Some(msg) = messages.first_mut()
-                    && let MessageContent::Text(t) = &mut msg.content
-                {
-                    *t = format!("{t}\n\n# Recalled Memory\n{ctx}");
-                }
-
-                debug!(agent = %self.config.name, count = entries.len(), "memory context injected");
+        // Also search entity scope if we have an entity_id
+        if let Some(ref cid) = self.config.entity_id {
+            let entity_q = MemoryQuery::new(prompt, 3).with_entity(cid.clone());
+            if let Ok(entries) = mem.search(&entity_q).await {
+                all_entries.extend(entries);
             }
-            Ok(_) => {}
-            Err(e) => warn!(agent = %self.config.name, "memory recall failed: {e}"),
+        }
+
+        // Deduplicate by id, keep highest score, truncate to 5
+        all_entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_entries.dedup_by(|a, b| a.id == b.id);
+        all_entries.truncate(5);
+
+        if !all_entries.is_empty() {
+            let ctx = all_entries
+                .iter()
+                .map(|e| format!("[{}] {}: {}", e.scope, e.key, e.content))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            if let Some(msg) = messages.first_mut()
+                && let MessageContent::Text(t) = &mut msg.content
+            {
+                *t = format!("{t}\n\n# Recalled Memory\n{ctx}");
+            }
+
+            debug!(agent = %self.config.name, count = all_entries.len(), "memory context injected");
         }
     }
 
