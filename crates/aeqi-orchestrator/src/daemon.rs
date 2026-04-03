@@ -3294,7 +3294,7 @@ impl Daemon {
                         };
 
                         if let Some(ref provider) = default_provider {
-                            // Resolve agent system prompt from registry, fall back to default.
+                            // Resolve agent system prompt from registry.
                             let agent_system_prompt = if let Some(ref ar) = agent_registry {
                                 match ar.get_active_by_name(&agent_hint).await {
                                     Ok(Some(agent)) if !agent.system_prompt.is_empty() => {
@@ -3306,9 +3306,21 @@ impl Daemon {
                                 "You are a helpful AI agent.".to_string()
                             };
 
-                            // Build identity from the agent's system prompt.
+                            // Build identity with primers (shared + project).
+                            let mut knowledge_parts: Vec<String> = Vec::new();
+                            if let Some(ref sp) = registry.shared_primer {
+                                knowledge_parts.push(sp.clone());
+                            }
+                            if let Some(ref pp) = registry.project_primer {
+                                knowledge_parts.push(pp.clone());
+                            }
                             let identity = aeqi_core::Identity {
                                 persona: Some(agent_system_prompt),
+                                knowledge: if knowledge_parts.is_empty() {
+                                    None
+                                } else {
+                                    Some(knowledge_parts.join("\n\n---\n\n"))
+                                },
                                 ..Default::default()
                             };
 
@@ -3317,14 +3329,13 @@ impl Daemon {
                             if !history.is_empty() {
                                 prompt_parts.push("Recent conversation history:".to_string());
                                 for msg in &history {
-                                    // Skip the current message (already recorded above).
                                     let role_label = match msg.role.as_str() {
                                         "user" | "User" => "User",
                                         _ => "Assistant",
                                     };
                                     prompt_parts.push(format!("[{}]: {}", role_label, msg.content));
                                 }
-                                prompt_parts.push(String::new()); // blank separator
+                                prompt_parts.push(String::new());
                                 prompt_parts.push(
                                     "Continue the conversation. The latest user message is the last [User] entry above.".to_string(),
                                 );
@@ -3333,7 +3344,7 @@ impl Daemon {
                             }
                             let prompt = prompt_parts.join("\n");
 
-                            // Build tools: file/shell + orchestration (memory, notes, delegate).
+                            // Build full tool suite.
                             let workdir =
                                 std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
                             let mut tools: Vec<Arc<dyn aeqi_core::traits::Tool>> = vec![
@@ -3342,12 +3353,12 @@ impl Daemon {
                                 Arc::new(aeqi_tools::FileWriteTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::FileEditTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::GrepTool::new(workdir.clone())),
-                                Arc::new(aeqi_tools::GlobTool::new(workdir.clone())),
+                                Arc::new(aeqi_tools::GlobTool::new(workdir)),
                                 Arc::new(aeqi_tools::WebFetchTool),
                                 Arc::new(aeqi_tools::WebSearchTool),
                             ];
 
-                            // Add orchestration tools (memory, notes, delegate).
+                            // Orchestration tools (memory, notes, delegate, tasks).
                             let empty_channels: Arc<
                                 tokio::sync::RwLock<
                                     std::collections::HashMap<
@@ -3358,18 +3369,26 @@ impl Daemon {
                             > = Arc::new(
                                 tokio::sync::RwLock::new(std::collections::HashMap::new()),
                             );
+                            let memory_for_agent = chat_engine
+                                .as_ref()
+                                .and_then(|e| e.memory_stores.get(&agent_hint).cloned());
                             let orch_tools = crate::tools::build_orchestration_tools(
                                 registry.clone(),
                                 dispatch_bus.clone(),
                                 empty_channels,
                                 None,
-                                chat_engine
-                                    .as_ref()
-                                    .and_then(|e| e.memory_stores.get(&agent_hint).cloned()),
+                                memory_for_agent.clone(),
                                 registry.notes.clone(),
                                 None,
                             );
                             tools.extend(orch_tools);
+
+                            // Transcript search tool.
+                            if let Some(ref ss) = session_store {
+                                tools.push(Arc::new(crate::tools::TranscriptSearchTool::new(
+                                    ss.clone(),
+                                )));
+                            }
 
                             // Build agent config.
                             let context_window =
@@ -3385,13 +3404,18 @@ impl Daemon {
                             let observer: Arc<dyn aeqi_core::traits::Observer> =
                                 Arc::new(aeqi_core::traits::LogObserver);
 
-                            let agent = aeqi_core::Agent::new(
+                            let mut agent = aeqi_core::Agent::new(
                                 agent_config,
                                 provider.clone(),
                                 tools,
                                 observer,
                                 identity,
                             );
+
+                            // Attach memory for mid-loop recall.
+                            if let Some(mem) = memory_for_agent {
+                                agent = agent.with_memory(mem);
+                            }
 
                             match agent.run(&prompt).await {
                                 Ok(result) => {

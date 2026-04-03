@@ -38,6 +38,10 @@ pub struct CompanyRegistry {
     pub config_project_names: Vec<String>,
     /// Agent registry for global per-agent concurrency enforcement.
     agent_registry: RwLock<Option<Arc<crate::agent_registry::AgentRegistry>>>,
+    /// Shared primer injected into ALL agents.
+    pub shared_primer: Option<String>,
+    /// Default project primer (first project in config).
+    pub project_primer: Option<String>,
 }
 
 impl CompanyRegistry {
@@ -57,6 +61,8 @@ impl CompanyRegistry {
             session_store: None,
             config_project_names: Vec::new(),
             agent_registry: RwLock::new(None),
+            shared_primer: None,
+            project_primer: None,
         }
     }
 

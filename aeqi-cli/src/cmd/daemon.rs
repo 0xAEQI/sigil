@@ -95,6 +95,10 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 Err(e) => warn!(error = %e, "failed to initialize session store"),
             }
 
+            // Set primers on registry for session_send access.
+            registry_inner.shared_primer = config.shared_primer.clone();
+            registry_inner.project_primer = config.companies.first().and_then(|c| c.primer.clone());
+
             let registry = Arc::new(registry_inner);
             let background_automation_enabled = config.orchestrator.background_automation_enabled;
             let advisor_agents = config.advisor_agents();
