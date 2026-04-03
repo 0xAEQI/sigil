@@ -2069,7 +2069,7 @@ a:hover {
 .sessions-split {
   display: flex;
   height: 100%;
-  gap: 1px;
+  gap: 8px;
 }
 
 .sessions-list-pane {
@@ -2080,7 +2080,6 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-right: 1px solid var(--border);
 }
 
 .sessions-list-section {
@@ -2186,7 +2185,9 @@ a:hover {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 0 16px;
+  padding: 16px;
+  background: var(--bg-elevated);
+  border-radius: 12px;
 }
 
 .sessions-page {
