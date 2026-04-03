@@ -91,7 +91,7 @@ pub enum EventPattern {
         scope: Option<String>,
     },
     /// Fire when a note entry matching the key pattern is posted.
-    #[serde(rename = "note_posted", alias = "blackboard_posted")]
+    #[serde(rename = "note_posted")]
     NotePosted {
         #[serde(skip_serializing_if = "Option::is_none")]
         key_pattern: Option<String>,

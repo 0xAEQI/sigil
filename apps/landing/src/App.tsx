@@ -1,128 +1,115 @@
 import { useState, useEffect } from "react";
-import { ParticleField } from "./components/ParticleField";
 import { Hero } from "./components/Hero";
-import { Features } from "./components/Features";
-import { SystemDemo, CallToAction } from "./components/SystemDemo";
-import { Pricing } from "./components/Pricing";
+import { CallToAction } from "./components/CallToAction";
+import { VerticalLines } from "./components/VerticalLines";
+import { motion } from "framer-motion";
 
-function FilmGrain() {
+function GitHubStars() {
+  const [stars, setStars] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("https://api.github.com/repos/0xAEQI/aeqi")
+      .then((r) => r.json())
+      .then((d) => {
+        if (typeof d.stargazers_count === "number") setStars(d.stargazers_count);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
-    <div
-      className="pointer-events-none fixed inset-0 z-[1] opacity-[0.03]"
-      style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-        backgroundRepeat: "repeat",
-        backgroundSize: "256px 256px",
-      }}
-    />
+    <a
+      href="https://github.com/0xAEQI/aeqi"
+      className="flex items-center gap-2 text-white/35 hover:text-white/60 transition-colors"
+    >
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-[14px] h-[14px]">
+        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
+      </svg>
+      <span className="text-[12px]">Star</span>
+      {stars !== null && (
+        <span className="text-[11px] bg-white/[0.06] px-1.5 py-0.5 rounded">
+          {stars}
+        </span>
+      )}
+    </a>
   );
 }
 
 function Nav() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 50);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
   return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-        scrolled
-          ? "backdrop-blur-xl bg-[#0a0a0a]/70 border-b border-white/[0.04]"
-          : "bg-transparent"
-      }`}
+    <motion.nav
+      className="fixed top-5 left-1/2 -translate-x-1/2 z-50"
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, delay: 0.4, ease: "easeOut" }}
     >
-      <div className="flex items-center justify-between px-8 py-4 max-w-6xl mx-auto">
+      <div
+        className="backdrop-blur-2xl bg-white/[0.03] border border-white/[0.07] rounded-full px-5 py-2.5 flex items-center gap-5"
+        style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+      >
         <a
           href="/"
-          className="text-[15px] font-medium tracking-[0.15em] text-white/80 hover:text-white transition-colors duration-200"
+          className="text-[16px] font-bold tracking-[0.06em] text-white hover:text-white/80 transition-colors"
         >
-          AEQI
+          &#xC6;QI
         </a>
-        <div className="flex items-center gap-8 text-[13px] text-white/40">
-          <a
-            href="#features"
-            className="hidden sm:inline hover:text-white/70 transition-colors duration-200"
-          >
-            Features
-          </a>
-          <a
-            href="#pricing"
-            className="hidden sm:inline hover:text-white/70 transition-colors duration-200"
-          >
-            Pricing
-          </a>
-          <a
-            href="https://github.com/0xAEQI/aeqi"
-            className="hover:text-white/70 transition-colors duration-200"
-          >
-            GitHub
-          </a>
-          <a
-            href="https://github.com/0xAEQI/aeqi/blob/main/docs/architecture.md"
-            className="hidden sm:inline hover:text-white/70 transition-colors duration-200"
-          >
-            Docs
-          </a>
-          <a
-            href="https://app.aeqi.ai"
-            className="px-5 py-2 rounded-lg text-[13px] font-medium text-white/70 border border-white/10 transition-all duration-300 hover:text-white hover:border-white/25 hover:bg-white/[0.04]"
-          >
-            Enter
-          </a>
-        </div>
+        <div className="w-px h-3.5 bg-white/[0.08]" />
+        <GitHubStars />
+        <a
+          href="https://github.com/0xAEQI/aeqi/blob/main/docs/architecture.md"
+          className="text-[12px] text-white/35 hover:text-white/60 transition-colors hidden sm:block"
+        >
+          Docs
+        </a>
+        <a
+          href="https://app.aeqi.ai"
+          className="bg-white text-[#06060E] rounded-full px-4 py-1.5 text-[12px] font-semibold hover:bg-white/90 transition-colors"
+          style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          Enter
+        </a>
       </div>
-    </nav>
+    </motion.nav>
   );
 }
 
-function Divider() {
+function Backdrop() {
   return (
-    <div className="max-w-4xl mx-auto px-8 relative z-10">
-      <div className="h-px bg-white/[0.05]" />
-    </div>
+    <>
+      <div
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: "url('/bg.jpg')",
+          filter: "blur(16px) saturate(0.3) brightness(0.35)",
+          transform: "scale(1.05)",
+        }}
+      />
+      <div
+        className="fixed inset-0 z-0"
+        style={{ background: "rgba(6, 6, 18, 0.5)", mixBlendMode: "multiply" }}
+      />
+      <div
+        className="fixed inset-0 z-0"
+        style={{
+          background: "radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, rgba(6,6,18,0.8) 100%)",
+        }}
+      />
+      <div
+        className="fixed inset-0 z-0"
+        style={{
+          background: "linear-gradient(to bottom, rgba(6,6,18,0.9) 0%, transparent 20%)",
+        }}
+      />
+    </>
   );
 }
 
 export default function App() {
-  const [scrollProgress, setScrollProgress] = useState(0);
-
-  useEffect(() => {
-    const onScroll = () => {
-      const max = document.documentElement.scrollHeight - window.innerHeight;
-      setScrollProgress(max > 0 ? window.scrollY / max : 0);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
   return (
     <div className="relative min-h-screen">
-      <ParticleField scrollProgress={scrollProgress} />
-      <FilmGrain />
+      <Backdrop />
+      <VerticalLines />
       <Nav />
-
       <Hero />
-
-      <div id="features">
-        <Features />
-      </div>
-
-      <Divider />
-
-      <SystemDemo />
-
-      <Divider />
-
-      <div id="pricing">
-        <Pricing />
-      </div>
-
-      <Divider />
-
       <CallToAction />
     </div>
   );

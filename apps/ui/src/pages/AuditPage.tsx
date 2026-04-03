@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import AuditEntryComponent from "@/components/AuditEntry";
-import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 export default function AuditPage() {
@@ -45,11 +45,7 @@ export default function AuditPage() {
         </span>
       </div>
 
-      {loading ? (
-        <div className="loading">Loading audit trail...</div>
-      ) : events.length === 0 ? (
-        <EmptyState title="No audit events" description="No decision events recorded yet." />
-      ) : (
+      <DataState loading={loading} empty={events.length === 0} emptyTitle="No events" emptyDescription="No audit events found." loadingText="Loading audit trail...">
         <div className="column-section">
           <div className="column-section-body">
             {events.map((entry: any, i: number) => (
@@ -57,7 +53,7 @@ export default function AuditPage() {
             ))}
           </div>
         </div>
-      )}
+      </DataState>
     </>
   );
 }

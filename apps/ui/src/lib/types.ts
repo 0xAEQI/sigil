@@ -1,3 +1,5 @@
+import type { TaskRuntime } from "./runtime";
+
 export interface Company {
   name: string;
   prefix: string;
@@ -19,6 +21,21 @@ export interface Agent {
   stats: { completed: number; failed: number; avg_cost_usd: number };
 }
 
+export interface Checkpoint {
+  timestamp: string;
+  worker: string;
+  progress: string;
+  cost_usd: number;
+  turns_used: number;
+}
+
+export interface TaskOutcome {
+  kind: string;      // "done", "blocked", "failed", "handoff"
+  summary: string;
+  reason?: string;
+  next_action?: string;
+}
+
 export interface Task {
   id: string;
   subject: string;
@@ -26,6 +43,7 @@ export interface Task {
   status: "pending" | "in_progress" | "done" | "blocked" | "cancelled";
   priority: "critical" | "high" | "normal" | "low";
   assignee?: string;
+  agent_id?: string;
   skill?: string;
   mission_id?: string;
   company: string;
@@ -33,6 +51,17 @@ export interface Task {
   cost_usd: number;
   created_at: string;
   updated_at?: string;
+  closed_at?: string;
+  closed_reason?: string;
+  checkpoints?: Checkpoint[];
+  depends_on?: string[];
+  blocks?: string[];
+  acceptance_criteria?: string;
+  retry_count?: number;
+  locked_by?: string;
+  locked_at?: string;
+  metadata?: Record<string, unknown>;
+  runtime?: TaskRuntime;
 }
 
 export interface Mission {
@@ -45,6 +74,39 @@ export interface Mission {
   schedule?: string;
   task_count: number;
   done_count: number;
+  created_at: string;
+}
+
+export interface AgentRef {
+  id: string;
+  name: string;
+  display_name?: string;
+  project?: string;
+  model?: string;
+}
+
+export interface PersistentAgent {
+  id: string;
+  name: string;
+  display_name?: string;
+  template: string;
+  project?: string;
+  department_id?: string;
+  model?: string;
+  capabilities: string[];
+  status: string;
+  created_at: string;
+  session_id?: string;
+  color?: string;
+  avatar?: string;
+}
+
+export interface Department {
+  id: string;
+  name: string;
+  project?: string;
+  manager_id?: string;
+  parent_id?: string;
   created_at: string;
 }
 
@@ -90,4 +152,24 @@ export interface ThreadEvent {
 
 export interface ChatThreadState {
   chatId?: number;
+}
+
+export type TriggerType =
+  | { Schedule: { expr: string } }
+  | { Once: { at: string } }
+  | { Event: { pattern: string; cooldown_secs: number } }
+  | { Webhook: { public_id: string } };
+
+export interface Trigger {
+  id: string;
+  agent_id: string;
+  name: string;
+  trigger_type: TriggerType;
+  skill: string;
+  enabled: boolean;
+  max_budget_usd?: number;
+  created_at: string;
+  last_fired?: string;
+  fire_count: number;
+  total_cost_usd: number;
 }

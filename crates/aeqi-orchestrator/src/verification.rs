@@ -139,7 +139,6 @@ pub struct TaskContext {
     /// The explicit "done when" condition, if specified.
     pub done_condition: Option<String>,
     /// Company this task belongs to.
-    #[serde(alias = "project")]
     pub company: String,
     /// Company directory on disk (for running tests, checking files).
     pub company_dir: Option<PathBuf>,

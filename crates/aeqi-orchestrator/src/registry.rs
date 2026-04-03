@@ -17,6 +17,7 @@ use crate::worker_pool::WorkerPool;
 
 pub struct CompanyRegistry {
     projects: RwLock<HashMap<String, Arc<Company>>>,
+    projects_by_id: RwLock<HashMap<String, Arc<Company>>>,
     worker_pools: RwLock<HashMap<String, Arc<Mutex<WorkerPool>>>>,
     pub dispatch_bus: Arc<DispatchBus>,
     pub wake: Arc<tokio::sync::Notify>,
@@ -34,7 +35,7 @@ pub struct CompanyRegistry {
     pub notes: Option<Arc<Notes>>,
     /// Unified session store for all chat channels.
     pub session_store: Option<Arc<SessionStore>>,
-    /// Names from [[projects]] config (to distinguish from agent entries).
+    /// Names from [[companies]] config (to distinguish from agent entries).
     pub config_project_names: Vec<String>,
     /// Agent registry for global per-agent concurrency enforcement.
     agent_registry: RwLock<Option<Arc<crate::agent_registry::AgentRegistry>>>,
@@ -48,6 +49,7 @@ impl CompanyRegistry {
     pub fn new(dispatch_bus: Arc<DispatchBus>, leader_agent_name: String) -> Self {
         Self {
             projects: RwLock::new(HashMap::new()),
+            projects_by_id: RwLock::new(HashMap::new()),
             worker_pools: RwLock::new(HashMap::new()),
             dispatch_bus,
             wake: Arc::new(tokio::sync::Notify::new()),
@@ -81,8 +83,12 @@ impl CompanyRegistry {
     /// but don't run daemon-driven execution.
     pub async fn register_company_only(&self, project: Arc<Company>) {
         let name = project.name.clone();
+        let id = project.id.clone();
         self.metrics.ensure_company(&name);
-        self.projects.write().await.insert(name, project);
+        self.projects.write().await.insert(name, project.clone());
+        if !id.is_empty() {
+            self.projects_by_id.write().await.insert(id, project);
+        }
     }
 
     /// Remove a project from the registry (in-memory only).
@@ -92,6 +98,7 @@ impl CompanyRegistry {
 
     pub async fn register_company(&self, project: Arc<Company>, mut pool: WorkerPool) {
         let name = project.name.clone();
+        let id = project.id.clone();
         // Inject cost ledger + metrics + v3 components into the worker pool.
         pool.cost_ledger = Some(self.cost_ledger.clone());
         pool.metrics = Some(self.metrics.clone());
@@ -99,7 +106,13 @@ impl CompanyRegistry {
         pool.expertise_ledger = self.expertise_ledger.clone();
         pool.notes = self.notes.clone();
         self.metrics.ensure_company(&name);
-        self.projects.write().await.insert(name.clone(), project);
+        self.projects
+            .write()
+            .await
+            .insert(name.clone(), project.clone());
+        if !id.is_empty() {
+            self.projects_by_id.write().await.insert(id, project);
+        }
         self.worker_pools
             .write()
             .await
@@ -405,6 +418,10 @@ impl CompanyRegistry {
 
     pub async fn get_company(&self, name: &str) -> Option<Arc<Company>> {
         self.projects.read().await.get(name).cloned()
+    }
+
+    pub async fn get_company_by_id(&self, id: &str) -> Option<Arc<Company>> {
+        self.projects_by_id.read().await.get(id).cloned()
     }
 
     pub async fn company_count(&self) -> usize {

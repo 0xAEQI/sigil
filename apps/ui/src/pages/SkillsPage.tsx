@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 export default function SkillsPage() {
@@ -32,11 +33,7 @@ export default function SkillsPage() {
         </button>
       </div>
 
-      {loading ? (
-        <div className="loading">Loading...</div>
-      ) : items.length === 0 ? (
-        <EmptyState title={`No ${tab}`} description={`No ${tab} found in projects/shared/${tab}/.`} />
-      ) : (
+      <DataState loading={loading} empty={items.length === 0} emptyTitle={`No ${tab}`} emptyDescription={`No ${tab} found.`}>
         <div className="detail-grid" style={{ gridTemplateColumns: "240px 1fr" }}>
           {/* File list */}
           <div className="detail-sidebar">
@@ -84,7 +81,7 @@ export default function SkillsPage() {
             )}
           </div>
         </div>
-      )}
+      </DataState>
     </>
   );
 }

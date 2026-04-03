@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -82,33 +83,31 @@ export default function MemoryPage() {
 
       {!selectedCompany ? (
         <EmptyState title="Select a company" description="Choose a company to view its agent memories." />
-      ) : loading ? (
-        <div className="loading">Loading memories...</div>
-      ) : memories.length === 0 ? (
-        <EmptyState title="No memories" description={search ? "No memories match your search." : "No memories stored yet for this company."} />
       ) : (
-        <div>
-          {memories.map((m: any) => (
-            <div key={m.id} className="memory-entry">
-              <div className="memory-header">
-                <code className="memory-key">{m.key}</code>
-                <div className="memory-tags">
-                  <span className="memory-category" style={{ color: CATEGORY_COLORS[m.category] || "var(--text-muted)" }}>
-                    {m.category}
-                  </span>
-                  <span className="memory-scope">
-                    {SCOPE_LABELS[m.scope] || m.scope}
-                  </span>
+        <DataState loading={loading} empty={memories.length === 0} emptyTitle="No memories" emptyDescription="No memories found." loadingText="Loading memories...">
+          <div>
+            {memories.map((m: any) => (
+              <div key={m.id} className="memory-entry">
+                <div className="memory-header">
+                  <code className="memory-key">{m.key}</code>
+                  <div className="memory-tags">
+                    <span className="memory-category" style={{ color: CATEGORY_COLORS[m.category] || "var(--text-muted)" }}>
+                      {m.category}
+                    </span>
+                    <span className="memory-scope">
+                      {SCOPE_LABELS[m.scope] || m.scope}
+                    </span>
+                  </div>
+                </div>
+                <div className="memory-content">{m.content}</div>
+                <div className="memory-meta">
+                  {m.entity_id && <span>Entity: {m.entity_id}</span>}
+                  <span>{new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
               </div>
-              <div className="memory-content">{m.content}</div>
-              <div className="memory-meta">
-                {m.entity_id && <span>Entity: {m.entity_id}</span>}
-                <span>{new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </DataState>
       )}
     </>
   );

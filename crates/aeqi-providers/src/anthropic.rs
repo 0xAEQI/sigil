@@ -289,6 +289,11 @@ enum SseDelta {
 }
 
 #[derive(Deserialize)]
+struct SseContentBlockStop {
+    index: usize,
+}
+
+#[derive(Deserialize)]
 struct SseMessageDelta {
     delta: SseMessageDeltaInner,
     usage: Option<AnthropicUsage>,
@@ -577,9 +582,27 @@ impl Provider for AnthropicProvider {
                         // Will assemble and emit MessageComplete below.
                     }
 
-                    "content_block_stop" | "ping" => {
-                        // No action needed.
+                    "content_block_stop" => {
+                        if let Ok(cbs) = serde_json::from_str::<SseContentBlockStop>(data)
+                            && let Some(BlockAccum::ToolUse {
+                                id,
+                                name,
+                                input_json,
+                            }) = blocks.get(cbs.index)
+                        {
+                            let arguments: serde_json::Value = serde_json::from_str(input_json)
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                            let _ = tx
+                                .send(StreamEvent::ToolUseComplete {
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                    arguments,
+                                })
+                                .await;
+                        }
                     }
+
+                    "ping" => {}
 
                     other => {
                         debug!("unknown SSE event type: {other}");

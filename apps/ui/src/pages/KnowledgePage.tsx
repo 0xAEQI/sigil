@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -167,61 +168,59 @@ export default function KnowledgePage() {
 
       {!selectedCompany ? (
         <EmptyState title="Select a company" description="Choose a company to browse its knowledge base." />
-      ) : loading ? (
-        <div className="loading">Loading knowledge...</div>
-      ) : items.length === 0 ? (
-        <EmptyState title="No knowledge" description={search ? "No entries match your search." : "No knowledge stored yet."} />
       ) : (
-        <div>
-          {items.map((item: any) => (
-            <div
-              key={item.id}
-              className={`memory-entry ${expanded === item.id ? "memory-entry-expanded" : ""}`}
-              onClick={() => setExpanded(expanded === item.id ? null : item.id)}
-              style={{ cursor: "pointer" }}
-            >
-              <div className="memory-header">
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flex: 1, minWidth: 0 }}>
-                  <span className={`knowledge-source-icon ${item.source === "memory" ? "memory" : "notes"}`}>
-                    {item.source === "memory" ? "M" : "B"}
-                  </span>
-                  <code className="memory-key">{item.key}</code>
-                </div>
-                <div className="memory-tags">
-                  {item.category && (
-                    <span className="memory-category" style={{ color: CATEGORY_COLORS[item.category] || "var(--text-muted)" }}>
-                      {item.category}
+        <DataState loading={loading} empty={items.length === 0} emptyTitle="No knowledge" emptyDescription="No entries match your search." loadingText="Loading knowledge...">
+          <div>
+            {items.map((item: any) => (
+              <div
+                key={item.id}
+                className={`memory-entry ${expanded === item.id ? "memory-entry-expanded" : ""}`}
+                onClick={() => setExpanded(expanded === item.id ? null : item.id)}
+                style={{ cursor: "pointer" }}
+              >
+                <div className="memory-header">
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flex: 1, minWidth: 0 }}>
+                    <span className={`knowledge-source-icon ${item.source === "memory" ? "memory" : "notes"}`}>
+                      {item.source === "memory" ? "M" : "B"}
                     </span>
-                  )}
-                  {item.scope && (
-                    <span className="memory-scope">{item.scope}</span>
-                  )}
-                </div>
-              </div>
-              {expanded === item.id ? (
-                <>
-                  <div className="memory-content" style={{ whiteSpace: "pre-wrap" }}>{item.content}</div>
-                  <div className="memory-meta">
-                    <span>{new Date(item.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                    {item.source === "memory" && (
-                      <button
-                        className="btn btn-2xs"
-                        style={{ color: "var(--error)" }}
-                        onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}
-                      >
-                        Delete
-                      </button>
+                    <code className="memory-key">{item.key}</code>
+                  </div>
+                  <div className="memory-tags">
+                    {item.category && (
+                      <span className="memory-category" style={{ color: CATEGORY_COLORS[item.category] || "var(--text-muted)" }}>
+                        {item.category}
+                      </span>
+                    )}
+                    {item.scope && (
+                      <span className="memory-scope">{item.scope}</span>
                     )}
                   </div>
-                </>
-              ) : (
-                <div className="knowledge-preview">
-                  {item.content.slice(0, 120)}{item.content.length > 120 ? "..." : ""}
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
+                {expanded === item.id ? (
+                  <>
+                    <div className="memory-content" style={{ whiteSpace: "pre-wrap" }}>{item.content}</div>
+                    <div className="memory-meta">
+                      <span>{new Date(item.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                      {item.source === "memory" && (
+                        <button
+                          className="btn btn-2xs"
+                          style={{ color: "var(--error)" }}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="knowledge-preview">
+                    {item.content.slice(0, 120)}{item.content.length > 120 ? "..." : ""}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </DataState>
       )}
     </>
   );

@@ -25,7 +25,7 @@ pub struct AEQIConfig {
     #[serde(default)]
     pub shared_primer: Option<String>,
     /// Companies = repos, tasks, knowledge, budget.
-    #[serde(default, alias = "projects")]
+    #[serde(default)]
     pub companies: Vec<CompanyConfig>,
     /// Agents = personalities (equal peers).
     #[serde(default)]
@@ -329,7 +329,7 @@ pub struct PeerAgentConfig {
     /// Takes priority over `model` when both are set.
     #[serde(default)]
     pub model_tier: Option<String>,
-    #[serde(default, alias = "runtime_preset")]
+    #[serde(default)]
     pub runtime: Option<String>,
     #[serde(default = "default_agent_role")]
     pub role: String,
@@ -484,7 +484,7 @@ fn default_debounce_window() -> u64 {
 pub struct ContextBudgetConfig {
     #[serde(default = "default_budget_max_shared_workflow")]
     pub max_shared_workflow: usize,
-    #[serde(default = "default_budget_max_persona", alias = "max_soul")]
+    #[serde(default = "default_budget_max_persona")]
     pub max_persona: usize,
     #[serde(default = "default_budget_max_agents")]
     pub max_agents: usize,
@@ -578,22 +578,13 @@ pub struct OrchestratorConfig {
     #[serde(default)]
     pub expertise_routing: bool,
     /// Notes transient entry TTL in hours (Phase 3).
-    #[serde(
-        default = "default_notes_transient_ttl_hours",
-        alias = "blackboard_transient_ttl_hours"
-    )]
+    #[serde(default = "default_notes_transient_ttl_hours")]
     pub notes_transient_ttl_hours: u64,
     /// Notes durable entry TTL in days (Phase 3).
-    #[serde(
-        default = "default_notes_durable_ttl_days",
-        alias = "blackboard_durable_ttl_days"
-    )]
+    #[serde(default = "default_notes_durable_ttl_days")]
     pub notes_durable_ttl_days: u64,
     /// Notes claim TTL in hours.
-    #[serde(
-        default = "default_notes_claim_ttl_hours",
-        alias = "blackboard_claim_ttl_hours"
-    )]
+    #[serde(default = "default_notes_claim_ttl_hours")]
     pub notes_claim_ttl_hours: u64,
     /// Enable adaptive retry with failure analysis (Phase 4).
     #[serde(default)]
@@ -729,6 +720,8 @@ pub enum ExecutionMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyConfig {
+    #[serde(default)]
+    pub id: Option<String>,
     pub name: String,
     pub prefix: String,
     /// Repo path (absolute) or key into `[repos]`.
@@ -736,7 +729,7 @@ pub struct CompanyConfig {
     #[serde(default)]
     pub model: Option<String>,
     /// Runtime preset name. If omitted, falls back to `[aeqi].default_runtime`.
-    #[serde(default, alias = "runtime_preset")]
+    #[serde(default)]
     pub runtime: Option<String>,
     #[serde(default = "default_max_workers")]
     pub max_workers: u32,
@@ -938,7 +931,16 @@ impl AEQIConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read config: {}", path.display()))?;
-        Self::parse(&content)
+        let mut config = Self::parse(&content)?;
+
+        // Ensure every project has a stable UUID.
+        let data_dir = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+            .join(".aeqi");
+        if let Err(e) = config.ensure_project_ids(&data_dir) {
+            warn!(error = %e, "failed to assign project IDs");
+        }
+
+        Ok(config)
     }
 
     /// Parse config from TOML string.
@@ -1147,7 +1149,7 @@ impl AEQIConfig {
                 errors.push(format!("duplicate project name: '{}'", d.name));
             }
             if !seen_prefixes.insert(&d.prefix) {
-                errors.push(format!("duplicate project prefix: '{}'", d.prefix));
+                errors.push(format!("duplicate company prefix: '{}'", d.prefix));
             }
             if d.worker_timeout_secs == 0 {
                 errors.push(format!("project '{}' has zero worker_timeout_secs", d.name));
@@ -1251,6 +1253,38 @@ impl AEQIConfig {
         errors.extend(self.validate_teams());
 
         errors
+    }
+
+    /// Assign a stable UUID to every project that lacks one.
+    ///
+    /// IDs are persisted in `data_dir/project_ids.json` so they survive
+    /// config reloads and are deterministic per project name.
+    pub fn ensure_project_ids(&mut self, data_dir: &Path) -> Result<()> {
+        let ids_path = data_dir.join("project_ids.json");
+        let mut ids: HashMap<String, String> = if ids_path.exists() {
+            serde_json::from_str(&std::fs::read_to_string(&ids_path)?)?
+        } else {
+            HashMap::new()
+        };
+
+        let mut changed = false;
+        for project in &mut self.companies {
+            if project.id.is_none() {
+                let id = ids.entry(project.name.clone()).or_insert_with(|| {
+                    changed = true;
+                    uuid::Uuid::new_v4().to_string()
+                });
+                project.id = Some(id.clone());
+            }
+        }
+
+        if changed {
+            if let Some(parent) = ids_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&ids_path, serde_json::to_string_pretty(&ids)?)?;
+        }
+        Ok(())
     }
 }
 
@@ -1403,7 +1437,7 @@ mod tests {
 [aeqi]
 name = "test"
 
-[[projects]]
+[[companies]]
 name = "test-domain"
 prefix = "td"
 repo = "/tmp/test"
@@ -1426,7 +1460,7 @@ name = "test"
 [web]
 ui_dist_dir = "${AEQI_UI_DIST_TEST}"
 
-[[projects]]
+[[companies]]
 name = "test-domain"
 prefix = "td"
 repo = "/tmp/test"
@@ -1468,12 +1502,12 @@ name = "alice"
 prefix = "al"
 role = "orchestrator"
 
-[[projects]]
+[[companies]]
 name = "alpha"
 prefix = "al"
 repo = "/tmp/alpha"
 
-[[projects]]
+[[companies]]
 name = "beta"
 prefix = "bt"
 repo = "/tmp/beta"
@@ -1489,12 +1523,12 @@ repo = "/tmp/beta"
 [aeqi]
 name = "test"
 
-[[projects]]
+[[companies]]
 name = "alpha"
 prefix = "ab"
 repo = "/tmp/alpha"
 
-[[projects]]
+[[companies]]
 name = "beta"
 prefix = "ab"
 repo = "/tmp/beta"
@@ -1504,7 +1538,7 @@ repo = "/tmp/beta"
         assert!(
             issues
                 .iter()
-                .any(|i| i.contains("duplicate project prefix")),
+                .any(|i| i.contains("duplicate company prefix")),
             "expected duplicate prefix: {issues:?}"
         );
     }
@@ -1573,7 +1607,7 @@ role = "advisor"
 voice = "vocal"
 expertise = ["project-a"]
 
-[[projects]]
+[[companies]]
 name = "project-a"
 prefix = "as"
 repo = "/home/user/backend"
@@ -1829,7 +1863,7 @@ name = "leader"
 prefix = "ld"
 role = "orchestrator"
 
-[[projects]]
+[[companies]]
 name = "aeqi"
 prefix = "sg"
 repo = "/tmp/aeqi"
@@ -1871,7 +1905,7 @@ name = "leader"
 prefix = "ld"
 role = "orchestrator"
 
-[[projects]]
+[[companies]]
 name = "aeqi"
 prefix = "sg"
 repo = "/tmp/aeqi"

@@ -228,6 +228,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
                 let agent_project = Arc::new(Company {
+                    id: String::new(),
                     name: agent_cfg.name.clone(),
                     prefix: agent_cfg.prefix.clone(),
                     repo: agent_workdir.clone(),
@@ -297,6 +298,17 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 chat_memory_stores.len()
             );
 
+            // Build UUID-keyed memory stores from the same project memory stores.
+            let mut memory_stores_by_id: HashMap<String, Arc<dyn aeqi_core::traits::Memory>> =
+                HashMap::new();
+            for project_cfg in &config.companies {
+                if let (Some(id), Some(mem)) =
+                    (&project_cfg.id, chat_memory_stores.get(&project_cfg.name))
+                {
+                    memory_stores_by_id.insert(id.clone(), mem.clone());
+                }
+            }
+
             // Build the unified ChatEngine.
             let council_advisors: Arc<Vec<aeqi_core::config::PeerAgentConfig>> =
                 Arc::new(config.advisor_agents().into_iter().cloned().collect());
@@ -320,6 +332,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     pending_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     task_notify: fa_task_notify.clone(),
                     memory_stores: chat_memory_stores,
+                    memory_stores_by_id,
                     intent_classifier,
                 })
             });
@@ -454,6 +467,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
                 let fa_rig = Arc::new(Company {
+                    id: String::new(),
                     name: leader_name.clone(),
                     prefix: fa_prefix.clone(),
                     repo: fa_workdir.clone(),
@@ -488,6 +502,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     fa_memory,
                     registry.notes.clone(),
                     Some(event_broadcaster.clone()),
+                    None, // graph DB resolved per-session, not at daemon init
                 );
                 fa_tools.extend(orch_tools);
 
@@ -566,6 +581,39 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     let agent_reg = Arc::new(agent_reg);
                     daemon.set_trigger_store(trigger_store.clone());
                     daemon.set_agent_registry(agent_reg.clone());
+
+                    // Upsert projects into the registry DB and backfill department project_ids.
+                    for project_cfg in &config.companies {
+                        if let Some(ref id) = project_cfg.id
+                            && let Err(e) = agent_reg
+                                .upsert_project(id, &project_cfg.name, &project_cfg.prefix)
+                                .await
+                        {
+                            warn!(
+                                project = %project_cfg.name,
+                                error = %e,
+                                "failed to upsert project"
+                            );
+                        }
+                    }
+                    if let Err(e) = agent_reg.backfill_department_project_ids().await {
+                        warn!(error = %e, "failed to backfill department project_ids");
+                    }
+                    if let Err(e) = agent_reg.backfill_agent_project_ids().await {
+                        warn!(error = %e, "failed to backfill agent project_ids");
+                    }
+
+                    // Reconcile TOML agent configs with DB agents.
+                    // PeerAgentConfig (TOML) and PersistentAgent (DB) are dual systems.
+                    // This lightweight sync ensures TOML model changes propagate to DB.
+                    for peer in &config.agents {
+                        if let Ok(Some(agent)) = agent_reg.get_active_by_name(&peer.name).await
+                            && let Some(ref model) = peer.model
+                            && agent.model.as_deref() != Some(model)
+                        {
+                            let _ = agent_reg.update_agent_model(&agent.id, model).await;
+                        }
+                    }
 
                     // Wire agent_registry + trigger_store into all worker pools.
                     daemon

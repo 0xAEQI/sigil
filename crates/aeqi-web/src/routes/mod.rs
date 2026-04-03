@@ -19,10 +19,8 @@ pub fn api_routes() -> Router<AppState> {
     Router::new()
         .route("/status", get(status))
         .route("/companies", get(projects))
-        .route("/projects", get(projects))
         .route("/tasks", get(tasks).post(create_task))
         .route("/tasks/{id}/close", post(close_task))
-        .route("/missions", get(missions))
         .route("/agents", get(agents))
         .route("/agents/registry", get(agents_registry))
         .route("/agents/spawn", post(agents_spawn))
@@ -42,15 +40,12 @@ pub fn api_routes() -> Router<AppState> {
         .route("/chat/history", get(chat_history)) // Deprecated: kept for backwards compat
         .route("/chat/timeline", get(chat_timeline)) // Deprecated: kept for backwards compat
         .route("/chat/channels", get(chat_channels)) // Deprecated: kept for backwards compat
-        .route("/brief", get(brief))
-        .route("/crons", get(crons))
         .route("/memories", get(memories))
         .route("/memory/profile", get(memory_profile))
         .route("/memory/graph", get(memory_graph))
         .route("/skills", get(skills))
         .route("/pipelines", get(pipelines))
         .route("/companies/{name}/knowledge", get(project_knowledge))
-        .route("/projects/{name}/knowledge", get(project_knowledge))
         .route("/knowledge/channel", get(channel_knowledge))
         .route("/knowledge/store", post(knowledge_store))
         .route("/knowledge/delete", post(knowledge_delete))
@@ -62,6 +57,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/approvals/{id}/resolve", post(resolve_approval))
         .route("/sessions", get(sessions).post(create_session))
         .route("/sessions/{id}/close", post(close_session))
+        .route("/sessions/{id}/messages", get(session_messages))
 }
 
 // --- Status ---
@@ -80,7 +76,6 @@ async fn projects(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize, Default)]
 struct TasksQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     status: Option<String>,
 }
@@ -94,22 +89,6 @@ async fn tasks(State(state): State<AppState>, Query(q): Query<TasksQuery>) -> Re
         params["status"] = serde_json::Value::String(status.clone());
     }
     ipc_proxy(state, "tasks", params).await
-}
-
-// --- Missions ---
-
-#[derive(Deserialize, Default)]
-struct MissionsQuery {
-    #[serde(alias = "project")]
-    company: Option<String>,
-}
-
-async fn missions(State(state): State<AppState>, Query(q): Query<MissionsQuery>) -> Response {
-    let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
-    }
-    ipc_proxy(state, "missions", params).await
 }
 
 // --- Agents ---
@@ -159,7 +138,6 @@ async fn agents(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize, Default)]
 struct RegistryQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     status: Option<String>,
 }
@@ -219,7 +197,6 @@ async fn triggers(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize, Default)]
 struct AuditQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     last: Option<u32>,
 }
@@ -239,7 +216,6 @@ async fn audit(State(state): State<AppState>, Query(q): Query<AuditQuery>) -> Re
 
 #[derive(Deserialize, Default)]
 struct NotesQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     limit: Option<u32>,
 }
@@ -318,7 +294,6 @@ async fn worker_events(
 
 #[derive(Deserialize, Default)]
 struct MemoriesQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     query: Option<String>,
     limit: Option<u64>,
@@ -342,7 +317,6 @@ async fn memories(State(state): State<AppState>, Query(q): Query<MemoriesQuery>)
 
 #[derive(Deserialize, Default)]
 struct MemoryProfileQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
 }
 
@@ -361,7 +335,6 @@ async fn memory_profile(
 
 #[derive(Deserialize, Default)]
 struct MemoryGraphQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     limit: Option<u64>,
 }
@@ -410,7 +383,6 @@ async fn project_knowledge(
 
 #[derive(Deserialize, Default)]
 struct ChannelKnowledgeQuery {
-    #[serde(alias = "project")]
     company: Option<String>,
     query: Option<String>,
     limit: Option<u64>,
@@ -474,18 +446,6 @@ async fn rate_limit(State(state): State<AppState>) -> Response {
     ipc_proxy(state, "rate_limit", serde_json::Value::Null).await
 }
 
-// --- Brief ---
-
-async fn brief(State(state): State<AppState>) -> Response {
-    ipc_proxy(state, "brief", serde_json::Value::Null).await
-}
-
-// --- Crons ---
-
-async fn crons(State(state): State<AppState>) -> Response {
-    ipc_proxy(state, "crons", serde_json::Value::Null).await
-}
-
 // --- Chat ---
 
 async fn chat(State(state): State<AppState>, Json(body): Json<serde_json::Value>) -> Response {
@@ -513,10 +473,10 @@ async fn chat_poll(
 #[derive(Deserialize, Default)]
 struct ChatHistoryQuery {
     chat_id: Option<i64>,
-    #[serde(alias = "project")]
     company: Option<String>,
     department: Option<String>,
     channel_name: Option<String>,
+    agent_id: Option<String>,
     limit: Option<u64>,
     offset: Option<u64>,
 }
@@ -537,6 +497,9 @@ async fn chat_history(
     }
     if let Some(channel_name) = &q.channel_name {
         params["channel_name"] = serde_json::Value::String(channel_name.clone());
+    }
+    if let Some(agent_id) = &q.agent_id {
+        params["agent_id"] = serde_json::Value::String(agent_id.clone());
     }
     if let Some(limit) = q.limit {
         params["limit"] = serde_json::json!(limit);
@@ -651,7 +614,7 @@ async fn sessions(State(state): State<AppState>, Query(q): Query<SessionsQuery>)
     if let Some(agent_id) = &q.agent_id {
         params["agent_id"] = serde_json::Value::String(agent_id.clone());
     }
-    ipc_proxy(state, "sessions", params).await
+    ipc_proxy(state, "list_sessions", params).await
 }
 
 async fn create_session(
@@ -669,6 +632,25 @@ async fn close_session(
         state,
         "close_session",
         serde_json::json!({"session_id": id}),
+    )
+    .await
+}
+
+#[derive(Deserialize, Default)]
+struct SessionMessagesQuery {
+    limit: Option<u64>,
+}
+
+async fn session_messages(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(q): Query<SessionMessagesQuery>,
+) -> Response {
+    let limit = q.limit.unwrap_or(50);
+    ipc_proxy(
+        state,
+        "session_messages",
+        serde_json::json!({"session_id": id, "limit": limit}),
     )
     .await
 }

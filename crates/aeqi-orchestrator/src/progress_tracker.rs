@@ -16,7 +16,7 @@ use aeqi_core::traits::{Channel, OutgoingMessage};
 /// - One-shot deadline alarm when configured session time elapses
 ///
 /// Anti-flood: at most one notification per `min_flood_interval`.
-pub struct SessionTracker {
+pub struct ProgressTracker {
     pub channel: Arc<dyn Channel>,
     pub chat_id: i64,
     pub registry: Arc<CompanyRegistry>,
@@ -26,7 +26,7 @@ pub struct SessionTracker {
     pub deadline: Option<Duration>,
 }
 
-impl SessionTracker {
+impl ProgressTracker {
     pub async fn run(self, shutdown: Arc<Notify>) {
         let mut ticker = tokio::time::interval(Duration::from_secs(60));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

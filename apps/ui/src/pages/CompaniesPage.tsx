@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Header from "@/components/Header";
-import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import StatusBadge from "@/components/StatusBadge";
 import { api } from "@/lib/api";
 
@@ -19,11 +19,7 @@ export default function CompaniesPage() {
   return (
     <>
       <Header title="Companies" />
-      {loading ? (
-        <div className="loading">Loading companies...</div>
-      ) : companies.length === 0 ? (
-        <EmptyState title="No companies" description="No companies registered." />
-      ) : (
+      <DataState loading={loading} empty={companies.length === 0} emptyTitle="No companies" emptyDescription="No companies found." loadingText="Loading companies...">
         <div className="cards-grid">
           {companies.map((p: any) => {
             const total = p.total_tasks || 0;
@@ -63,7 +59,7 @@ export default function CompaniesPage() {
             );
           })}
         </div>
-      )}
+      </DataState>
     </>
   );
 }

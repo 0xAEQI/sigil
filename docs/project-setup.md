@@ -1,213 +1,238 @@
-# Project Setup
+# Company Setup
 
-A **project** is an isolated operating unit in AEQI. Each project has its own:
+A **company** is an isolated operating unit in AEQI. Each company has its own:
 
 - Git repository (working directory)
 - Task store (`.tasks/` -- JSONL task DAG)
-- Memory database (`.aeqi/memory.db` -- SQLite + FTS5)
-- Identity files (PERSONA.md, IDENTITY.md, AGENTS.md, KNOWLEDGE.md)
-- Skills and workflow templates (pipelines)
+- Memory database (centralized SQLite + FTS5 + vector search, scoped by company name)
+- Primer (inline in `aeqi.toml` -- injected into every agent's context)
+- Departments (org chart hierarchy with lead agents)
 - Worker pool (concurrent AEQI workers)
 - Checkpoints (`.aeqi/checkpoints/` -- worker work-in-progress)
 
-## Creating a Project
+## Creating a Company
 
 ### 1. Add to config
 
 In `config/aeqi.toml`:
 
 ```toml
-[[projects]]
-name = "myproject"
-prefix = "mp"                                    # Task ID prefix (mp-001, mp-002, ...)
-repo = "/home/user/myproject"                    # Git repo path
+[[companies]]
+name = "mycompany"
+prefix = "mc"                                    # Task ID prefix (mc-001, mc-002, ...)
+repo = "/home/user/mycompany"                    # Git repo path (absolute)
 model = "xiaomi/mimo-v2-pro"                     # LLM model for workers
 max_workers = 3                                  # Max concurrent workers
 execution_mode = "agent"                         # native AEQI worker runtime
 worker_timeout_secs = 1800                       # 30 min timeout for hung workers
 worktree_root = "/home/user/worktrees"           # Git worktree root (optional)
 max_turns = 25                                   # Max agentic turns per worker
-```
+primer = """
+MyCompany -- a Next.js web application with PostgreSQL backend.
 
-### 2. Create the project directory
+Stack: Next.js 14 App Router, PostgreSQL 16, Prisma ORM, Redis sessions.
+Deployed on Vercel (frontend) + Railway (API).
 
-```bash
-mkdir -p projects/myproject/{pipelines,skills,.tasks,.aeqi/checkpoints}
-```
-
-Or run `aeqi doctor --fix` to auto-create missing directories.
-
-### 3. Write identity files
-
-#### PERSONA.md -- Personality and Purpose
-
-The core identity. Becomes the system prompt prefix. This defines *who* the agent is.
-
-```markdown
-You are the MyProject development agent. You manage a Next.js web application
-with a PostgreSQL backend. You prioritize clean architecture, type safety,
-and comprehensive test coverage.
-
-You speak concisely and technically. You prefer action over discussion.
-When you see a problem, you fix it. When you see an opportunity, you flag it.
-```
-
-#### IDENTITY.md -- Agent Identity
-
-Structured metadata: name, style, expertise, repo location.
-
-```markdown
-# Identity
-
-- **Name**: MyProject Worker
-- **Style**: Concise, technical, action-oriented
-- **Expertise**: TypeScript, Next.js, PostgreSQL, Prisma, Tailwind
-- **Repo**: /home/user/myproject
-- **Worktree**: /home/user/worktrees
-```
-
-#### AGENTS.md -- Operating Instructions
-
-How the agent should work. These are project-specific instructions layered on top of the shared `WORKFLOW.md`.
-
-```markdown
-# Operating Instructions
-
-## Before starting work
-1. Check task status -- pick the highest priority ready task
-2. Create a git worktree: `git worktree add ~/worktrees/feat/<name> -b feat/<name>`
-3. Read relevant code before making changes
-
-## While working
-- Create sub-tasks for discovered work
-- Commit frequently with descriptive messages (feat:, fix:, docs:, chore:)
-- Run tests before marking work complete
-- Follow the adaptive pipeline: Discover -> Plan -> Implement -> Verify -> Finalize
-
-## After completing work
-- Run full test suite
-- Create PR to dev branch
-- Close the task with a summary of changes
-```
-
-#### KNOWLEDGE.md -- Project Knowledge Base
-
-Deep project-specific knowledge that workers need for context. This is the longest file and gets truncated by the context budget system (max ~12k chars).
-
-```markdown
-# MyProject Knowledge
-
-## Architecture
-- Next.js 14 App Router with server components
-- PostgreSQL 16 with Prisma ORM
-- Redis for session caching
-- Deployed on Vercel (frontend) + Railway (API)
-
-## Key Patterns
+Key patterns:
 - All API routes in app/api/ use middleware for auth
 - Database migrations in prisma/migrations/
 - Shared types in lib/types.ts
-- ...
+- JWT auth with 24h expiry, refresh tokens in httpOnly cookies
+"""
 ```
 
-#### PREFERENCES.md -- Learned Preferences (optional)
+The `primer` field is the company's knowledge brief. It is injected into every agent's context when working on this company. Put architecture, stack, conventions, and domain knowledge here.
 
-Updated automatically. Contains preferences learned over time.
+### 2. Add departments (optional)
 
-```markdown
-# Preferences
-
-- Always use `pnpm` instead of `npm`
-- Prefer named exports over default exports
-- Use zod for API validation, not manual checks
-```
-
-#### MEMORY.md -- Persistent Notes (optional)
-
-Updated by reflection and gap analysis. Contains cross-session knowledge.
-
-```markdown
-# Memory
-
-- Auth system uses JWT with 24h expiry, refresh tokens in httpOnly cookies
-- The billing module was refactored on 2026-02-15 -- old endpoints deprecated
-- Performance bottleneck: the /api/dashboard query joins 5 tables, needs optimization
-```
-
-## Directory Structure
-
-After setup, your project should look like:
-
-```
-projects/myproject/
-  PERSONA.md               <- personality/purpose
-  IDENTITY.md              <- name, expertise, repos
-  AGENTS.md                <- operating instructions
-  KNOWLEDGE.md             <- project knowledge base
-  PREFERENCES.md           <- learned preferences
-  MEMORY.md                <- persistent notes (optional)
-  skills/                  <- skill definitions (TOML)
-    researcher.toml
-    developer.toml
-    reviewer.toml
-  pipelines/               <- pipeline/template definitions (TOML)
-    feature-dev.toml
-    incident.toml
-  .tasks/                  <- task storage (JSONL, git-native)
-    mp.jsonl
-  .aeqi/
-    memory.db              <- per-project SQLite + FTS5
-    checkpoints/           <- worker checkpoint JSONs
-      mp-001.json
-```
-
-## Shared Templates
-
-The `projects/shared/` directory contains templates inherited by all projects:
-
-```
-projects/shared/
-  WORKFLOW.md              <- base workflow (adaptive execution pipeline, code standards)
-  skills/                  <- shared skill archetypes
-    researcher.toml
-    developer.toml
-    reviewer.toml
-  pipelines/               <- shared pipeline templates
-    feature-dev.toml
-    incident.toml
-```
-
-Project-specific files in `projects/<name>/` **override** shared templates with the same filename.
-
-## Context Layering
-
-When a worker executes, its system prompt is built from these layers (in order):
-
-```
-1. Shared WORKFLOW.md           (max 2k chars)
-2. PERSONA.md                   (personality)
-3. IDENTITY.md                  (metadata)
-4. AGENTS.md                    (instructions)
-5. KNOWLEDGE.md                 (max 12k chars)
-6. WORKER_PROTOCOL              (output format: DONE/BLOCKED/FAILED)
-7. Checkpoint context           (max 8k chars, 5 most recent)
-8. Memory recall                (relevant memories from SQLite)
-9. Repo-local operating context (project identity and knowledge files)
-```
-
-Total budget: ~40k chars (~10k tokens). The `ContextBudget` system truncates layers at newline boundaries and summarizes old checkpoints as one-liners.
-
-## Skills (Magic)
-
-TOML-defined specialized behaviors:
+Departments define org chart structure within a company. Each department has a lead agent and member agents.
 
 ```toml
-# projects/myproject/skills/reviewer.toml
+[[companies.departments]]
+name = "engineering"
+lead = "engineer"
+agents = ["engineer", "reviewer"]
+description = "Core application, API, infrastructure"
 
+[[companies.departments]]
+name = "product"
+lead = "designer"
+agents = ["designer"]
+description = "Frontend, UX, design system"
+```
+
+### 3. Assign a team
+
+Each company has a team with a leader and a set of agents:
+
+```toml
+team.leader = "engineer"
+team.agents = ["engineer", "reviewer"]
+```
+
+Agent names here refer to agent templates defined in the `agents/` directory (see Agent Setup below).
+
+### 4. Run diagnostics
+
+```bash
+aeqi doctor         # Check all companies
+aeqi doctor --fix   # Auto-create missing directories/files
+```
+
+## Shared Primer
+
+The `shared_primer` field in the `[aeqi]` section is injected into every agent across all companies. Use it for global rules, tool usage instructions, and cross-cutting standards.
+
+```toml
+[aeqi]
+name = "emperor-system"
+data_dir = "~/.aeqi"
+
+shared_primer = """
+# AEQI
+
+## For Every Task
+1. `aeqi_recall(project, query)` -- gate-enforced before any edit
+2. Load a workflow skill
+3. Follow the loaded workflow step by step
+
+## Rules
+- No comments except `///` on public APIs
+- DRY. Extract at two, refactor at three
+- Worktrees only. Never edit dev/master
+"""
+```
+
+## Agent Setup
+
+Agents are persistent identities stored in a SQLite registry. They are defined as template files on disk and spawned into the registry.
+
+### Agent template format
+
+Each agent lives in `agents/<name>/agent.toml`:
+
+```toml
+display_name = "CTO"
+model_tier = "capable"           # resolved via [models] in aeqi.toml
+max_workers = 2
+max_turns = 30
+expertise = ["architecture", "systems", "rust"]
+capabilities = ["spawn_agents", "manage_triggers"]
+color = "#00BFFF"
+avatar = "⚙"
+
+[faces]
+greeting = "(⌐■_■)"
+thinking = "(¬_¬ )"
+working = "(╯°□°)╯"
+error = "(ಠ_ಠ)"
+complete = "(⌐■_■)b"
+idle = "(-_-)"
+
+[[triggers]]
+name = "memory-consolidation"
+schedule = "every 6h"
+skill = "memory-consolidation"
+
+[prompt]
+system = """
+You are CTO -- the technology executive. You own architecture, engineering
+quality, and technical strategy. Implementation is delegated.
+
+# Competencies
+- Architecture -- system design, service boundaries, data flow
+- Engineering quality -- code review, testing strategy, tech debt
+- Systems programming -- Rust, async, memory, performance
+
+# How You Operate
+1. Assess scope -- quick fix or architectural change?
+2. Check landscape -- what exists, what can be reused?
+3. Design solution -- options with trade-offs, recommend one
+4. Delegate implementation -- break into tasks, dispatch
+5. Review ruthlessly -- spec compliance first, quality second
+"""
+```
+
+### Spawning agents
+
+```bash
+# Spawn from template directory name
+aeqi agent spawn cto
+
+# Spawn with company scope
+aeqi agent spawn cto --company mycompany
+
+# List all agents in registry
+aeqi agent registry
+
+# List agents for a specific company
+aeqi agent registry --company mycompany
+
+# Show agent details
+aeqi agent show cto
+
+# Retire (preserves memory)
+aeqi agent retire cto
+
+# Reactivate
+aeqi agent activate cto
+```
+
+Spawned agents get a stable UUID in the registry. The UUID is the entity ID for memory scoping -- memories accumulate across sessions.
+
+### Model tiers
+
+Agents declare `model_tier` instead of hardcoding model names:
+
+- `capable` -- architecture, security, complex decisions
+- `balanced` -- standard work, review, implementation
+- `fast` -- simple queries, formatting
+- `cheapest` -- health checks, memory consolidation
+
+The `[models]` config in `aeqi.toml` resolves tiers to actual model strings.
+
+### Shipped agents
+
+| Agent | Directory | Function |
+|-------|-----------|----------|
+| Shadow | `shadow/` | Personal assistant, default identity |
+| CEO | `ceo/` | Strategic coordination |
+| CTO | `cto/` | Architecture, engineering |
+| CPO | `cpo/` | Product, UX |
+| CFO | `cfo/` | Financial ops, trading, risk |
+| COO | `coo/` | Deployment, reliability |
+| GC | `gc/` | Legal, compliance |
+| CISO | `ciso/` | Security, threat modeling |
+
+## Memory
+
+Centralized SQLite database with FTS5 full-text search and vector similarity. Memory is scoped by company name and agent entity ID.
+
+```bash
+# Store a memory
+aeqi remember "auth-flow" "Login uses JWT with 24h expiry" --company mycompany
+
+# Search memories
+aeqi recall "how does authentication work?" --company mycompany
+```
+
+Hybrid search: BM25 keyword matching + cosine vector similarity + temporal decay (30-day half-life). Results ranked by configurable weights (`vector_weight`, `keyword_weight`).
+
+Agent-specific memories are scoped by the agent's stable UUID (entity ID), so each persistent agent accumulates its own knowledge across sessions.
+
+## Skills
+
+TOML-defined specialized behaviors in `projects/shared/skills/` or company-specific skill directories:
+
+```toml
 [skill]
 name = "reviewer"
 description = "Code review specialist"
-triggers = ["review", "code review", "PR review"]
+phase = "autonomous"
+
+[tools]
+allow = ["shell", "file_read", "list_dir"]
+deny = ["file_write"]
 
 [prompt]
 system = """
@@ -217,74 +242,85 @@ You are a code review specialist. Focus on:
 - Type safety gaps
 - Missing test coverage
 """
-user_prefix = "Review: "
-
-[tools]
-allow = ["shell", "file_read", "list_dir"]
-deny = ["file_write"]
 ```
 
-Run: `aeqi skill run reviewer --rig myproject --prompt "the auth module"`
+```bash
+# List skills
+aeqi skill list --company mycompany
+
+# Run a skill
+aeqi skill run reviewer --company mycompany --prompt "the auth module"
+```
 
 ## Tasks
 
-Each project's tasks are JSONL files in `.tasks/`:
+Each company's tasks are JSONL files in `.tasks/`:
 
 ```bash
 # Create a task
-aeqi assign "Fix login bug" --rig myproject --priority high
+aeqi assign "Fix login bug" --company mycompany --priority high
 
 # Check ready (unblocked) tasks
-aeqi ready --rig myproject
+aeqi ready --company mycompany
 
 # Show all open tasks
-aeqi beads --rig myproject
+aeqi tasks --company mycompany
 
 # Close a task
-aeqi close mp-001 --reason "fixed in commit abc123"
+aeqi close mc-001 --reason "fixed in commit abc123"
 
-# Mark done (also updates operations)
-aeqi done mp-001
+# Mark done (also triggers cleanup)
+aeqi done mc-001
 ```
 
-Task IDs are hierarchical: `mp-001` (parent) -> `mp-001.1` (child) -> `mp-001.1.1` (grandchild).
+Task IDs are hierarchical: `mc-001` (parent) -> `mc-001.1` (child) -> `mc-001.1.1` (grandchild).
 
-## Memory
+## Context Layering
 
-Per-project memory in `.aeqi/memory.db` (SQLite + FTS5 + vector similarity):
+When a worker executes, its system prompt is built from these layers (in order):
 
-```bash
-# Store a memory
-aeqi remember "auth-flow" "Login uses JWT with 24h expiry" --rig myproject
-
-# Search memories
-aeqi recall "how does authentication work?" --rig myproject
+```
+1. Shared primer              (from [aeqi].shared_primer)
+2. Company primer             (from [[companies]].primer)
+3. Agent system prompt        (from agent.toml [prompt].system)
+4. Worker protocol            (output format: DONE/BLOCKED/FAILED)
+5. Checkpoint context         (max 8k chars, 5 most recent)
+6. Memory recall              (hybrid search from SQLite, entity-scoped)
+7. Task context               (subject, description, resume brief)
 ```
 
-Hybrid search: BM25 keyword matching + cosine vector similarity + temporal decay (30-day half-life). Results ranked by configurable weights (`vector_weight`, `keyword_weight`).
+The `ContextBudget` system enforces per-layer character limits and truncates at newline boundaries. Total budget defaults to ~120k chars. Configurable via `[context_budget]` in `aeqi.toml`.
 
 ## Budget Control
 
-Per-project budgets can be configured alongside the global daily cap:
+Per-company budgets can be configured alongside the global daily cap:
 
 ```toml
 # In aeqi.toml
 [security]
 max_cost_per_day_usd = 10.0    # Global cap
 
-# Per-project (optional -- falls back to global)
-[project_budgets]
-project-alpha = 5.0
-project-beta = 3.0
+# Per-company (in [[companies]] block)
+[[companies]]
+name = "mycompany"
+max_cost_per_day_usd = 5.0     # Company-specific cap
 ```
 
-The worker pool checks `can_afford_project()` before spawning any worker. Budget status visible via `aeqi daemon query cost`.
+The worker pool checks budget before spawning any worker. Budget status visible via `aeqi daemon query cost`.
 
-## Verification
+## CLI Flag Reference
+
+All company-scoped commands use `--company` (short: `-r`). The old `--project` flag is accepted as a backward-compatible alias.
 
 ```bash
-aeqi doctor         # Check all projects
-aeqi doctor --fix   # Auto-create missing directories/files
+aeqi assign "task" --company mycompany
+aeqi ready --company mycompany
+aeqi recall "query" --company mycompany
+aeqi remember "key" "content" --company mycompany
+aeqi skill run name --company mycompany
+aeqi monitor --company mycompany
+aeqi audit --company mycompany
+aeqi notes list --company mycompany
+aeqi graph index --company mycompany
+aeqi chat --company mycompany
 ```
-
-Checks: config validity, project directories, identity files, task store, skills, memory DB, secret store.

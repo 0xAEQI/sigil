@@ -477,7 +477,7 @@ pub async fn run(
                 faces,
             }
         }
-        None => AgentVisual::default_shadow(),
+        None => AgentVisual::default_agent(),
     };
 
     let agent_id = agent.as_ref().map(|a| a.id.clone());

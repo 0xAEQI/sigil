@@ -603,7 +603,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         }
                         ipc_request_sync(&data_dir, &ipc)
                     }
-                    "aeqi_notes" | "aeqi_blackboard" => {
+                    "aeqi_notes" => {
                         let action = args
                             .get("action")
                             .and_then(|v| v.as_str())
@@ -720,7 +720,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                             found
                         };
 
-                        // 2. Gather blackboard context for the task
+                        // 2. Gather notes context for the task
                         let mut bb_context = String::new();
                         if !task_id.is_empty() {
                             let bb_req = serde_json::json!({

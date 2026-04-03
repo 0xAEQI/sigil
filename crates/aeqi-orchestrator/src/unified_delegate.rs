@@ -263,7 +263,7 @@ impl Tool for UnifiedDelegateTool {
 
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "unified_delegate".to_string(),
+            name: "aeqi_delegate".to_string(),
             description: "Delegate work to subagents, named agents, or departments. \
                 Routes based on the 'to' parameter: \
                 'subagent' spawns an ephemeral sub-agent, \
@@ -314,7 +314,7 @@ impl Tool for UnifiedDelegateTool {
     }
 
     fn name(&self) -> &str {
-        "unified_delegate"
+        "aeqi_delegate"
     }
 
     fn is_concurrent_safe(&self, _input: &serde_json::Value) -> bool {
@@ -351,7 +351,7 @@ mod tests {
     fn test_spec_has_required_fields() {
         let tool = make_tool();
         let spec = tool.spec();
-        assert_eq!(spec.name, "unified_delegate");
+        assert_eq!(spec.name, "aeqi_delegate");
         let required = spec.input_schema["required"].as_array().unwrap();
         assert!(required.contains(&serde_json::json!("to")));
         assert!(required.contains(&serde_json::json!("prompt")));
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn test_name() {
         let tool = make_tool();
-        assert_eq!(tool.name(), "unified_delegate");
+        assert_eq!(tool.name(), "aeqi_delegate");
     }
 
     #[tokio::test]

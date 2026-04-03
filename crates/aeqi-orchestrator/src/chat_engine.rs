@@ -201,8 +201,10 @@ pub struct ChatEngine {
     pub default_company: String,
     pub pending_tasks: Arc<Mutex<HashMap<String, PendingChatTask>>>,
     pub task_notify: Arc<tokio::sync::Notify>,
-    /// Per-project memory stores for knowledge-aware chat.
+    /// Per-project memory stores for knowledge-aware chat (keyed by project name).
     pub memory_stores: HashMap<String, Arc<dyn Memory>>,
+    /// Per-project memory stores keyed by project UUID for id-based lookups.
+    pub memory_stores_by_id: HashMap<String, Arc<dyn Memory>>,
     /// LLM-backed intent classifier for ambiguous messages.
     pub intent_classifier: Option<Arc<crate::intent::IntentClassifier>>,
 }
@@ -1489,6 +1491,7 @@ mod tests {
         let dir = TempDir::new()?;
         std::fs::create_dir_all(dir.path().join(".tasks"))?;
         let config = CompanyConfig {
+            id: None,
             name: name.to_string(),
             prefix: prefix.to_string(),
             repo: dir.path().display().to_string(),
@@ -1541,6 +1544,7 @@ mod tests {
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             task_notify: Arc::new(tokio::sync::Notify::new()),
             memory_stores: HashMap::new(),
+            memory_stores_by_id: HashMap::new(),
             intent_classifier: None,
             default_company: "leader".to_string(),
         };
@@ -1760,6 +1764,7 @@ mod tests {
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             task_notify: Arc::new(tokio::sync::Notify::new()),
             memory_stores: HashMap::new(),
+            memory_stores_by_id: HashMap::new(),
             intent_classifier: None,
             default_company: "leader".to_string(),
         };
@@ -1845,6 +1850,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::create_dir_all(dir.path().join(".tasks")).unwrap();
         let config = CompanyConfig {
+            id: None,
             name: "app".to_string(),
             prefix: "ap".to_string(),
             repo: dir.path().display().to_string(),
@@ -1959,6 +1965,7 @@ mod tests {
             pending_tasks: Arc::new(Mutex::new(HashMap::new())),
             task_notify: Arc::new(tokio::sync::Notify::new()),
             memory_stores: HashMap::new(),
+            memory_stores_by_id: HashMap::new(),
             intent_classifier: None,
             default_company: "leader".to_string(),
         };

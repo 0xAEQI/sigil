@@ -2,7 +2,7 @@
 
 This document defines the target shape of the AEQI UI as an operator product.
 
-It is grounded in the current frontend under `apps/ui`, which already exposes chat, dashboard, projects, agents, tasks, missions, knowledge, audit, cost, and settings.
+It is grounded in the current frontend under `apps/ui`, which exposes sessions, dashboard, agents, tasks, triggers, skills, memories, notes, and settings.
 
 ## Product Goal
 
@@ -20,9 +20,10 @@ It should feel like a control plane where a human can move fluidly between thoug
 
 The current UI has meaningful coverage:
 
-- chat is the root route in [App.tsx](/home/claudedev/aeqi/apps/ui/src/App.tsx)
-- there are pages for projects, agents, tasks, missions, audit, knowledge, cost, and settings
-- the dashboard already surfaces brief, budget, tasks, projects, and audit activity
+- sessions are the core interaction surface with persistent agent conversations
+- there are pages for sessions, agents, tasks, triggers, skills, memories, notes, and settings
+- the dashboard surfaces stats, activity feed, budget, and company/agent overview
+- layout: company rail → agent nav → floating nav bar → content
 
 The main gaps are coherence and operator flow:
 
@@ -190,7 +191,7 @@ in one continuous view.
 Several current areas should become tighter or merge:
 
 - chat + operations timeline
-- memory + knowledge + blackboard navigation
+- memory + notes navigation
 - dashboard + inbox prioritization
 
 ### 3. Remove vendor residue

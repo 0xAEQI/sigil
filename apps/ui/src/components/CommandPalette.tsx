@@ -39,9 +39,11 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
       ];
 
       try {
-        const [companiesData, agentsData] = await Promise.all([
+        const [companiesData, agentsData, tasksData, memoriesData] = await Promise.all([
           api.getCompanies().catch(() => ({ companies: [] })),
           api.getAgents().catch(() => ({ agents: [] })),
+          api.getTasks({}).catch(() => ({ tasks: [] })),
+          api.getMemories({ limit: 30 }).catch(() => ({ memories: [] })),
         ]);
 
         const companyItems: PaletteItem[] = (companiesData.companies || []).map((p: any) => ({
@@ -60,7 +62,23 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
           action: () => go(`/agents/${a.name}`),
         }));
 
-        setItems([...navItems, ...companyItems, ...agentItems]);
+        const taskItems: PaletteItem[] = (tasksData.tasks || []).slice(0, 20).map((t: any) => ({
+          id: `task-${t.id}`,
+          label: `${t.id}: ${t.subject}`,
+          hint: t.status,
+          section: "Tasks",
+          action: () => go(`/issues`),
+        }));
+
+        const memoryItems: PaletteItem[] = (memoriesData.memories || []).slice(0, 15).map((m: any) => ({
+          id: `mem-${m.id || m.key}`,
+          label: m.key || m.title || "Memory",
+          hint: (m.content || "").slice(0, 50),
+          section: "Memories",
+          action: () => go(`/memories`),
+        }));
+
+        setItems([...navItems, ...companyItems, ...agentItems, ...taskItems, ...memoryItems]);
       } catch {
         setItems(navItems);
       }

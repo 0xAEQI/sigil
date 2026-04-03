@@ -7,8 +7,8 @@ use tracing::{debug, info, warn};
 use crate::identity::Identity;
 use crate::traits::{
     ChatRequest, ChatResponse, ContentPart, ContextAttachment, Event, LoopAction, Memory,
-    MemoryCategory, MemoryQuery, MemoryScope, Message, MessageContent, Observer, Provider, Role,
-    StopReason, Tool, ToolResult, ToolSpec, Usage,
+    MemoryCategory, MemoryScope, Message, MessageContent, Observer, Provider, Role, StopReason,
+    Tool, ToolResult, ToolSpec, Usage,
 };
 
 /// Generic notification that can be injected into the agent loop between turns.
@@ -34,8 +34,11 @@ const DEFAULT_MAX_TOOL_RESULT_CHARS: usize = 50_000;
 /// Default aggregate tool results limit per turn (characters).
 const DEFAULT_MAX_TOOL_RESULTS_PER_TURN: usize = 200_000;
 
-/// Characters-per-token estimate for context size calculations.
+/// Default characters-per-token estimate for plain text.
 const CHARS_PER_TOKEN: usize = 4;
+
+/// Characters-per-token for structured content (JSON tool results, code).
+const CHARS_PER_TOKEN_STRUCTURED: usize = 3;
 
 /// Maximum compaction attempts per agent run to prevent infinite loops.
 const MAX_COMPACTIONS_PER_RUN: u32 = 3;
@@ -83,10 +86,6 @@ const FALLBACK_TRIGGER_COUNT: u32 = 3;
 /// Preview size for persisted tool results (bytes).
 const PERSIST_PREVIEW_SIZE: usize = 2000;
 
-/// Re-inject key instructions every N iterations to combat lost-in-middle
-/// attention fade. Research shows middle-position recall drops 10-40%.
-const INSTRUCTION_REINJECT_INTERVAL: u32 = 10;
-
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -121,6 +120,8 @@ pub struct AgentConfig {
     pub name: String,
     /// Entity ID for scoped memory queries. None = domain scope.
     pub entity_id: Option<String>,
+    /// Department ID for hierarchical memory scoping. None = no department.
+    pub department_id: Option<String>,
     /// Model's context window size in tokens. Drives compaction decisions.
     pub context_window: u32,
     /// Maximum characters per individual tool result before persistence/truncation.
@@ -160,10 +161,6 @@ pub struct AgentConfig {
     /// automatically after end-turn if total output tokens < budget * 0.9.
     /// Parsed from "+500k" or "use 2m tokens" syntax in the user prompt.
     pub token_budget: Option<u32>,
-    /// Use streaming tool execution — start executing tools as they stream in
-    /// from the provider instead of waiting for the full response. Requires the
-    /// provider to support chat_stream(). Default: false.
-    pub use_streaming_tools: bool,
     /// Cheap/fast model for simple messages. When set, the agent routes trivial
     /// turns (short messages without code, URLs, or complex keywords) to this
     /// model instead of the primary. Saves cost on simple queries while keeping
@@ -173,6 +170,8 @@ pub struct AgentConfig {
     /// 9-section compaction prompt. Example: "Always preserve trade positions
     /// and PnL numbers in the summary."
     pub compact_instructions: Option<String>,
+    /// Project UUID for scoped memory queries. None = no project scope.
+    pub project_id: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -184,6 +183,7 @@ impl Default for AgentConfig {
             temperature: 0.0,
             name: "agent".to_string(),
             entity_id: None,
+            department_id: None,
             context_window: 200_000,
             max_tool_result_chars: DEFAULT_MAX_TOOL_RESULT_CHARS,
             max_tool_results_per_turn: DEFAULT_MAX_TOOL_RESULTS_PER_TURN,
@@ -198,9 +198,9 @@ impl Default for AgentConfig {
             session_file: None,
             session_type: SessionType::Async,
             token_budget: None,
-            use_streaming_tools: false,
             routing_model: None,
             compact_instructions: None,
+            project_id: None,
         }
     }
 }
@@ -401,20 +401,34 @@ pub enum LoopTransition {
     AfterTurnContinue,
 }
 
-/// A skill that was invoked during this session — tracked for post-compact restoration.
-#[derive(Debug, Clone)]
-struct InvokedSkill {
-    name: String,
-    content: String,
-    invoked_at: std::time::Instant,
-}
-
 /// Intermediate tool result during processing.
 struct ProcessedToolResult {
     id: String,
     name: String,
     output: String,
     is_error: bool,
+}
+
+/// A completed tool result: (id, name, input_args, result, duration_ms).
+type ToolExecResult = (
+    String,
+    String,
+    serde_json::Value,
+    Result<ToolResult, anyhow::Error>,
+    u64,
+);
+
+/// Outcome of streaming tool execution from `call_streaming_with_tools`.
+enum StreamingToolOutcome {
+    /// No tools in the LLM response.
+    NoTools,
+    /// Tools were executed during streaming — results ready for processing.
+    Executed(Vec<ToolExecResult>),
+    /// A before_tool hook halted during streaming.
+    Halted {
+        reason: String,
+        tool_result_parts: Vec<ContentPart>,
+    },
 }
 
 /// Tracks which tool results have been replaced/persisted, ensuring consistent
@@ -426,7 +440,7 @@ pub struct ContentReplacementState {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Fields read by future session-memory-compact path
+#[allow(dead_code)]
 enum ReplacementType {
     /// Content persisted to disk (file path recorded).
     Persisted(String),
@@ -481,8 +495,6 @@ impl ContentReplacementState {
 const POST_COMPACT_MAX_FILES: usize = 5;
 const POST_COMPACT_MAX_TOKENS_PER_FILE: usize = 5_000;
 const POST_COMPACT_FILE_BUDGET: usize = 50_000;
-const POST_COMPACT_MAX_TOKENS_PER_SKILL: usize = 5_000;
-const POST_COMPACT_SKILLS_BUDGET: usize = 25_000;
 
 /// Snip compaction: early threshold factor. Fires at threshold * SNIP_FACTOR
 /// before full compaction at threshold * 1.0.
@@ -490,8 +502,8 @@ const SNIP_THRESHOLD_FACTOR: f32 = 0.85;
 
 /// Minimum tokens per continuation to consider productive. 3+ continuations
 /// below this threshold trigger diminishing returns detection.
-const DIMINISHING_RETURNS_THRESHOLD: u32 = 500;
-const DIMINISHING_RETURNS_COUNT: u32 = 3;
+const DIMINISHING_RETURNS_THRESHOLD: u32 = 50;
+const DIMINISHING_RETURNS_COUNT: u32 = 5;
 
 /// Token budget auto-continuation: stop when this fraction of budget is used.
 const TOKEN_BUDGET_COMPLETION_THRESHOLD: f32 = 0.90;
@@ -692,7 +704,6 @@ impl Agent {
         let mut consecutive_errors = 0u32;
         let mut active_model = self.config.model.clone();
         let mut persist_dir_created: Option<PathBuf> = None;
-        let invoked_skills: Vec<InvokedSkill> = Vec::new();
         let mut has_attempted_reactive_compact = false;
         let mut replacement_state = ContentReplacementState::new();
 
@@ -705,7 +716,9 @@ impl Agent {
             }
 
             iterations += 1;
-            if iterations > self.config.max_iterations {
+            if iterations > self.config.max_iterations
+                && self.config.session_type != SessionType::Perpetual
+            {
                 warn!(
                     agent = %self.config.name,
                     max = self.config.max_iterations,
@@ -798,8 +811,10 @@ impl Agent {
                     compaction = tracker.compactions + 1,
                     "context approaching limit, compacting"
                 );
-                self.compact_messages(&mut messages, &recent_files, &invoked_skills)
-                    .await;
+                self.emit(crate::chat_stream::ChatStreamEvent::Status {
+                    message: "Compacting context...".into(),
+                });
+                self.compact_messages(&mut messages, &recent_files).await;
                 tracker.compactions += 1;
                 has_attempted_reactive_compact = false; // Reset after successful compact
                 transition = LoopTransition::ContextCompacted;
@@ -865,11 +880,15 @@ impl Agent {
                 model: active_model.clone(),
             });
 
-            // --- Call provider with retry ---
-            let response = match self.call_with_retry(&request).await {
-                Ok(resp) => {
+            // --- Call provider (streaming with early tool execution) ---
+            let response;
+            let streaming_tool_outcome;
+
+            match self.call_streaming_with_tools(&request).await {
+                Ok((resp, outcome)) => {
+                    streaming_tool_outcome = outcome;
                     consecutive_errors = 0;
-                    resp
+                    response = resp;
                 }
                 Err(e) => {
                     let err_str = e.to_string();
@@ -887,6 +906,9 @@ impl Agent {
                                 agent = %self.config.name,
                                 "reactive compact: context too long, emergency compaction"
                             );
+                            self.emit(crate::chat_stream::ChatStreamEvent::Status {
+                                message: "Emergency context compaction...".into(),
+                            });
                             // Full pipeline: snip → microcompact → full compact.
                             Self::snip_compact(
                                 &mut messages,
@@ -898,8 +920,7 @@ impl Agent {
                                 self.config.compact_preserve_tail,
                                 MICROCOMPACT_KEEP_RECENT,
                             );
-                            self.compact_messages(&mut messages, &recent_files, &invoked_skills)
-                                .await;
+                            self.compact_messages(&mut messages, &recent_files).await;
                             tracker.compactions += 1;
                             has_attempted_reactive_compact = true;
                             iterations -= 1;
@@ -956,12 +977,8 @@ impl Agent {
                 })
                 .await;
 
-            // Emit text delta for chat stream.
-            if let Some(ref text) = response.content
-                && !text.is_empty()
-            {
-                self.emit(crate::chat_stream::ChatStreamEvent::TextDelta { text: text.clone() });
-            }
+            // TextDelta events are always emitted during streaming in
+            // try_streaming_with_tools — no need to re-emit here.
 
             self.emit(crate::chat_stream::ChatStreamEvent::TurnComplete {
                 turn: iterations,
@@ -1141,8 +1158,12 @@ impl Agent {
                                         role: Role::User,
                                         content: MessageContent::text(&next_msg),
                                     });
+                                    // Reset ALL per-turn state for clean slate.
                                     output_recovery_count = 0;
                                     consecutive_low_output = 0;
+                                    consecutive_errors = 0;
+                                    mid_loop_recalls = 0;
+                                    has_attempted_reactive_compact = false;
                                     transition = LoopTransition::Initial;
                                     debug!(
                                         agent = %self.config.name,
@@ -1195,10 +1216,8 @@ impl Agent {
                     name: tc.name.clone(),
                     input: tc.arguments.clone(),
                 });
-                self.emit(crate::chat_stream::ChatStreamEvent::ToolStart {
-                    tool_use_id: tc.id.clone(),
-                    tool_name: tc.name.clone(),
-                });
+                // ToolStart events are emitted during streaming in
+                // try_streaming_with_tools — no need to re-emit here.
             }
 
             messages.push(Message {
@@ -1206,28 +1225,28 @@ impl Agent {
                 content: MessageContent::Parts(assistant_parts),
             });
 
-            // --- before_tool hooks (sequential, per-call) ---
-            let mut allowed_calls = Vec::new();
+            // --- before_tool + Execute tools ---
+            // Three outcomes: streaming pre-executed, streaming halted, or legacy path.
+            let mut all_results: Vec<ToolExecResult> = Vec::new();
             let mut tool_result_parts: Vec<ContentPart> = Vec::new();
             let mut loop_halted = false;
 
-            for tc in &response.tool_calls {
-                match self.observer.before_tool(&tc.name, &tc.arguments).await {
-                    LoopAction::Halt(reason) => {
-                        warn!(agent = %self.config.name, tool = %tc.name, reason = %reason, "before_tool halted");
-                        tool_result_parts.push(ContentPart::ToolResult {
-                            tool_use_id: tc.id.clone(),
-                            content: format!("Blocked by middleware: {reason}"),
-                            is_error: true,
-                        });
-                        final_text = format!("HALTED by middleware: {reason}");
-                        stop_reason = AgentStopReason::Halted(reason);
-                        loop_halted = true;
-                        break;
-                    }
-                    LoopAction::Inject(_) | LoopAction::Continue => {
-                        allowed_calls.push(tc);
-                    }
+            match streaming_tool_outcome {
+                StreamingToolOutcome::Executed(results) => {
+                    all_results = results;
+                }
+                StreamingToolOutcome::Halted {
+                    reason,
+                    tool_result_parts: parts,
+                } => {
+                    warn!(agent = %self.config.name, reason = %reason, "before_tool halted (streaming)");
+                    tool_result_parts = parts;
+                    final_text = format!("HALTED by middleware: {reason}");
+                    stop_reason = AgentStopReason::Halted(reason);
+                    loop_halted = true;
+                }
+                StreamingToolOutcome::NoTools => {
+                    // No tools in this response — nothing to execute.
                 }
             }
 
@@ -1241,86 +1260,10 @@ impl Agent {
                 break;
             }
 
-            // --- Execute tools ---
-            // Two paths: streaming (StreamingToolExecutor with concurrent batching)
-            // or legacy (manual safe/unsafe partition with join_all).
-            let mut all_results: Vec<(String, String, Result<ToolResult, anyhow::Error>, u64)> =
-                Vec::new();
-
-            if self.config.use_streaming_tools {
-                // Streaming path: uses StreamingToolExecutor for concurrent execution.
-                let allowed_tool_calls: Vec<crate::traits::ToolCall> = allowed_calls
-                    .iter()
-                    .map(|tc| crate::traits::ToolCall {
-                        id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        arguments: tc.arguments.clone(),
-                    })
-                    .collect();
-                let streaming_results =
-                    Self::execute_tools_streaming(&self.tools, &allowed_tool_calls).await;
-                for r in streaming_results {
-                    let result = if r.is_error {
-                        Ok(ToolResult::error(r.output))
-                    } else {
-                        Ok(ToolResult::success(r.output))
-                    };
-                    all_results.push((r.id, r.name, result, 0));
-                }
-            } else {
-                // Legacy path: manual safe/unsafe partition.
-                let mut safe_calls = Vec::new();
-                let mut unsafe_calls = Vec::new();
-
-                for tc in &allowed_calls {
-                    let is_safe = self
-                        .tools
-                        .iter()
-                        .find(|t| t.name() == tc.name)
-                        .map(|t| t.is_concurrent_safe(&tc.arguments))
-                        .unwrap_or(true);
-
-                    if is_safe {
-                        safe_calls.push(*tc);
-                    } else {
-                        unsafe_calls.push(*tc);
-                    }
-                }
-
-                // Run safe tools in parallel.
-                if !safe_calls.is_empty() {
-                    let futures: Vec<_> = safe_calls
-                        .iter()
-                        .map(|tc| {
-                            let tools = self.tools.clone();
-                            let name = tc.name.clone();
-                            let args = tc.arguments.clone();
-                            let id = tc.id.clone();
-                            async move {
-                                let start = std::time::Instant::now();
-                                let result = Self::execute_tool_static(&tools, &name, args).await;
-                                (id, name, result, start.elapsed().as_millis() as u64)
-                            }
-                        })
-                        .collect();
-                    all_results.extend(futures::future::join_all(futures).await);
-                }
-
-                // Run unsafe tools sequentially.
-                for tc in &unsafe_calls {
-                    let start = std::time::Instant::now();
-                    let result =
-                        Self::execute_tool_static(&self.tools, &tc.name, tc.arguments.clone())
-                            .await;
-                    let duration_ms = start.elapsed().as_millis() as u64;
-                    all_results.push((tc.id.clone(), tc.name.clone(), result, duration_ms));
-                }
-            }
-
             // --- Process results: observe, persist/truncate, budget ---
             let mut processed: Vec<ProcessedToolResult> = Vec::with_capacity(all_results.len());
 
-            for (id, name, result, duration_ms) in all_results {
+            for (id, name, input_args, result, duration_ms) in all_results {
                 match result {
                     Ok(tr) => {
                         self.observer
@@ -1356,6 +1299,7 @@ impl Agent {
                             tool_use_id: id.clone(),
                             tool_name: name.clone(),
                             success: !tr.is_error,
+                            input_preview: Self::format_tool_input(&name, &input_args),
                             output_preview: tr.output.chars().take(500).collect(),
                             duration_ms,
                         });
@@ -1497,32 +1441,6 @@ impl Agent {
                 }
             }
 
-            // --- Periodic instruction re-injection (defeats lost-in-middle effect) ---
-            // Research shows middle-position recall drops 10-40%. Re-injecting key
-            // instructions near the end of context keeps them in the high-attention zone.
-            if iterations > 1
-                && iterations.is_multiple_of(INSTRUCTION_REINJECT_INTERVAL)
-                && !invoked_skills.is_empty()
-            {
-                let skill_names: Vec<&str> =
-                    invoked_skills.iter().map(|s| s.name.as_str()).collect();
-                messages.push(Message {
-                    role: Role::System,
-                    content: MessageContent::text(format!(
-                        "# Instruction Refresh (turn {iterations})\n\
-                         Active skills: {}. Follow their workflow phases and gates. \
-                         Verify before claiming completion.",
-                        skill_names.join(", ")
-                    )),
-                });
-                debug!(
-                    agent = %self.config.name,
-                    turn = iterations,
-                    skills = ?skill_names,
-                    "re-injected instructions to combat attention fade"
-                );
-            }
-
             // --- Track recently-read files for post-compact restoration ---
             for r in &processed {
                 if !r.is_error
@@ -1567,6 +1485,9 @@ impl Agent {
             if mid_loop_recalls < MAX_MID_LOOP_RECALLS
                 && let Some(ref mem) = self.memory
             {
+                self.emit(crate::chat_stream::ChatStreamEvent::Status {
+                    message: "Recalling memory...".into(),
+                });
                 let tool_output: String = processed
                     .iter()
                     .filter(|r| !r.is_error)
@@ -1575,30 +1496,16 @@ impl Agent {
                     .join(" ");
 
                 if tool_output.len() > 200 && Self::has_novel_terms(&tool_output, prompt) {
-                    // Search both domain and entity scopes, merge results
-                    let mut all_entries = Vec::new();
-
-                    let domain_q =
-                        MemoryQuery::new(&tool_output, 3).with_scope(MemoryScope::Domain);
-                    if let Ok(entries) = mem.search(&domain_q).await {
-                        all_entries.extend(entries);
-                    }
-
-                    if let Some(ref cid) = self.config.entity_id {
-                        let entity_q = MemoryQuery::new(&tool_output, 3).with_entity(cid.clone());
-                        if let Ok(entries) = mem.search(&entity_q).await {
-                            all_entries.extend(entries);
-                        }
-                    }
-
-                    // Deduplicate by id, keep highest score, truncate to 5
-                    all_entries.sort_by(|a, b| {
-                        b.score
-                            .partial_cmp(&a.score)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                    all_entries.dedup_by(|a, b| a.id == b.id);
-                    all_entries.truncate(5);
+                    let all_entries = mem
+                        .hierarchical_search(
+                            &tool_output,
+                            self.config.entity_id.as_deref().unwrap_or(""),
+                            self.config.department_id.as_deref(),
+                            self.config.project_id.as_deref(),
+                            5,
+                        )
+                        .await
+                        .unwrap_or_default();
 
                     if !all_entries.is_empty() {
                         let ctx = all_entries
@@ -1734,30 +1641,16 @@ impl Agent {
     async fn inject_initial_memory(&self, messages: &mut [Message], prompt: &str) {
         let Some(ref mem) = self.memory else { return };
 
-        let mut all_entries = Vec::new();
-
-        // Always search domain scope
-        let domain_q = MemoryQuery::new(prompt, 3).with_scope(MemoryScope::Domain);
-        if let Ok(entries) = mem.search(&domain_q).await {
-            all_entries.extend(entries);
-        }
-
-        // Also search entity scope if we have an entity_id
-        if let Some(ref cid) = self.config.entity_id {
-            let entity_q = MemoryQuery::new(prompt, 3).with_entity(cid.clone());
-            if let Ok(entries) = mem.search(&entity_q).await {
-                all_entries.extend(entries);
-            }
-        }
-
-        // Deduplicate by id, keep highest score, truncate to 5
-        all_entries.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        all_entries.dedup_by(|a, b| a.id == b.id);
-        all_entries.truncate(5);
+        let all_entries = mem
+            .hierarchical_search(
+                prompt,
+                self.config.entity_id.as_deref().unwrap_or(""),
+                self.config.department_id.as_deref(),
+                self.config.project_id.as_deref(),
+                5,
+            )
+            .await
+            .unwrap_or_default();
 
         if !all_entries.is_empty() {
             let ctx = all_entries
@@ -1777,26 +1670,34 @@ impl Agent {
     }
 
     // -----------------------------------------------------------------------
-    // Provider call with retry
+    // Streaming provider call with early tool execution
     // -----------------------------------------------------------------------
 
-    async fn call_with_retry(&self, request: &ChatRequest) -> anyhow::Result<ChatResponse> {
+    /// Call the provider using streaming and start tool execution during the stream.
+    ///
+    /// Tools begin executing as their input JSON completes (on `ToolUseComplete`
+    /// stream events), overlapping tool latency with LLM generation latency.
+    /// Each tool runs through `before_tool` before starting. If a hook halts,
+    /// remaining tools are discarded and the halt is propagated.
+    ///
+    /// Includes retry logic for transient errors (exponential backoff).
+    async fn call_streaming_with_tools(
+        &self,
+        request: &ChatRequest,
+    ) -> anyhow::Result<(ChatResponse, StreamingToolOutcome)> {
         let mut last_error = None;
 
         for attempt in 0..=self.config.max_retries {
-            match self.provider.chat(request).await {
-                Ok(response) => return Ok(response),
+            match self.try_streaming_with_tools(request).await {
+                Ok(result) => return Ok(result),
                 Err(e) => {
                     let err_str = e.to_string();
-
                     if Self::is_context_length_error(&err_str) {
                         return Err(e);
                     }
-
                     if !Self::is_retryable_error(&err_str) {
                         return Err(e);
                     }
-
                     if attempt < self.config.max_retries {
                         let delay = self.config.retry_base_delay_ms * 2u64.pow(attempt);
                         warn!(
@@ -1805,17 +1706,126 @@ impl Agent {
                             max = self.config.max_retries,
                             delay_ms = delay,
                             error = %err_str,
-                            "retrying after transient error"
+                            "streaming: retrying after transient error"
                         );
                         tokio::time::sleep(Duration::from_millis(delay)).await;
                     }
-
                     last_error = Some(e);
                 }
             }
         }
 
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("all retries exhausted")))
+    }
+
+    /// Single streaming attempt — spawns the provider stream, processes events,
+    /// and starts tool execution concurrently during the stream.
+    async fn try_streaming_with_tools(
+        &self,
+        request: &ChatRequest,
+    ) -> anyhow::Result<(ChatResponse, StreamingToolOutcome)> {
+        use crate::streaming_executor::StreamingToolExecutor;
+        use crate::traits::StreamEvent;
+
+        let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
+        let provider = self.provider.clone();
+        let req = request.clone();
+
+        // Spawn the streaming call — events flow through the channel while we
+        // process them and start tools concurrently.
+        let stream_handle = tokio::spawn(async move { provider.chat_stream(&req, tx).await });
+
+        let mut executor = StreamingToolExecutor::new(self.tools.clone());
+        let mut response: Option<ChatResponse> = None;
+        let mut halt_reason: Option<(String, Vec<ContentPart>)> = None;
+        let mut tools_started = 0u32;
+
+        while let Some(event) = rx.recv().await {
+            match event {
+                StreamEvent::TextDelta(text) => {
+                    self.emit(crate::chat_stream::ChatStreamEvent::TextDelta { text });
+                }
+                StreamEvent::ToolUseStart { ref id, ref name } => {
+                    self.emit(crate::chat_stream::ChatStreamEvent::ToolStart {
+                        tool_use_id: id.clone(),
+                        tool_name: name.clone(),
+                    });
+                }
+                StreamEvent::ToolUseComplete {
+                    id,
+                    name,
+                    arguments,
+                } => {
+                    if halt_reason.is_none() {
+                        match self.observer.before_tool(&name, &arguments).await {
+                            LoopAction::Halt(reason) => {
+                                let parts = vec![ContentPart::ToolResult {
+                                    tool_use_id: id,
+                                    content: format!("Blocked by middleware: {reason}"),
+                                    is_error: true,
+                                }];
+                                executor.discard();
+                                halt_reason = Some((reason, parts));
+                            }
+                            LoopAction::Inject(_) | LoopAction::Continue => {
+                                executor.add_tool(id, name, arguments).await;
+                                tools_started += 1;
+                            }
+                        }
+                    }
+                }
+                StreamEvent::ToolUseInput(_) | StreamEvent::Usage(_) => {}
+                StreamEvent::MessageComplete(resp) => {
+                    response = Some(resp);
+                }
+            }
+        }
+
+        // Wait for the streaming task to complete.
+        match stream_handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                executor.discard();
+                return Err(e);
+            }
+            Err(join_err) => {
+                executor.discard();
+                return Err(anyhow::anyhow!("streaming task panicked: {join_err}"));
+            }
+        }
+
+        let response = response
+            .ok_or_else(|| anyhow::anyhow!("streaming: no MessageComplete event received"))?;
+
+        if let Some((reason, parts)) = halt_reason {
+            return Ok((
+                response,
+                StreamingToolOutcome::Halted {
+                    reason,
+                    tool_result_parts: parts,
+                },
+            ));
+        }
+
+        if tools_started == 0 {
+            return Ok((response, StreamingToolOutcome::NoTools));
+        }
+
+        // Await all tool executions that started during streaming.
+        let completed = executor.finish_all().await;
+        let all_results = completed
+            .into_iter()
+            .map(|c| {
+                let result: Result<ToolResult, anyhow::Error> = Ok(if c.result.is_error {
+                    ToolResult::error(c.result.output)
+                } else {
+                    ToolResult::success(c.result.output)
+                });
+                (c.id, c.name, c.input, result, c.duration_ms)
+            })
+            .collect();
+
+        Ok((response, StreamingToolOutcome::Executed(all_results)))
     }
 
     // -----------------------------------------------------------------------
@@ -2124,38 +2134,6 @@ impl Agent {
         });
     }
 
-    /// Execute tools using the StreamingToolExecutor — starts executing tools
-    /// as they stream in from the provider. Falls back to standard execution
-    /// if the provider doesn't support streaming.
-    async fn execute_tools_streaming(
-        tools: &[Arc<dyn Tool>],
-        tool_calls: &[crate::traits::ToolCall],
-    ) -> Vec<ProcessedToolResult> {
-        use crate::streaming_executor::StreamingToolExecutor;
-
-        let mut executor = StreamingToolExecutor::new(tools.to_vec());
-
-        // Feed all tool calls — the executor starts concurrent-safe ones immediately.
-        for tc in tool_calls {
-            executor
-                .add_tool(tc.id.clone(), tc.name.clone(), tc.arguments.clone())
-                .await;
-        }
-
-        // Await all results.
-        let completed = executor.finish_all().await;
-
-        completed
-            .into_iter()
-            .map(|c| ProcessedToolResult {
-                id: c.id,
-                name: c.name,
-                output: c.result.output,
-                is_error: c.result.is_error,
-            })
-            .collect()
-    }
-
     /// Detect files that changed externally since we last read them.
     /// Returns system messages with change notifications for injection between turns.
     async fn detect_file_changes(recent_files: &[RecentFile]) -> Vec<Message> {
@@ -2193,53 +2171,6 @@ impl Agent {
         }
 
         changes
-    }
-
-    /// Build post-compact skill restoration messages from invoked skills.
-    /// Skills are sorted by invocation recency (most recent first) and truncated
-    /// to per-skill and aggregate token budgets.
-    fn build_skill_restoration(invoked_skills: &[InvokedSkill]) -> Vec<Message> {
-        if invoked_skills.is_empty() {
-            return Vec::new();
-        }
-
-        let mut messages = Vec::new();
-        let mut total_tokens = 0usize;
-
-        // Sort by recency (most recent first).
-        let mut sorted: Vec<&InvokedSkill> = invoked_skills.iter().collect();
-        sorted.sort_by(|a, b| b.invoked_at.cmp(&a.invoked_at));
-
-        for skill in sorted {
-            let skill_tokens = skill.content.len() / CHARS_PER_TOKEN;
-            let capped = skill_tokens.min(POST_COMPACT_MAX_TOKENS_PER_SKILL);
-
-            if total_tokens + capped > POST_COMPACT_SKILLS_BUDGET {
-                break;
-            }
-
-            let content = if skill_tokens > POST_COMPACT_MAX_TOKENS_PER_SKILL {
-                let max_chars = POST_COMPACT_MAX_TOKENS_PER_SKILL * CHARS_PER_TOKEN;
-                format!(
-                    "# Skill (restored after compaction): {}\n{}... [truncated]",
-                    skill.name,
-                    &skill.content[..skill.content.len().min(max_chars)]
-                )
-            } else {
-                format!(
-                    "# Skill (restored after compaction): {}\n{}",
-                    skill.name, skill.content
-                )
-            };
-
-            messages.push(Message {
-                role: Role::System,
-                content: MessageContent::text(content),
-            });
-            total_tokens += capped;
-        }
-
-        messages
     }
 
     // -----------------------------------------------------------------------
@@ -2347,24 +2278,35 @@ impl Agent {
     // -----------------------------------------------------------------------
 
     fn estimate_tokens_from_messages(messages: &[Message]) -> u32 {
-        let total_chars: usize = messages
-            .iter()
-            .map(|m| match &m.content {
-                MessageContent::Text(t) => t.len(),
-                MessageContent::Parts(parts) => parts
-                    .iter()
-                    .map(|p| match p {
-                        ContentPart::Text { text } => text.len(),
-                        ContentPart::ToolUse { input, name, .. } => {
-                            name.len() + input.to_string().len()
-                        }
-                        ContentPart::ToolResult { content, .. } => content.len(),
-                    })
-                    .sum(),
-            })
-            .sum();
+        let mut total_tokens: usize = 0;
 
-        (total_chars / CHARS_PER_TOKEN) as u32
+        for msg in messages {
+            match &msg.content {
+                MessageContent::Text(t) => {
+                    total_tokens += t.len() / CHARS_PER_TOKEN;
+                }
+                MessageContent::Parts(parts) => {
+                    for part in parts {
+                        match part {
+                            ContentPart::Text { text } => {
+                                total_tokens += text.len() / CHARS_PER_TOKEN;
+                            }
+                            ContentPart::ToolUse { input, name, .. } => {
+                                // ToolUse inputs are JSON — structured content.
+                                let chars = name.len() + input.to_string().len();
+                                total_tokens += chars / CHARS_PER_TOKEN_STRUCTURED;
+                            }
+                            ContentPart::ToolResult { content, .. } => {
+                                // Tool results are often JSON, code, or structured output.
+                                total_tokens += content.len() / CHARS_PER_TOKEN_STRUCTURED;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        total_tokens as u32
     }
 
     /// Snip compaction: remove entire old API rounds (assistant + tool messages)
@@ -2504,12 +2446,7 @@ impl Agent {
     /// Stages 2+3: Compact conversation by summarizing middle messages.
     /// After compaction, restores: (1) active context (files/tools in use),
     /// (2) preserved skills, (3) recently-read file contents, (4) enrichments.
-    async fn compact_messages(
-        &self,
-        messages: &mut Vec<Message>,
-        recent_files: &[RecentFile],
-        invoked_skills: &[InvokedSkill],
-    ) {
+    async fn compact_messages(&self, messages: &mut Vec<Message>, recent_files: &[RecentFile]) {
         let head = self.config.compact_preserve_head.min(messages.len());
         let tail = self
             .config
@@ -2586,18 +2523,6 @@ impl Agent {
                 "restoring file contents after compaction"
             );
             compacted.extend(file_msgs);
-        }
-
-        // Post-compact skill restoration: re-inject invoked skill content
-        // so the model retains working instructions across compactions.
-        let skill_msgs = Self::build_skill_restoration(invoked_skills);
-        if !skill_msgs.is_empty() {
-            debug!(
-                agent = %self.config.name,
-                skills = skill_msgs.len(),
-                "restoring skill content after compaction"
-            );
-            compacted.extend(skill_msgs);
         }
 
         compacted.extend_from_slice(&messages[messages.len() - tail..]);
@@ -3144,17 +3069,69 @@ impl Agent {
         novel_count >= 3
     }
 
-    async fn execute_tool_static(
-        tools: &[Arc<dyn Tool>],
-        name: &str,
-        args: serde_json::Value,
-    ) -> anyhow::Result<ToolResult> {
-        for tool in tools {
-            if tool.name() == name {
-                return tool.execute(args).await;
+    /// Format tool input args into a human-readable preview string.
+    /// E.g., shell: "ls -la /home/..." → "ls -la /home/..."
+    ///       read_file: {"file_path": "/foo/bar.rs"} → "/foo/bar.rs"
+    fn format_tool_input(tool_name: &str, args: &serde_json::Value) -> String {
+        let obj = args.as_object();
+        match tool_name {
+            "shell" | "bash" => obj
+                .and_then(|o| o.get("command").or(o.get("cmd")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .chars()
+                .take(200)
+                .collect(),
+            "read" | "read_file" | "readfile" | "cat" => obj
+                .and_then(|o| o.get("file_path").or(o.get("path")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "write" | "write_file" | "filewrite" => obj
+                .and_then(|o| o.get("file_path").or(o.get("path")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "edit" | "edit_file" | "fileedit" => obj
+                .and_then(|o| o.get("file_path").or(o.get("path")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "grep" => {
+                let pattern = obj
+                    .and_then(|o| o.get("pattern"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let path = obj
+                    .and_then(|o| o.get("path"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(".");
+                format!("{pattern} in {path}")
+            }
+            "glob" => obj
+                .and_then(|o| o.get("pattern"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "web_search" | "websearch" => obj
+                .and_then(|o| o.get("query").or(o.get("q")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            "web_fetch" | "webfetch" => obj
+                .and_then(|o| o.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            _ => {
+                // Generic: show first string value, truncated
+                obj.and_then(|o| {
+                    o.values()
+                        .find_map(|v| v.as_str().map(|s| s.chars().take(150).collect()))
+                })
+                .unwrap_or_default()
             }
         }
-        Ok(ToolResult::error(format!("Unknown tool: {name}")))
     }
 
     // -----------------------------------------------------------------------
@@ -3365,6 +3342,22 @@ mod tests {
         ];
         let tokens = Agent::estimate_tokens_from_messages(&messages);
         assert_eq!(tokens, 200);
+    }
+
+    #[test]
+    fn test_estimate_tokens_structured_content() {
+        // Tool results use CHARS_PER_TOKEN_STRUCTURED (3), not 4.
+        // 300 chars of tool output → 100 tokens (not 75).
+        let messages = vec![Message {
+            role: Role::Assistant,
+            content: MessageContent::Parts(vec![ContentPart::ToolResult {
+                tool_use_id: "x".into(),
+                content: "a".repeat(300),
+                is_error: false,
+            }]),
+        }];
+        let tokens = Agent::estimate_tokens_from_messages(&messages);
+        assert_eq!(tokens, 100); // 300 / 3, not 300 / 4
     }
 
     #[test]

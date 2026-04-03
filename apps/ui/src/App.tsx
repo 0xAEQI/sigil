@@ -42,7 +42,6 @@ export default function App() {
         {/* Redirects */}
         <Route path="inbox" element={<Navigate to="/sessions" replace />} />
         <Route path="tasks" element={<Navigate to="/issues" replace />} />
-        <Route path="triggers" element={<Navigate to="/automations" replace />} />
         <Route path="automations" element={<Navigate to="/triggers" replace />} />
         <Route path="knowledge" element={<Navigate to="/memories" replace />} />
         <Route path="memory" element={<Navigate to="/memories" replace />} />

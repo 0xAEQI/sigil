@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatThreadState } from "@/lib/types";
+import type { AgentRef, ChatThreadState } from "@/lib/types";
 
 const CHANNEL_STORAGE_KEY = "aeqi_session_channel";
 const THREADS_STORAGE_KEY = "aeqi_session_threads";
@@ -47,10 +47,10 @@ function persistThreads(threads: Record<string, ChatThreadState>) {
 
 interface ChatState {
   channel: string | null;
-  selectedAgent: string | null;
+  selectedAgent: AgentRef | null;
   threads: Record<string, ChatThreadState>;
   setChannel: (ch: string | null) => void;
-  setSelectedAgent: (agent: string | null) => void;
+  setSelectedAgent: (agent: AgentRef | null) => void;
   getOrCreateThread: (channel: string | null) => ChatThreadState;
   updateThread: (channel: string | null, patch: Partial<ChatThreadState>) => void;
 }

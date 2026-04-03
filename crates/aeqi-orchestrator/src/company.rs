@@ -9,6 +9,7 @@ use tokio::sync::{Mutex, Notify};
 /// A Company is a container for repos, tasks, and budget.
 /// Companies do NOT have agent personality — agents work ON companies.
 pub struct Company {
+    pub id: String,
     pub name: String,
     pub prefix: String,
     pub repo: PathBuf,
@@ -44,6 +45,10 @@ impl Company {
             .unwrap_or_else(|| PathBuf::from(&config.repo).join("..").join("worktrees"));
 
         Ok(Self {
+            id: config
+                .id
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
             name: config.name.clone(),
             prefix: config.prefix.clone(),
             repo: PathBuf::from(&config.repo),

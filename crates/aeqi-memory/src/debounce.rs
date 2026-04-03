@@ -27,7 +27,6 @@ pub struct DebouncedWrite {
     /// Memory scope (e.g. "domain", "system").
     pub scope: String,
     /// Company this write belongs to.
-    #[serde(alias = "project")]
     pub company: String,
     /// When this write was queued (or last replaced).
     pub queued_at: DateTime<Utc>,

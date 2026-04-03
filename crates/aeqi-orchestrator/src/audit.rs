@@ -47,7 +47,6 @@ impl std::fmt::Display for DecisionType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
     pub timestamp: DateTime<Utc>,
-    #[serde(alias = "project")]
     pub company: String,
     pub task_id: Option<String>,
     pub decision_type: DecisionType,

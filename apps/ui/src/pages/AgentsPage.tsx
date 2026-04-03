@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Header from "@/components/Header";
-import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 export default function AgentsPage() {
@@ -18,11 +18,7 @@ export default function AgentsPage() {
   return (
     <>
       <Header title="Agents" />
-      {loading ? (
-        <div className="loading">Loading agents...</div>
-      ) : agents.length === 0 ? (
-        <EmptyState title="No agents" description="No agents discovered. Check agents/ directory." />
-      ) : (
+      <DataState loading={loading} empty={agents.length === 0} emptyTitle="No agents" emptyDescription="No active agents found." loadingText="Loading agents...">
         <div className="cards-grid">
           {agents.map((a: any) => (
             <Link key={a.name} to={`/agents/${a.name}`} className="agent-card">
@@ -54,7 +50,7 @@ export default function AgentsPage() {
             </Link>
           ))}
         </div>
-      )}
+      </DataState>
     </>
   );
 }

@@ -251,6 +251,18 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  // Single task
+  getTask: (id: string) => request<any>(`/tasks/${id}`),
+
+  // Audit filtered by task (client-side filter)
+  getAuditForTask: async (taskId: string, last = 50) => {
+    const data = await request<any>(`/audit?last=${last}`);
+    const entries = (data.entries || data.audit || []).filter(
+      (e: any) => e.task_id === taskId
+    );
+    return { entries };
+  },
+
   // Sessions
   getSessions: (agentId?: string) => {
     const q = new URLSearchParams();
@@ -264,10 +276,16 @@ export const api = {
     request<any>(`/sessions/${sessionId}/close`, { method: "POST" }),
 
   // Session messages
-  getSessionMessages: (params: { session_id?: number; channel_name?: string; limit?: number }) => {
+  getSessionMessages: (params: { session_id?: string; channel_name?: string; agent_id?: string; limit?: number }) => {
+    // Prefer new session-based endpoint when a UUID session_id is available.
+    if (params.session_id) {
+      const limit = params.limit || 50;
+      return request<any>(`/sessions/${params.session_id}/messages?limit=${limit}`);
+    }
+    // Fallback to deprecated endpoint for backwards compat.
     const query = new URLSearchParams();
-    if (params.session_id) query.set("chat_id", String(params.session_id));
     if (params.channel_name) query.set("channel_name", params.channel_name);
+    if (params.agent_id) query.set("agent_id", params.agent_id);
     if (params.limit) query.set("limit", String(params.limit));
     const qs = query.toString();
     return request<any>(`/chat/history${qs ? `?${qs}` : ""}`);
@@ -281,6 +299,9 @@ export const api = {
     request<any>(`/notes/${id}/delete`, { method: "DELETE" }),
   updateDirectiveStatus: (id: string, data: { status: string; task_id?: string }) =>
     request<any>(`/directives/${id}/status`, { method: "POST", body: JSON.stringify(data) }),
+
+  // Triggers
+  getTriggers: () => request<any>("/triggers"),
 };
 
 export { ApiError };

@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import StatusBadge from "@/components/StatusBadge";
 import MissionCard from "@/components/MissionCard";
 import AuditEntryComponent from "@/components/AuditEntry";
+import { HeroStats, Panel, DetailField, TagList, ProgressBar, Tabs } from "@/components/ui";
 import { PRIORITY_COLORS } from "@/lib/constants";
 import { api } from "@/lib/api";
 import { runtimeLabel, summarizeTaskRuntime } from "@/lib/runtime";
@@ -15,7 +16,6 @@ export default function CompanyDetailPage() {
   const [missions, setMissions] = useState<any[]>([]);
   const [audit, setAudit] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"tasks" | "missions" | "audit">("tasks");
 
   useEffect(() => {
     if (!name) return;
@@ -54,88 +54,42 @@ export default function CompanyDetailPage() {
       />
 
       {/* Hero Stats */}
-      <div className="hero-stats">
-        <div className="hero-stat">
-          <div className="hero-stat-value">{total}</div>
-          <div className="hero-stat-label">Total Tasks</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value muted">{pendingTasks.length}</div>
-          <div className="hero-stat-label">Pending</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value info">{activeTasks.length}</div>
-          <div className="hero-stat-label">In Progress</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value success">{doneTasks.length}</div>
-          <div className="hero-stat-label">Done</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value">{missions.length}</div>
-          <div className="hero-stat-label">Missions</div>
-        </div>
-      </div>
+      <HeroStats stats={[
+        { value: total, label: "Total Tasks" },
+        { value: pendingTasks.length, label: "Pending", color: "muted" },
+        { value: activeTasks.length, label: "In Progress", color: "info" },
+        { value: doneTasks.length, label: "Done", color: "success" },
+        { value: missions.length, label: "Missions" },
+      ]} />
 
       {/* Company Info */}
       <div className="detail-grid">
         <div className="detail-sidebar">
           {/* Info Panel */}
-          <div className="detail-panel">
-            <div className="detail-panel-title">Company Info</div>
-            <div className="detail-field">
-              <div className="detail-field-label">Prefix</div>
-              <div className="detail-field-value"><code>{company.prefix}</code></div>
-            </div>
+          <Panel variant="detail" title="Company Info">
+            <DetailField label="Prefix"><code>{company.prefix}</code></DetailField>
             {company.team && (
               <>
-                <div className="detail-field">
-                  <div className="detail-field-label">Team Leader</div>
-                  <div className="detail-field-value">{company.team.leader}</div>
-                </div>
-                <div className="detail-field">
-                  <div className="detail-field-label">Team</div>
-                  <div className="flex-wrap-tags">
-                    {(company.team.agents || []).map((a: string) => (
-                      <span key={a} className="expertise-tag">{a}</span>
-                    ))}
-                  </div>
-                </div>
+                <DetailField label="Team Leader">{company.team.leader}</DetailField>
+                <DetailField label="Team">
+                  <TagList items={company.team.agents || []} />
+                </DetailField>
               </>
             )}
-            <div className="detail-field">
-              <div className="detail-field-label">Progress</div>
-              <div className="progress-bar-bg" style={{ marginTop: "var(--space-1)" }}>
-                <div className="progress-bar-fill" style={{ width: `${donePct}%` }} />
-              </div>
-              <div className="text-hint" style={{ marginTop: "4px" }}>
-                {donePct.toFixed(0)}% complete
-              </div>
-            </div>
-          </div>
+            <DetailField label="Progress">
+              <ProgressBar value={donePct} label={`${donePct.toFixed(0)}% complete`} />
+            </DetailField>
+          </Panel>
         </div>
 
         {/* Main Content */}
         <div className="detail-main">
-          {/* Tabs */}
-          <div className="tab-bar">
-            {(["tasks", "missions", "audit"] as const).map((t) => (
-              <button
-                key={t}
-                className={`btn ${tab === t ? "btn-primary" : ""}`}
-                onClick={() => setTab(t)}
-              >
-                {t === "tasks" ? `Tasks (${tasks.length})` : t === "missions" ? `Missions (${missions.length})` : `Audit (${audit.length})`}
-              </button>
-            ))}
-          </div>
-
-          {/* Tasks Tab */}
-          {tab === "tasks" && (
+          <Tabs tabs={[
+            {
+              id: "tasks",
+              label: "Tasks",
+              count: tasks.length,
+              content: (
                 <div className="task-table">
                   {tasks.length === 0 ? (
                     <div className="dash-empty">No tasks in this company</div>
@@ -167,43 +121,51 @@ export default function CompanyDetailPage() {
                       );
                     })
                   )}
-              {tasks.length > 50 && (
-                <div className="dash-empty">
-                  <Link to={`/tasks?company=${name}`}>View all {tasks.length} tasks</Link>
+                  {tasks.length > 50 && (
+                    <div className="dash-empty">
+                      <Link to={`/tasks?company=${name}`}>View all {tasks.length} tasks</Link>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Missions Tab */}
-          {tab === "missions" && (
-            <div>
-              {missions.length === 0 ? (
-                <div className="dash-empty">No missions in this company</div>
-              ) : (
-                <div className="cards-grid">
-                  {missions.map((m: any) => (
-                    <MissionCard key={m.id} mission={m} />
-                  ))}
+              ),
+            },
+            {
+              id: "missions",
+              label: "Missions",
+              count: missions.length,
+              content: (
+                <div>
+                  {missions.length === 0 ? (
+                    <div className="dash-empty">No missions in this company</div>
+                  ) : (
+                    <div className="cards-grid">
+                      {missions.map((m: any) => (
+                        <MissionCard key={m.id} mission={m} />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Audit Tab */}
-          {tab === "audit" && (
-            <div className="column-section">
-              <div className="column-section-body">
-                {audit.length === 0 ? (
-                  <div className="dash-empty">No audit events for this company</div>
-                ) : (
-                  audit.map((entry: any, i: number) => (
-                    <AuditEntryComponent key={i} entry={entry} />
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+              ),
+            },
+            {
+              id: "audit",
+              label: "Audit",
+              count: audit.length,
+              content: (
+                <div className="column-section">
+                  <div className="column-section-body">
+                    {audit.length === 0 ? (
+                      <div className="dash-empty">No audit events for this company</div>
+                    ) : (
+                      audit.map((entry: any, i: number) => (
+                        <AuditEntryComponent key={i} entry={entry} />
+                      ))
+                    )}
+                  </div>
+                </div>
+              ),
+            },
+          ]} />
         </div>
       </div>
     </>

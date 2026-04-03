@@ -381,7 +381,6 @@ pub struct RuntimeSession {
     pub session_id: String,
     pub task_id: String,
     pub worker_id: String,
-    #[serde(alias = "project")]
     pub company: String,
     pub model: Option<String>,
     pub status: RuntimeSessionStatus,

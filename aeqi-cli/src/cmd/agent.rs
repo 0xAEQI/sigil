@@ -102,7 +102,7 @@ pub(crate) async fn cmd_agent(
             );
             println!(
                 "  Project: {}",
-                agent.company.as_deref().unwrap_or("(root)")
+                agent.project.as_deref().unwrap_or("(root)")
             );
             println!(
                 "  Model:   {}",
@@ -125,7 +125,7 @@ pub(crate) async fn cmd_agent(
                     println!("  Display:  {d}");
                 }
                 println!("  Status:   {}", a.status);
-                println!("  Project:  {}", a.company.as_deref().unwrap_or("(root)"));
+                println!("  Project:  {}", a.project.as_deref().unwrap_or("(root)"));
                 println!("  Model:    {}", a.model.as_deref().unwrap_or("(default)"));
                 println!("  Caps:     {:?}", a.capabilities);
                 println!("  Sessions: {}", a.session_count);
@@ -185,7 +185,7 @@ pub(crate) async fn cmd_agent(
                     "{:<20} {:<10} {:<15} {:<10} {:<8}",
                     a.name,
                     a.status.to_string(),
-                    a.company.as_deref().unwrap_or("(root)"),
+                    a.project.as_deref().unwrap_or("(root)"),
                     a.session_count,
                     a.total_tokens,
                 );

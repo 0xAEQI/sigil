@@ -100,7 +100,6 @@
 
 .c-bubble-assistant {
   background: var(--bg-surface);
-  border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
 }
 
@@ -198,7 +197,7 @@
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
     var(--bg-surface);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
 
 .c-notice-header {
@@ -210,8 +209,7 @@
 
 .c-notice-title {
   font-size: var(--font-size-micro);
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: 500;
   text-transform: uppercase;
 }
 

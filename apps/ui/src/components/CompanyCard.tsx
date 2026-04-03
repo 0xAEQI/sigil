@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ProgressBar } from "@/components/ui";
 import type { Company } from "@/lib/types";
 
 interface CompanyCardProps {
@@ -38,15 +39,7 @@ export default function CompanyCard({ company }: CompanyCardProps) {
       </div>
 
       <div className="project-stats-bar">
-        <div className="project-progress-bar">
-          <div
-            className="project-progress-fill"
-            style={{ width: `${completionPct}%` }}
-          />
-        </div>
-        <span className="project-progress-text">
-          {company.stats.done}/{total} tasks
-        </span>
+        <ProgressBar value={completionPct} label={`${company.stats.done}/${total} tasks`} />
       </div>
 
       <div className="project-stat-row">

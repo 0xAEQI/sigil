@@ -15,7 +15,6 @@ use tracing::{info, warn};
 /// A single cost entry from a worker execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CostEntry {
-    #[serde(alias = "project")]
     pub company: String,
     pub task_id: String,
     pub worker: String,

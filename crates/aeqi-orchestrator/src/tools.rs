@@ -182,6 +182,7 @@ impl Tool for MemoryStoreTool {
         let scope = match args.get("scope").and_then(|v| v.as_str()) {
             Some("system") => MemoryScope::System,
             Some("entity") | Some("companion") => MemoryScope::Entity,
+            Some("department") => MemoryScope::Department,
             _ => MemoryScope::Domain,
         };
         let category = match args.get("category").and_then(|v| v.as_str()) {
@@ -210,7 +211,7 @@ impl Tool for MemoryStoreTool {
 
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "memory_store".to_string(),
+            name: "aeqi_remember".to_string(),
             description: "Store a memory with semantic embeddings for later recall. Use for facts, preferences, patterns, and context worth remembering.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -227,7 +228,7 @@ impl Tool for MemoryStoreTool {
     }
 
     fn name(&self) -> &str {
-        "memory_store"
+        "aeqi_remember"
     }
 }
 
@@ -256,6 +257,7 @@ impl Tool for MemoryRecallTool {
             query.scope = Some(match scope {
                 "system" => MemoryScope::System,
                 "entity" | "companion" => MemoryScope::Entity,
+                "department" => MemoryScope::Department,
                 _ => MemoryScope::Domain,
             });
         }
@@ -299,7 +301,7 @@ impl Tool for MemoryRecallTool {
 
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "memory_recall".to_string(),
+            name: "aeqi_recall".to_string(),
             description: "Search memories using semantic similarity + keyword matching. Returns the most relevant memories ranked by hybrid score.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -315,7 +317,7 @@ impl Tool for MemoryRecallTool {
     }
 
     fn name(&self) -> &str {
-        "memory_recall"
+        "aeqi_recall"
     }
 }
 
@@ -728,7 +730,7 @@ impl Tool for NotesTool {
 
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "notes".to_string(),
+            name: "aeqi_notes".to_string(),
             description: "Shared coordination surface. Post discoveries, claim resources, signal state, query entries. Key prefixes: claim: (locks), signal: (broadcasts), finding: (results), decision: (choices).".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -747,7 +749,7 @@ impl Tool for NotesTool {
     }
 
     fn name(&self) -> &str {
-        "notes"
+        "aeqi_notes"
     }
 }
 
@@ -765,6 +767,7 @@ pub fn build_orchestration_tools(
     memory: Option<Arc<dyn Memory>>,
     notes: Option<Arc<crate::notes::Notes>>,
     event_broadcaster: Option<Arc<crate::EventBroadcaster>>,
+    graph_db_path: Option<PathBuf>,
 ) -> Vec<Arc<dyn Tool>> {
     let leader_name = registry.leader_agent_name.clone();
     let default_project = registry
@@ -794,7 +797,124 @@ pub fn build_orchestration_tools(
         tools.push(Arc::new(NotesTool::new(bb, leader_name, default_project)));
     }
 
+    if let Some(gp) = graph_db_path {
+        tools.push(Arc::new(GraphTool::new(gp)));
+    }
+
     tools
+}
+
+// ---------------------------------------------------------------------------
+// GraphTool — code intelligence via aeqi-graph
+// ---------------------------------------------------------------------------
+
+/// Tool exposing code graph queries: search symbols, get context, analyze impact.
+pub struct GraphTool {
+    db_path: PathBuf,
+}
+
+impl GraphTool {
+    pub fn new(db_path: PathBuf) -> Self {
+        Self { db_path }
+    }
+}
+
+#[async_trait]
+impl Tool for GraphTool {
+    async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
+        let action = args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("stats");
+
+        let store = match aeqi_graph::GraphStore::open(&self.db_path) {
+            Ok(s) => s,
+            Err(e) => return Ok(ToolResult::error(format!("graph DB not available: {e}"))),
+        };
+
+        let result = match action {
+            "search" => {
+                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+                let results = store.search_nodes(query, limit)?;
+                serde_json::json!({
+                    "count": results.len(),
+                    "nodes": results,
+                })
+            }
+            "context" => {
+                let node_id = args.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
+                let ctx = store.context(node_id)?;
+                serde_json::json!({
+                    "node": ctx.node,
+                    "callers": ctx.callers,
+                    "callees": ctx.callees,
+                    "implementors": ctx.implementors,
+                })
+            }
+            "impact" => {
+                let node_id = args.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
+                let depth = args.get("depth").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
+                let entries = store.impact(&[node_id], depth)?;
+                let affected: Vec<serde_json::Value> = entries
+                    .iter()
+                    .map(|e| {
+                        serde_json::json!({
+                            "node": e.node.name,
+                            "file": e.node.file_path,
+                            "depth": e.depth,
+                        })
+                    })
+                    .collect();
+                serde_json::json!({"affected": affected})
+            }
+            "file" => {
+                let file_path = args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
+                let nodes = store.nodes_in_file(file_path)?;
+                serde_json::json!({
+                    "file": file_path,
+                    "count": nodes.len(),
+                    "symbols": nodes,
+                })
+            }
+            "stats" => {
+                let stats = store.stats()?;
+                serde_json::json!({"stats": format!("{stats:?}")})
+            }
+            _ => {
+                return Ok(ToolResult::error(format!("unknown graph action: {action}")));
+            }
+        };
+
+        Ok(ToolResult::success(serde_json::to_string_pretty(&result)?))
+    }
+
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "aeqi_graph".to_string(),
+            description: "Query the code intelligence graph. Search symbols, get 360° context (callers/callees/implementors), analyze blast radius, list symbols in a file.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["search", "context", "impact", "file", "stats"],
+                        "description": "search=FTS symbol search, context=360° view, impact=blast radius, file=symbols in a file, stats=graph statistics"
+                    },
+                    "query": {"type": "string", "description": "Search query (for search action)"},
+                    "node_id": {"type": "string", "description": "Node ID (for context/impact actions)"},
+                    "file_path": {"type": "string", "description": "File path (for file action)"},
+                    "depth": {"type": "integer", "description": "Impact depth (default 3)"},
+                    "limit": {"type": "integer", "description": "Max results (default 10)"}
+                },
+                "required": ["action"]
+            }),
+        }
+    }
+
+    fn name(&self) -> &str {
+        "aeqi_graph"
+    }
 }
 
 // ---------------------------------------------------------------------------

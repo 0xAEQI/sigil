@@ -27,24 +27,11 @@ use tracing::{debug, info};
 pub struct Department {
     pub id: String,
     pub name: String,
-    #[serde(alias = "project")]
-    pub company: Option<String>,
+    pub project: Option<String>,
+    pub project_id: Option<String>,
     pub manager_id: Option<String>,
     pub parent_id: Option<String>,
     pub created_at: DateTime<Utc>,
-}
-
-/// A session — an execution context owned by an agent.
-///
-/// Each agent gets a permanent session on spawn. Additional sessions can be
-/// created for triggers, delegations, etc. and closed when done.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Session {
-    pub id: String,
-    pub agent_id: String,
-    pub status: String,
-    pub created_at: String,
-    pub closed_at: Option<String>,
 }
 
 /// A persistent agent identity — one record = one agent ready to go.
@@ -77,9 +64,10 @@ pub struct PersistentAgent {
     /// The full system prompt — the agent's identity, personality, role,
     /// instructions. Stored in DB. This IS the agent.
     pub system_prompt: String,
-    /// Company scope. None = root (cross-company).
-    #[serde(alias = "project")]
-    pub company: Option<String>,
+    /// Project scope (name). None = root (cross-project).
+    pub project: Option<String>,
+    /// Foreign key to projects table (UUID).
+    pub project_id: Option<String>,
     /// Foreign key to departments table. None = unassigned.
     pub department_id: Option<String>,
     /// Preferred model.
@@ -123,7 +111,6 @@ pub struct AgentTemplateFrontmatter {
     pub model: Option<String>,
     #[serde(default)]
     pub capabilities: Vec<String>,
-    #[serde(alias = "project")]
     pub company: Option<String>,
     #[serde(default)]
     pub triggers: Vec<TemplateTrigger>,
@@ -418,15 +405,12 @@ impl AgentRegistry {
                  decided_at TEXT
              );
 
-             CREATE TABLE IF NOT EXISTS sessions (
+             CREATE TABLE IF NOT EXISTS projects (
                  id TEXT PRIMARY KEY,
-                 agent_id TEXT NOT NULL,
-                 status TEXT NOT NULL DEFAULT 'active',
-                 created_at TEXT NOT NULL,
-                 closed_at TEXT
-             );
-             CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
-             CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);",
+                 name TEXT NOT NULL UNIQUE,
+                 prefix TEXT NOT NULL,
+                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+             );",
         )?;
 
         // Step 2: Add department_id column to agents table if missing.
@@ -469,10 +453,73 @@ impl AgentRegistry {
             }
         }
 
+        // Step 5: Add project_id column to departments table if missing.
+        {
+            let has_col = conn
+                .prepare("PRAGMA table_info(departments)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|col| col == "project_id");
+            if !has_col {
+                conn.execute_batch("ALTER TABLE departments ADD COLUMN project_id TEXT;")?;
+            }
+        }
+
+        // Step 6: Add project_id column to agents table if missing.
+        {
+            let has_col = conn
+                .prepare("PRAGMA table_info(agents)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|col| col == "project_id");
+            if !has_col {
+                conn.execute_batch(
+                    "ALTER TABLE agents ADD COLUMN project_id TEXT;
+                     CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id);",
+                )?;
+            }
+        }
+
+        // Step 7: Drop legacy `department` column if present (SQLite 3.35+).
+        // No code reads this column — `department_id` replaced it.
+        let _ = conn.execute_batch("ALTER TABLE agents DROP COLUMN department;");
+
         info!(path = %db_path.display(), "agent registry opened");
         Ok(Self {
             db: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    /// Insert or update a project record in the projects table.
+    pub async fn upsert_project(&self, id: &str, name: &str, prefix: &str) -> Result<()> {
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT OR REPLACE INTO projects (id, name, prefix) VALUES (?1, ?2, ?3)",
+            params![id, name, prefix],
+        )?;
+        Ok(())
+    }
+
+    /// Backfill the `project_id` column on departments from the projects table.
+    pub async fn backfill_department_project_ids(&self) -> Result<()> {
+        let db = self.db.lock().await;
+        db.execute(
+            "UPDATE departments SET project_id = (SELECT id FROM projects WHERE projects.name = departments.project) WHERE project_id IS NULL",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// Backfill the `project_id` column on agents from the projects table.
+    pub async fn backfill_agent_project_ids(&self) -> Result<()> {
+        let db = self.db.lock().await;
+        db.execute(
+            "UPDATE agents SET project_id = (
+                SELECT id FROM projects WHERE projects.name = agents.project
+            ) WHERE project IS NOT NULL AND project_id IS NULL",
+            [],
+        )?;
+        Ok(())
     }
 
     /// Spawn a new persistent agent from a template string (frontmatter + prompt body).
@@ -565,13 +612,30 @@ impl AgentRegistry {
 
         let session_id = uuid::Uuid::new_v4().to_string();
 
+        // Resolve project UUID from project name.
+        let project_id = if let Some(p) = project {
+            let db = self.db.lock().await;
+            let pid: Option<String> = db
+                .query_row(
+                    "SELECT id FROM projects WHERE name = ?1",
+                    params![p],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            drop(db);
+            pid
+        } else {
+            None
+        };
+
         let agent = PersistentAgent {
             id: id.clone(),
             name: name.to_string(),
             display_name: display_name.map(|s| s.to_string()),
             template: template.to_string(),
             system_prompt: system_prompt.to_string(),
-            company: project.map(|s| s.to_string()),
+            project: project.map(|s| s.to_string()),
+            project_id: project_id.clone(),
             department_id: None,
             model: model.map(|s| s.to_string()),
             capabilities: capabilities.to_vec(),
@@ -589,15 +653,16 @@ impl AgentRegistry {
 
         let db = self.db.lock().await;
         db.execute(
-            "INSERT INTO agents (id, name, display_name, template, system_prompt, project, model, capabilities, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO agents (id, name, display_name, template, system_prompt, project, project_id, model, capabilities, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 agent.id,
                 agent.name,
                 agent.display_name,
                 agent.template,
                 agent.system_prompt,
-                agent.company,
+                agent.project,
+                agent.project_id,
                 agent.model,
                 caps_json,
                 agent.status.to_string(),
@@ -605,11 +670,9 @@ impl AgentRegistry {
             ],
         )?;
 
-        // Create the agent's permanent session and link it.
-        db.execute(
-            "INSERT INTO sessions (id, agent_id, status, created_at) VALUES (?1, ?2, 'active', ?3)",
-            params![session_id, agent.id, now.to_rfc3339()],
-        )?;
+        // Link the session_id to the agent record.
+        // The actual session row is created in the sessions table by the daemon
+        // via session_store.create_session() after spawn completes.
         db.execute(
             "UPDATE agents SET session_id = ?1 WHERE id = ?2",
             params![session_id, agent.id],
@@ -672,6 +735,31 @@ impl AgentRegistry {
             )
             .optional()?;
         Ok(agent)
+    }
+
+    /// Resolve an agent by hint — tries name first, then company/project, then UUID.
+    /// Used by web chat where the frontend sends a project name like "aeqi".
+    pub async fn resolve_by_hint(&self, hint: &str) -> Result<Option<PersistentAgent>> {
+        // 1. Try exact name match.
+        if let Some(agent) = self.get_active_by_name(hint).await? {
+            return Ok(Some(agent));
+        }
+        // 2. Try project match — find the default agent for that project.
+        let db = self.db.lock().await;
+        let agent = db
+            .query_row(
+                "SELECT * FROM agents WHERE project = ?1 AND status = 'active' \
+                 ORDER BY created_at ASC LIMIT 1",
+                params![hint],
+                |row| Ok(row_to_agent(row)),
+            )
+            .optional()?;
+        if agent.is_some() {
+            return Ok(agent);
+        }
+        // 3. Try UUID.
+        drop(db);
+        self.get(hint).await
     }
 
     /// Get a specific agent by UUID.
@@ -779,10 +867,27 @@ impl AgentRegistry {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
 
+        // Resolve project UUID from project name.
+        let project_id = if let Some(p) = project {
+            let db = self.db.lock().await;
+            let pid: Option<String> = db
+                .query_row(
+                    "SELECT id FROM projects WHERE name = ?1",
+                    params![p],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            drop(db);
+            pid
+        } else {
+            None
+        };
+
         let dept = Department {
             id: id.clone(),
             name: name.to_string(),
-            company: project.map(|s| s.to_string()),
+            project: project.map(|s| s.to_string()),
+            project_id: project_id.clone(),
             manager_id: manager_id.map(|s| s.to_string()),
             parent_id: parent_id.map(|s| s.to_string()),
             created_at: now,
@@ -790,12 +895,13 @@ impl AgentRegistry {
 
         let db = self.db.lock().await;
         db.execute(
-            "INSERT INTO departments (id, name, project, manager_id, parent_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO departments (id, name, project, project_id, manager_id, parent_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 dept.id,
                 dept.name,
-                dept.company,
+                dept.project,
+                dept.project_id,
                 dept.manager_id,
                 dept.parent_id,
                 dept.created_at.to_rfc3339(),
@@ -1115,78 +1221,18 @@ impl AgentRegistry {
         Ok(max_concurrent.unwrap_or(1))
     }
 
-    // -----------------------------------------------------------------------
-    // Session operations
-    // -----------------------------------------------------------------------
-
-    /// Create a new session for an agent.
-    pub async fn create_session(&self, agent_id: &str) -> Result<String> {
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-        let db = self.db.lock().await;
-        db.execute(
-            "INSERT INTO sessions (id, agent_id, status, created_at) VALUES (?1, ?2, 'active', ?3)",
-            params![session_id, agent_id, now],
-        )?;
-        info!(session_id = %session_id, agent_id = %agent_id, "session created");
-        Ok(session_id)
-    }
-
-    /// Close a session.
-    pub async fn close_session(&self, session_id: &str) -> Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+    /// Update the model for an agent by UUID.
+    pub async fn update_agent_model(&self, id: &str, model: &str) -> Result<()> {
         let db = self.db.lock().await;
         let updated = db.execute(
-            "UPDATE sessions SET status = 'closed', closed_at = ?1 WHERE id = ?2",
-            params![now, session_id],
+            "UPDATE agents SET model = ?1 WHERE id = ?2",
+            params![model, id],
         )?;
         if updated == 0 {
-            anyhow::bail!("session '{session_id}' not found");
+            anyhow::bail!("agent '{id}' not found");
         }
-        info!(session_id = %session_id, "session closed");
+        info!(id = %id, model = %model, "agent model updated from TOML config");
         Ok(())
-    }
-
-    /// List sessions for an agent.
-    pub async fn list_sessions(&self, agent_id: &str) -> Result<Vec<Session>> {
-        let db = self.db.lock().await;
-        let mut stmt = db.prepare(
-            "SELECT id, agent_id, status, created_at, closed_at \
-             FROM sessions WHERE agent_id = ?1 ORDER BY created_at DESC",
-        )?;
-        let sessions = stmt
-            .query_map(params![agent_id], |row| {
-                Ok(Session {
-                    id: row.get(0)?,
-                    agent_id: row.get(1)?,
-                    status: row.get(2)?,
-                    created_at: row.get(3)?,
-                    closed_at: row.get(4)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(sessions)
-    }
-
-    /// Get a specific session by ID.
-    pub async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
-        let db = self.db.lock().await;
-        let session = db
-            .query_row(
-                "SELECT id, agent_id, status, created_at, closed_at FROM sessions WHERE id = ?1",
-                params![session_id],
-                |row| {
-                    Ok(Session {
-                        id: row.get(0)?,
-                        agent_id: row.get(1)?,
-                        status: row.get(2)?,
-                        created_at: row.get(3)?,
-                        closed_at: row.get(4)?,
-                    })
-                },
-            )
-            .optional()?;
-        Ok(session)
     }
 }
 
@@ -1244,7 +1290,8 @@ fn row_to_department(row: &rusqlite::Row) -> Department {
     Department {
         id: row.get("id").unwrap_or_default(),
         name: row.get("name").unwrap_or_default(),
-        company: row.get("project").ok(),
+        project: row.get("project").ok(),
+        project_id: row.get("project_id").ok(),
         manager_id: row.get("manager_id").ok(),
         parent_id: row.get("parent_id").ok(),
         created_at: row
@@ -1273,7 +1320,8 @@ fn row_to_agent(row: &rusqlite::Row) -> PersistentAgent {
         display_name: row.get("display_name").ok(),
         template: row.get("template").unwrap_or_default(),
         system_prompt: row.get("system_prompt").unwrap_or_default(),
-        company: row.get("project").ok(),
+        project: row.get("project").ok(),
+        project_id: row.get("project_id").ok(),
         department_id: row.get("department_id").ok(),
         model: row.get("model").ok(),
         capabilities,
@@ -1335,7 +1383,7 @@ mod tests {
         assert_eq!(agent.name, "shadow");
         assert_eq!(agent.system_prompt, "You are Shadow.");
         assert_eq!(agent.capabilities, vec!["spawn_agents"]);
-        assert!(agent.company.is_none());
+        assert!(agent.project.is_none());
         assert_eq!(agent.status, AgentStatus::Active);
         assert_eq!(agent.session_count, 0);
 
@@ -1360,7 +1408,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(agent.company.as_deref(), Some("aeqi"));
+        assert_eq!(agent.project.as_deref(), Some("aeqi"));
 
         let list = reg.list(Some("aeqi"), None).await.unwrap();
         assert_eq!(list.len(), 1);
@@ -1515,7 +1563,7 @@ You learn everything about the user aggressively.
         assert_eq!(agent.model.as_deref(), Some("anthropic/claude-sonnet-4.6"));
         assert_eq!(agent.capabilities, vec!["spawn_agents", "spawn_projects"]);
         assert!(agent.system_prompt.contains("personal assistant"));
-        assert!(agent.company.is_none()); // Root scope
+        assert!(agent.project.is_none()); // Root scope
     }
 
     #[tokio::test]
@@ -1578,7 +1626,7 @@ You are a monitoring agent.
             .unwrap();
 
         assert_eq!(dept.name, "engineering");
-        assert_eq!(dept.company.as_deref(), Some("aeqi"));
+        assert_eq!(dept.project.as_deref(), Some("aeqi"));
         assert!(dept.manager_id.is_none());
         assert!(dept.parent_id.is_none());
         assert!(!dept.id.is_empty());
@@ -1803,14 +1851,14 @@ You are a monitoring agent.
             .await
             .unwrap();
         assert!(dept.is_some());
-        assert_eq!(dept.unwrap().company.as_deref(), Some("aeqi"));
+        assert_eq!(dept.unwrap().project.as_deref(), Some("aeqi"));
 
         let dept = reg
             .get_department_by_name("engineering", Some("other"))
             .await
             .unwrap();
         assert!(dept.is_some());
-        assert_eq!(dept.unwrap().company.as_deref(), Some("other"));
+        assert_eq!(dept.unwrap().project.as_deref(), Some("other"));
 
         let nope = reg
             .get_department_by_name("nonexistent", Some("aeqi"))

@@ -1,9 +1,10 @@
-//! Persistent Session Store — SQLite-backed conversation history
+//! Persistent Session Store — SQLite-backed session history
 //! that survives daemon restarts.
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -17,6 +18,21 @@ pub struct SessionMessage {
     pub content: String,
     pub timestamp: DateTime<Utc>,
     pub source: Option<String>,
+}
+
+/// A session with UUID addressing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub legacy_chat_id: Option<i64>,
+    pub agent_id: Option<String>,
+    pub project_id: Option<String>,
+    pub department_id: Option<String>,
+    pub session_type: String,
+    pub name: String,
+    pub status: String,
+    pub created_at: String,
+    pub closed_at: Option<String>,
 }
 
 /// A single typed thread event in a chat timeline.
@@ -116,6 +132,87 @@ impl SessionStore {
         );
         let _ =
             conn.execute_batch("ALTER TABLE conversations ADD COLUMN metadata TEXT DEFAULT NULL;");
+        let _ = conn.execute_batch("ALTER TABLE channels ADD COLUMN agent_id TEXT DEFAULT NULL;");
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_channels_agent_id ON channels(agent_id);",
+        );
+
+        // ── 4A-migrate: Rename old `unified_sessions` → `sessions` if needed ──
+        {
+            let has_old: bool = conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='unified_sessions'",
+                )?
+                .query_map([], |_row| Ok(()))?
+                .next()
+                .is_some();
+            if has_old {
+                conn.execute_batch("ALTER TABLE unified_sessions RENAME TO sessions;")?;
+                // Re-create indexes with new names.
+                let _ = conn.execute_batch(
+                    "DROP INDEX IF EXISTS idx_usess_agent;
+                     DROP INDEX IF EXISTS idx_usess_project;
+                     DROP INDEX IF EXISTS idx_usess_type;
+                     CREATE INDEX IF NOT EXISTS idx_sess_agent ON sessions(agent_id);
+                     CREATE INDEX IF NOT EXISTS idx_sess_project ON sessions(project_id);
+                     CREATE INDEX IF NOT EXISTS idx_sess_type ON sessions(session_type);",
+                );
+            }
+        }
+
+        // ── 4A: Sessions table ──
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sessions (
+                 id TEXT PRIMARY KEY,
+                 legacy_chat_id INTEGER UNIQUE,
+                 agent_id TEXT,
+                 project_id TEXT,
+                 department_id TEXT,
+                 session_type TEXT NOT NULL,
+                 name TEXT NOT NULL,
+                 status TEXT NOT NULL DEFAULT 'active',
+                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                 closed_at TEXT
+             );
+             CREATE INDEX IF NOT EXISTS idx_sess_agent ON sessions(agent_id);
+             CREATE INDEX IF NOT EXISTS idx_sess_project ON sessions(project_id);
+             CREATE INDEX IF NOT EXISTS idx_sess_type ON sessions(session_type);",
+        )
+        .context("failed to create sessions table")?;
+
+        // ── 4B: Backfill from channels ──
+        let _ = conn.execute_batch(
+            "INSERT OR IGNORE INTO sessions (id, legacy_chat_id, agent_id, session_type, name, status, created_at)
+             SELECT
+                 lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
+                 chat_id,
+                 agent_id,
+                 channel_type,
+                 name,
+                 'active',
+                 created_at
+             FROM channels
+             WHERE chat_id NOT IN (SELECT legacy_chat_id FROM sessions WHERE legacy_chat_id IS NOT NULL);",
+        );
+
+        // ── 4C: Backfill from agent_sessions (if it exists in THIS db or a shared db) ──
+        {
+            let has_agent_sessions: bool = conn
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_sessions'",
+                )?
+                .query_map([], |_row| Ok(()))?
+                .next()
+                .is_some();
+            if has_agent_sessions {
+                let _ = conn.execute_batch(
+                    "INSERT OR IGNORE INTO sessions (id, agent_id, session_type, name, status, created_at, closed_at)
+                     SELECT id, agent_id, 'perpetual', 'Permanent Session', status, created_at, closed_at
+                     FROM agent_sessions
+                     WHERE id NOT IN (SELECT id FROM sessions);",
+                );
+            }
+        }
 
         debug!(path = %path.display(), "session store opened");
 
@@ -394,13 +491,25 @@ impl SessionStore {
 
     /// Ensure a channel exists, creating it if needed.
     pub async fn ensure_channel(&self, chat_id: i64, channel_type: &str, name: &str) -> Result<()> {
+        self.ensure_channel_with_agent(chat_id, channel_type, name, None)
+            .await
+    }
+
+    /// Ensure a channel exists with an optional agent_id, creating it if needed.
+    pub async fn ensure_channel_with_agent(
+        &self,
+        chat_id: i64,
+        channel_type: &str,
+        name: &str,
+        agent_id: Option<&str>,
+    ) -> Result<()> {
         let db = self.db.lock().await;
         let now = Utc::now().to_rfc3339();
         db.execute(
-            "INSERT INTO channels (chat_id, channel_type, name, created_at)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(chat_id) DO NOTHING",
-            params![chat_id, channel_type, name, now],
+            "INSERT INTO channels (chat_id, channel_type, name, created_at, agent_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(chat_id) DO UPDATE SET agent_id = COALESCE(excluded.agent_id, channels.agent_id)",
+            params![chat_id, channel_type, name, now, agent_id],
         )?;
         Ok(())
     }
@@ -429,6 +538,263 @@ impl SessionStore {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(results)
     }
+
+    /// Retrieve message history by agent UUID (looks up the channel by agent_id).
+    pub async fn get_history_by_agent_id(
+        &self,
+        agent_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SessionMessage>> {
+        let db = self.db.lock().await;
+
+        // Find the chat_id for this agent_id.
+        let chat_id: Option<i64> = db
+            .query_row(
+                "SELECT chat_id FROM channels WHERE agent_id = ?1 LIMIT 1",
+                params![agent_id],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let chat_id = match chat_id {
+            Some(id) => id,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut stmt = db.prepare(
+            "SELECT chat_id, role, content, timestamp, source FROM conversations \
+             WHERE chat_id = ?1 AND summarized = 0 AND event_type = 'message' \
+             ORDER BY id DESC LIMIT ?2",
+        )?;
+
+        let rows = stmt
+            .query_map(params![chat_id, limit as i64], |row| {
+                Ok(SessionMessage {
+                    chat_id: row.get(0)?,
+                    role: row.get(1)?,
+                    content: row.get(2)?,
+                    timestamp: row.get::<_, String>(3).map(|s| {
+                        DateTime::parse_from_rfc3339(&s)
+                            .map(|dt| dt.with_timezone(&Utc))
+                            .unwrap_or_else(|_| Utc::now())
+                    })?,
+                    source: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut messages = rows;
+        messages.reverse();
+        Ok(messages)
+    }
+
+    // ── Session methods (UUID-based) ──
+
+    /// Get or create a session UUID for a legacy chat_id.
+    pub async fn ensure_session(
+        &self,
+        chat_id: i64,
+        session_type: &str,
+        name: &str,
+        agent_id: Option<&str>,
+        project_id: Option<&str>,
+    ) -> Result<String> {
+        let db = self.db.lock().await;
+        // Check if session exists for this chat_id.
+        let existing: Option<String> = db
+            .query_row(
+                "SELECT id FROM sessions WHERE legacy_chat_id = ?1",
+                params![chat_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+
+        // Create new.
+        let id = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO sessions (id, legacy_chat_id, session_type, name, agent_id, project_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, chat_id, session_type, name, agent_id, project_id],
+        )?;
+        Ok(id)
+    }
+
+    /// Record a message by session UUID (resolves to legacy chat_id internally).
+    pub async fn record_by_session(
+        &self,
+        session_id: &str,
+        role: &str,
+        content: &str,
+        source: Option<&str>,
+    ) -> Result<()> {
+        let chat_id: i64 = {
+            let db = self.db.lock().await;
+            db.query_row(
+                "SELECT legacy_chat_id FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )?
+        };
+        self.record_with_source(chat_id, role, content, source)
+            .await
+    }
+
+    /// Get message history by session UUID.
+    pub async fn history_by_session(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SessionMessage>> {
+        let chat_id: i64 = {
+            let db = self.db.lock().await;
+            db.query_row(
+                "SELECT legacy_chat_id FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )?
+        };
+        self.recent(chat_id, limit).await
+    }
+
+    /// List sessions, optionally filtered by agent_id or project_id.
+    pub async fn list_sessions(
+        &self,
+        agent_id: Option<&str>,
+        project_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Session>> {
+        let db = self.db.lock().await;
+
+        let (sql, boxed_params): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
+            match (agent_id, project_id) {
+                (Some(aid), Some(pid)) => (
+                    "SELECT id, legacy_chat_id, agent_id, project_id, department_id, session_type, name, status, created_at, closed_at \
+                     FROM sessions WHERE agent_id = ?1 AND project_id = ?2 ORDER BY created_at DESC LIMIT ?3"
+                        .to_string(),
+                    vec![
+                        Box::new(aid.to_string()) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(pid.to_string()),
+                        Box::new(limit as i64),
+                    ],
+                ),
+                (Some(aid), None) => (
+                    "SELECT id, legacy_chat_id, agent_id, project_id, department_id, session_type, name, status, created_at, closed_at \
+                     FROM sessions WHERE agent_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+                        .to_string(),
+                    vec![
+                        Box::new(aid.to_string()) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(limit as i64),
+                    ],
+                ),
+                (None, Some(pid)) => (
+                    "SELECT id, legacy_chat_id, agent_id, project_id, department_id, session_type, name, status, created_at, closed_at \
+                     FROM sessions WHERE project_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+                        .to_string(),
+                    vec![
+                        Box::new(pid.to_string()) as Box<dyn rusqlite::types::ToSql>,
+                        Box::new(limit as i64),
+                    ],
+                ),
+                (None, None) => (
+                    "SELECT id, legacy_chat_id, agent_id, project_id, department_id, session_type, name, status, created_at, closed_at \
+                     FROM sessions ORDER BY created_at DESC LIMIT ?1"
+                        .to_string(),
+                    vec![Box::new(limit as i64) as Box<dyn rusqlite::types::ToSql>],
+                ),
+            };
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            boxed_params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = db.prepare(&sql)?;
+        let rows = stmt
+            .query_map(param_refs.as_slice(), |row| {
+                Ok(Session {
+                    id: row.get(0)?,
+                    legacy_chat_id: row.get(1)?,
+                    agent_id: row.get(2)?,
+                    project_id: row.get(3)?,
+                    department_id: row.get(4)?,
+                    session_type: row.get(5)?,
+                    name: row.get(6)?,
+                    status: row.get(7)?,
+                    created_at: row.get(8)?,
+                    closed_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(rows)
+    }
+
+    /// Create a new session. Returns the session UUID.
+    pub async fn create_session(
+        &self,
+        agent_id: &str,
+        project_id: Option<&str>,
+        department_id: Option<&str>,
+        session_type: &str,
+        name: &str,
+    ) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let legacy_chat_id = {
+            // Derive a deterministic i64 from the session UUID (FNV-1a).
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for byte in id.bytes() {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            (hash & 0x001F_FFFF_FFFF_FFFF | 5) as i64 // tag=5 for created sessions
+        };
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT INTO sessions (id, legacy_chat_id, agent_id, project_id, department_id, session_type, name, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active')",
+            params![id, legacy_chat_id, agent_id, project_id, department_id, session_type, name],
+        )?;
+        Ok(id)
+    }
+
+    /// Close a session by setting status to 'closed'.
+    pub async fn close_session(&self, session_id: &str) -> Result<()> {
+        let db = self.db.lock().await;
+        db.execute(
+            "UPDATE sessions SET status = 'closed', closed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+             WHERE id = ?1",
+            params![session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get a single session by ID.
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
+        let db = self.db.lock().await;
+        let session = db
+            .query_row(
+                "SELECT id, legacy_chat_id, agent_id, project_id, department_id, session_type, name, status, created_at, closed_at
+                 FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| {
+                    Ok(Session {
+                        id: row.get(0)?,
+                        legacy_chat_id: row.get(1)?,
+                        agent_id: row.get(2)?,
+                        project_id: row.get(3)?,
+                        department_id: row.get(4)?,
+                        session_type: row.get(5)?,
+                        name: row.get(6)?,
+                        status: row.get(7)?,
+                        created_at: row.get(8)?,
+                        closed_at: row.get(9)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(session)
+    }
 }
 
 /// Mask to keep chat IDs within JS MAX_SAFE_INTEGER (2^53 - 1).
@@ -445,22 +811,22 @@ fn hashed_chat_id(key: &str, tag: u64) -> i64 {
 }
 
 /// Deterministic chat ID for a project-wide channel.
-pub fn company_chat_id(project_name: &str) -> i64 {
+pub(crate) fn company_chat_id(project_name: &str) -> i64 {
     hashed_chat_id(&format!("project:{project_name}"), 1)
 }
 
 /// Deterministic chat ID for a named shared channel.
-pub fn named_channel_chat_id(channel_name: &str) -> i64 {
+pub(crate) fn named_channel_chat_id(channel_name: &str) -> i64 {
     hashed_chat_id(&format!("channel:{channel_name}"), 2)
 }
 
 /// Deterministic chat ID for a department channel within a company.
-pub fn department_chat_id(project_name: &str, department: &str) -> i64 {
+pub(crate) fn department_chat_id(project_name: &str, department: &str) -> i64 {
     hashed_chat_id(&format!("dept:{project_name}:{department}"), 4)
 }
 
 /// Deterministic chat ID for the agency-wide group chat.
-pub fn agency_chat_id() -> i64 {
+pub(crate) fn agency_chat_id() -> i64 {
     hashed_chat_id("agency:global", 3)
 }
 
@@ -687,5 +1053,146 @@ mod tests {
         assert_ne!(department, named);
         assert_ne!(department, agency);
         assert_ne!(named, agency);
+    }
+
+    // ── Session tests ──
+
+    #[tokio::test]
+    async fn test_ensure_session_creates_and_returns() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+
+        let id1 = store
+            .ensure_session(100, "web", "test-session", None, None)
+            .await
+            .unwrap();
+        assert!(!id1.is_empty());
+        assert!(id1.contains('-')); // UUID format
+
+        // Calling again returns the same ID.
+        let id2 = store
+            .ensure_session(100, "web", "test-session", None, None)
+            .await
+            .unwrap();
+        assert_eq!(id1, id2);
+    }
+
+    #[tokio::test]
+    async fn test_ensure_session_with_agent_and_project() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+
+        let id = store
+            .ensure_session(
+                200,
+                "web",
+                "agent-session",
+                Some("agent-uuid-1"),
+                Some("project-uuid-1"),
+            )
+            .await
+            .unwrap();
+
+        let sessions = store
+            .list_sessions(Some("agent-uuid-1"), None, 10)
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, id);
+        assert_eq!(sessions[0].agent_id.as_deref(), Some("agent-uuid-1"));
+        assert_eq!(sessions[0].project_id.as_deref(), Some("project-uuid-1"));
+        assert_eq!(sessions[0].legacy_chat_id, Some(200));
+    }
+
+    #[tokio::test]
+    async fn test_record_and_history_by_session() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+
+        let session_id = store
+            .ensure_session(300, "web", "history-test", None, None)
+            .await
+            .unwrap();
+
+        store
+            .record_by_session(&session_id, "user", "hello from session", Some("web"))
+            .await
+            .unwrap();
+        store
+            .record_by_session(&session_id, "assistant", "hi back", Some("web"))
+            .await
+            .unwrap();
+
+        let msgs = store.history_by_session(&session_id, 10).await.unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].content, "hello from session");
+        assert_eq!(msgs[1].content, "hi back");
+
+        // Legacy path still works.
+        let legacy_msgs = store.recent(300, 10).await.unwrap();
+        assert_eq!(legacy_msgs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_filtering() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+
+        store
+            .ensure_session(400, "web", "s1", Some("a1"), Some("p1"))
+            .await
+            .unwrap();
+        store
+            .ensure_session(401, "web", "s2", Some("a1"), Some("p2"))
+            .await
+            .unwrap();
+        store
+            .ensure_session(402, "web", "s3", Some("a2"), Some("p1"))
+            .await
+            .unwrap();
+
+        let all = store.list_sessions(None, None, 100).await.unwrap();
+        assert_eq!(all.len(), 3);
+
+        let by_agent = store.list_sessions(Some("a1"), None, 100).await.unwrap();
+        assert_eq!(by_agent.len(), 2);
+
+        let by_project = store.list_sessions(None, Some("p1"), 100).await.unwrap();
+        assert_eq!(by_project.len(), 2);
+
+        let by_both = store
+            .list_sessions(Some("a1"), Some("p1"), 100)
+            .await
+            .unwrap();
+        assert_eq!(by_both.len(), 1);
+        assert_eq!(by_both[0].name, "s1");
+    }
+
+    #[tokio::test]
+    async fn test_channel_backfill_creates_sessions() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+
+        // Create channels.
+        store
+            .ensure_channel_with_agent(500, "company", "proj-alpha", Some("agent-x"))
+            .await
+            .unwrap();
+        store.ensure_channel(501, "dm", "akira").await.unwrap();
+
+        // Re-open the store to trigger backfill.
+        drop(store);
+        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+
+        let sessions = store.list_sessions(None, None, 100).await.unwrap();
+        assert_eq!(sessions.len(), 2);
+
+        // Verify the one with agent_id got it backfilled.
+        let agent_sessions = store
+            .list_sessions(Some("agent-x"), None, 100)
+            .await
+            .unwrap();
+        assert_eq!(agent_sessions.len(), 1);
+        assert_eq!(agent_sessions[0].legacy_chat_id, Some(500));
     }
 }

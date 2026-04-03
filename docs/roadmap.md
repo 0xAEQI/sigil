@@ -9,7 +9,7 @@ AEQI already has meaningful foundations:
 - a Rust workspace with a daemon, API, memory layer, task storage, and orchestration logic
 - a native agent loop
 - a web UI
-- task DAGs, missions, audit, blackboard, budgets, and notes
+- task DAGs, audit, notes, budgets, and triggers
 - provider abstraction and room for multiple model backends
 
 What it does not yet have is full product coherence around the north star.

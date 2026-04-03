@@ -14,7 +14,7 @@ pub struct AgentVisual {
 }
 
 impl AgentVisual {
-    pub fn default_shadow() -> Self {
+    pub fn default_agent() -> Self {
         let mut faces = HashMap::new();
         faces.insert("greeting".into(), "(◕‿◕)✧".into());
         faces.insert("thinking".into(), "(◔_◔)".into());
@@ -24,8 +24,8 @@ impl AgentVisual {
         faces.insert("idle".into(), "(￣ω￣)".into());
 
         Self {
-            name: "shadow".into(),
-            display_name: "Shadow".into(),
+            name: "assistant".into(),
+            display_name: "Assistant".into(),
             color: (255, 215, 0), // Gold
             avatar: "⚕".into(),
             faces,
@@ -291,7 +291,7 @@ fn tool_emoji(name: &str) -> &'static str {
         "execute_plan" => "📋",
         "memory_recall" | "aeqi_recall" => "📚",
         "memory_store" | "aeqi_remember" => "💾",
-        "notes" | "aeqi_notes" | "blackboard" | "aeqi_blackboard" => "📌",
+        "notes" | "aeqi_notes" => "📌",
         "aeqi_graph" => "🔗",
         "aeqi_skills" => "⚡",
         _ => "⚙️",

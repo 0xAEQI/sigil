@@ -20,7 +20,6 @@ pub struct Operation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperationTask {
     pub task_id: TaskId,
-    #[serde(alias = "project")]
     pub company: String,
     pub closed: bool,
 }

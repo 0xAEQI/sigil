@@ -157,6 +157,13 @@ pub enum StreamEvent {
     ToolUseStart { id: String, name: String },
     /// Incremental JSON input for the current tool use block.
     ToolUseInput(String),
+    /// A tool use block is complete — input JSON fully received and parsed.
+    /// Emitted on `content_block_stop` for tool blocks, enabling early execution.
+    ToolUseComplete {
+        id: String,
+        name: String,
+        arguments: serde_json::Value,
+    },
     /// The complete response has been assembled (final usage available).
     MessageComplete(ChatResponse),
     /// Token usage update (may arrive mid-stream or at end).
@@ -193,6 +200,13 @@ pub trait Provider: Send + Sync {
                 .await;
             let _ = tx
                 .send(StreamEvent::ToolUseInput(tc.arguments.to_string()))
+                .await;
+            let _ = tx
+                .send(StreamEvent::ToolUseComplete {
+                    id: tc.id.clone(),
+                    name: tc.name.clone(),
+                    arguments: tc.arguments.clone(),
+                })
                 .await;
         }
         // Emit usage and completion.

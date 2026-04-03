@@ -5,6 +5,7 @@ import StatusBadge from "@/components/StatusBadge";
 import AuditEntryComponent from "@/components/AuditEntry";
 import { PRIORITY_COLORS } from "@/lib/constants";
 import { api } from "@/lib/api";
+import { HeroStats, Panel, DetailField, TagList } from "@/components/ui";
 
 export default function AgentDetailPage() {
   const { name } = useParams<{ name: string }>();
@@ -65,58 +66,25 @@ export default function AgentDetailPage() {
       />
 
       {/* Hero */}
-      <div className="hero-stats">
-        <div className="hero-stat">
-          <div className="hero-stat-value">{tasks.length}</div>
-          <div className="hero-stat-label">Total Tasks</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value success">{completedTasks}</div>
-          <div className="hero-stat-label">Completed</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value error">{failedTasks}</div>
-          <div className="hero-stat-label">Failed</div>
-        </div>
-        <div className="hero-stat-divider" />
-        <div className="hero-stat">
-          <div className="hero-stat-value">{audit.length}</div>
-          <div className="hero-stat-label">Decisions</div>
-        </div>
-      </div>
+      <HeroStats stats={[
+        { value: tasks.length, label: "Total Tasks" },
+        { value: completedTasks, label: "Completed", color: "success" },
+        { value: failedTasks, label: "Failed", color: "error" },
+        { value: audit.length, label: "Decisions" },
+      ]} />
 
       <div className="detail-grid">
         <div className="detail-sidebar">
           {/* Identity Panel */}
-          <div className="detail-panel">
-            <div className="detail-panel-title">Identity</div>
-            <div className="detail-field">
-              <div className="detail-field-label">Role</div>
-              <div className="detail-field-value">{agent.role}</div>
-            </div>
-            <div className="detail-field">
-              <div className="detail-field-label">Prefix</div>
-              <div className="detail-field-value"><code>{agent.prefix}</code></div>
-            </div>
-            <div className="detail-field">
-              <div className="detail-field-label">Model</div>
-              <div className="detail-field-value">{agent.model || "default"}</div>
-            </div>
-          </div>
+          <Panel variant="detail" title="Identity">
+            <DetailField label="Role">{agent.role}</DetailField>
+            <DetailField label="Prefix"><code>{agent.prefix}</code></DetailField>
+            <DetailField label="Model">{agent.model || "default"}</DetailField>
+          </Panel>
 
           {/* Expertise Panel */}
-          <div className="detail-panel">
-            <div className="detail-panel-title">Expertise</div>
-            <div className="flex-wrap-tags">
-              {(agent.expertise || []).map((e: string) => (
-                <span key={e} className="expertise-tag">{e}</span>
-              ))}
-              {(!agent.expertise || agent.expertise.length === 0) && (
-                <span className="text-hint">No expertise tags</span>
-              )}
-            </div>
+          <Panel variant="detail" title="Expertise">
+            <TagList items={agent.expertise || []} empty="No expertise tags" />
             {agent.expertise_scores && agent.expertise_scores.length > 0 && (
               <div style={{ marginTop: "var(--space-4)" }}>
                 <div className="detail-field-label" style={{ marginBottom: "var(--space-2)" }}>Scores</div>
@@ -129,7 +97,7 @@ export default function AgentDetailPage() {
                 ))}
               </div>
             )}
-          </div>
+          </Panel>
         </div>
 
         {/* Main Content */}
@@ -211,11 +179,7 @@ export default function AgentDetailPage() {
 
           {/* Active Work */}
           {activeTasks.length > 0 && (
-            <div className="dash-panel">
-              <div className="dash-panel-header">
-                <span className="dash-panel-title">Active Work</span>
-                <span className="text-hint">{activeTasks.length} tasks</span>
-              </div>
+            <Panel title="Active Work" actions={<span className="text-hint">{activeTasks.length} tasks</span>}>
               <div className="task-table">
                 {activeTasks.map((task: any) => (
                   <div key={task.id} className="task-row">
@@ -229,15 +193,11 @@ export default function AgentDetailPage() {
                   </div>
                 ))}
               </div>
-            </div>
+            </Panel>
           )}
 
           {/* Recent Activity */}
-          <div className="dash-panel">
-            <div className="dash-panel-header">
-              <span className="dash-panel-title">Recent Activity</span>
-              <span className="text-hint">{audit.length} events</span>
-            </div>
+          <Panel title="Recent Activity" actions={<span className="text-hint">{audit.length} events</span>}>
             <div className="column-section-body">
               {audit.length === 0 ? (
                 <div className="dash-empty">No recent activity</div>
@@ -247,7 +207,7 @@ export default function AgentDetailPage() {
                 ))
               )}
             </div>
-          </div>
+          </Panel>
         </div>
       </div>
     </>

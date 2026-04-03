@@ -1,4 +1,4 @@
-//! Shadow git checkpoint manager — transparent filesystem snapshots for rollback.
+//! Git checkpoint manager — transparent filesystem snapshots for rollback.
 //!
 //! Uses a separate GIT_DIR (outside the user's repo) with GIT_WORK_TREE pointing
 //! to the project directory. No git state leaks into the user's project.

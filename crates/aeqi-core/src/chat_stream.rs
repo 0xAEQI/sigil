@@ -34,6 +34,8 @@ pub enum ChatStreamEvent {
         tool_use_id: String,
         tool_name: String,
         success: bool,
+        /// Human-readable summary of what was called (e.g., "ls -la /home/...").
+        input_preview: String,
         /// Preview of the output (first 500 chars).
         output_preview: String,
         duration_ms: u64,

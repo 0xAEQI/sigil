@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "@/store/chat";
-import { api } from "@/lib/api";
-import type { PersistentAgent, Department } from "@/lib/types";
+import { useDaemonStore } from "@/store/daemon";
+import type { AgentRef, PersistentAgent, Department } from "@/lib/types";
 
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
@@ -60,14 +60,14 @@ function DeptGroupView({
 }: {
   node: DeptNode;
   depth: number;
-  selectedAgent: string | null;
+  selectedAgent: AgentRef | null;
   collapsed: Record<string, boolean>;
-  onSelectAgent: (name: string) => void;
+  onSelectAgent: (agent: AgentRef) => void;
   onSelectDept: (id: string, name: string) => void;
   onToggle: (id: string, e: React.MouseEvent) => void;
 }) {
   const isCollapsed = collapsed[node.dept.id] ?? false;
-  const isDeptActive = selectedAgent === `dept:${node.dept.id}`;
+  const isDeptActive = selectedAgent?.id === `dept:${node.dept.id}`;
 
   // Each depth level gets slightly more bg opacity
   const bg = `rgba(255,255,255,${0.02 + depth * 0.01})`;
@@ -90,8 +90,8 @@ function DeptGroupView({
             return (
               <div
                 key={agent.id}
-                className={`agent-row dept-agent${selectedAgent === label ? " active" : ""}`}
-                onClick={() => onSelectAgent(label)}
+                className={`agent-row dept-agent${selectedAgent?.id === agent.id ? " active" : ""}`}
+                onClick={() => onSelectAgent({ id: agent.id, name: agent.name, display_name: agent.display_name, project: agent.project, model: agent.model })}
               >
                 {label}
               </div>
@@ -120,31 +120,15 @@ export default function AgentNav() {
   const channel = useChatStore((s) => s.channel);
   const selectedAgent = useChatStore((s) => s.selectedAgent);
   const setSelectedAgent = useChatStore((s) => s.setSelectedAgent);
-  const [agents, setAgents] = useState<PersistentAgent[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const allAgents = useDaemonStore((s) => s.agents);
+  const allDepartments = useDaemonStore((s) => s.departments);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    const load = () => {
-      api.getAgents().then((d: any) => {
-        const list = d.agents || d.registry || [];
-        setAgents(list.filter((a: PersistentAgent) => a.status === "Active" || a.status === "active"));
-      }).catch(() => {});
-
-      api.getDepartments?.().then((d: any) => {
-        setDepartments(d.departments || []);
-      }).catch(() => {});
-    };
-    load();
-    const interval = setInterval(load, 20000);
-    return () => clearInterval(interval);
-  }, [channel]);
-
   const filtered = channel
-    ? agents.filter((a) => a.company === channel || !a.company)
-    : agents.filter((a) => !a.company);
+    ? allAgents.filter((a) => (a.status === "Active" || a.status === "active") && (a.project === channel || !a.project))
+    : allAgents.filter((a) => (a.status === "Active" || a.status === "active") && !a.project);
 
-  const filteredDepts = departments.filter((d) => !channel || d.company === channel);
+  const filteredDepts = allDepartments.filter((d) => !channel || d.project === channel);
   const tree = buildTree(filteredDepts, filtered, null);
 
   // Root agents: not in any department
@@ -170,13 +154,13 @@ export default function AgentNav() {
     return p === "/login" ? "/" : p;
   };
 
-  const handleSelectAgent = (name: string) => {
-    setSelectedAgent(name);
-    navigate(`${currentPath()}?agent=${encodeURIComponent(name)}`);
+  const handleSelectAgent = (agent: AgentRef) => {
+    setSelectedAgent(agent);
+    navigate(`${currentPath()}?agent=${encodeURIComponent(agent.name)}`);
   };
 
   const handleSelectDept = (id: string, name: string) => {
-    setSelectedAgent(`dept:${id}`);
+    setSelectedAgent({ id: `dept:${id}`, name });
     navigate(`${currentPath()}?dept=${encodeURIComponent(name)}`);
   };
 
@@ -192,8 +176,8 @@ export default function AgentNav() {
           return (
             <div
               key={agent.id}
-              className={`agent-row${selectedAgent === label ? " active" : ""}`}
-              onClick={() => handleSelectAgent(label)}
+              className={`agent-row${selectedAgent?.id === agent.id ? " active" : ""}`}
+              onClick={() => handleSelectAgent({ id: agent.id, name: agent.name, display_name: agent.display_name, project: agent.project, model: agent.model })}
             >
               {label}
             </div>
@@ -214,10 +198,6 @@ export default function AgentNav() {
         ))}
       </div>
 
-      {/* Bottom — docs link */}
-      <div className="agent-nav-bottom">
-        <a className="agent-nav-text-btn" href="https://github.com/0xAEQI/aeqi" target="_blank" rel="noopener">docs</a>
-      </div>
     </nav>
   );
 }

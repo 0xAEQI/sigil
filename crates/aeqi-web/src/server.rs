@@ -78,7 +78,7 @@ pub async fn start(config: &AEQIConfig) -> Result<()> {
         .route("/api/ws", axum::routing::get(ws::handler))
         .route(
             "/api/chat/stream",
-            axum::routing::get(crate::chat_ws::handler),
+            axum::routing::get(crate::session_ws::handler),
         )
         .nest("/api", webhook_routes());
 

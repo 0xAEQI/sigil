@@ -1,4 +1,5 @@
 import StatusBadge from "./StatusBadge";
+import { ProgressBar } from "@/components/ui";
 import type { Mission } from "@/lib/types";
 
 interface MissionCardProps {
@@ -50,15 +51,7 @@ export default function MissionCard({ mission }: MissionCardProps) {
       </div>
 
       <div className="mission-progress">
-        <div className="mission-progress-bar">
-          <div
-            className="mission-progress-fill"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-        <span className="mission-progress-text">
-          {mission.done_count}/{mission.task_count} tasks
-        </span>
+        <ProgressBar value={progressPct} label={`${mission.done_count}/${mission.task_count} tasks`} />
       </div>
 
       <div className="mission-footer">

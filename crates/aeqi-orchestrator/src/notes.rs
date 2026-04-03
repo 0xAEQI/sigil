@@ -48,7 +48,6 @@ pub struct NoteEntry {
     pub key: String,
     pub content: String,
     pub agent: String,
-    #[serde(alias = "project")]
     pub company: String,
     pub tags: Vec<String>,
     pub durability: EntryDurability,
@@ -62,7 +61,6 @@ pub struct AgentVisibility {
     /// The agent's own UUID — grants access to `agent:{uuid}:*` entries.
     pub agent_id: Option<String>,
     /// The company the agent belongs to — grants access to `project:{name}:*` entries.
-    #[serde(alias = "project")]
     pub company: Option<String>,
     /// The department the agent belongs to — grants access to `dept:{name}:*` entries.
     pub department: Option<String>,

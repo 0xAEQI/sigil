@@ -262,6 +262,20 @@ impl aeqi_core::traits::Tool for ListDirTool {
             self.workspace.join(path)
         };
 
+        // Workspace boundary check (consistent with FileReadTool/FileWriteTool).
+        let canonical = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+        let workspace_canonical = self
+            .workspace
+            .canonicalize()
+            .unwrap_or_else(|_| self.workspace.clone());
+        if !canonical.starts_with(&workspace_canonical) {
+            return Ok(ToolResult::error(format!(
+                "path {} is outside workspace {}",
+                path,
+                self.workspace.display()
+            )));
+        }
+
         debug!(path = %resolved.display(), "listing directory");
 
         let mut entries = Vec::new();

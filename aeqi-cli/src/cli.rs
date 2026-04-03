@@ -114,7 +114,6 @@ pub enum Commands {
 
     // --- Phase 5: Pipelines ---
     /// Pipeline workflow commands.
-    #[command(alias = "mol")]
     Pipeline {
         #[command(subcommand)]
         action: PipelineAction,
@@ -191,7 +190,6 @@ pub enum Commands {
     },
 
     /// Query or post to the inter-agent notes.
-    #[command(alias = "blackboard")]
     Notes {
         #[command(subcommand)]
         action: NotesAction,

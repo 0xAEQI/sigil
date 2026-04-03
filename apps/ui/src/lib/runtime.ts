@@ -64,3 +64,14 @@ export function runtimeLabel(runtime?: TaskRuntime): string | null {
   const parts = [phase, status].filter(Boolean);
   return parts.length > 0 ? parts.join(" • ") : null;
 }
+
+export function extractRuntime(task: { runtime?: TaskRuntime; metadata?: Record<string, unknown> }): TaskRuntime | null {
+  if (task.runtime) return task.runtime;
+  const rt = task.metadata?.["aeqi/runtime"] as TaskRuntime | undefined;
+  return rt ?? null;
+}
+
+export function extractOutcome(task: { metadata?: Record<string, unknown> }): { kind: string; summary: string; reason?: string; next_action?: string } | null {
+  const oc = task.metadata?.["aeqi/task_outcome"] as any;
+  return oc ?? null;
+}

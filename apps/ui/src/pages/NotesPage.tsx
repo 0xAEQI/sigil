@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
-import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 export default function NotesPage() {
@@ -34,11 +34,7 @@ export default function NotesPage() {
         </span>
       </div>
 
-      {loading ? (
-        <div className="loading">Loading notes...</div>
-      ) : entries.length === 0 ? (
-        <EmptyState title="No entries" description="No notes yet." />
-      ) : (
+      <DataState loading={loading} empty={entries.length === 0} emptyTitle="No notes" emptyDescription="No notes found." loadingText="Loading notes...">
         <div>
           {entries.map((entry: any, i: number) => (
             <div key={i} className="note-entry">
@@ -53,7 +49,7 @@ export default function NotesPage() {
             </div>
           ))}
         </div>
-      )}
+      </DataState>
     </>
   );
 }

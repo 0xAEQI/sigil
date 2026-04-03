@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import MissionCard from "@/components/MissionCard";
-import EmptyState from "@/components/EmptyState";
+import { DataState } from "@/components/ui";
 import { api } from "@/lib/api";
 
 export default function MissionsPage() {
@@ -18,17 +18,13 @@ export default function MissionsPage() {
   return (
     <>
       <Header title="Missions" />
-      {loading ? (
-        <div className="loading">Loading missions...</div>
-      ) : missions.length === 0 ? (
-        <EmptyState title="No missions" description="No missions found." />
-      ) : (
+      <DataState loading={loading} empty={missions.length === 0} emptyTitle="No missions" emptyDescription="No missions found." loadingText="Loading missions...">
         <div className="cards-grid">
           {missions.map((m: any) => (
             <MissionCard key={m.id} mission={m} />
           ))}
         </div>
-      )}
+      </DataState>
     </>
   );
 }

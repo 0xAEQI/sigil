@@ -32,6 +32,7 @@ struct TrackedTool {
     status: ToolStatus,
     is_concurrent_safe: bool,
     result: Option<ToolResult>,
+    started_at: Option<std::time::Instant>,
     join_handle: Option<JoinHandle<Result<ToolResult, String>>>,
 }
 
@@ -40,6 +41,7 @@ struct TrackedTool {
 pub struct CompletedTool {
     pub id: String,
     pub name: String,
+    pub input: serde_json::Value,
     pub result: ToolResult,
     pub duration_ms: u64,
 }
@@ -92,6 +94,7 @@ impl StreamingToolExecutor {
             status: ToolStatus::Queued,
             is_concurrent_safe: is_safe,
             result: None,
+            started_at: None,
             join_handle: None,
         });
 
@@ -165,6 +168,7 @@ impl StreamingToolExecutor {
             });
 
             self.queue[i].status = ToolStatus::Executing;
+            self.queue[i].started_at = Some(std::time::Instant::now());
             self.queue[i].join_handle = Some(handle);
         }
     }
@@ -183,11 +187,16 @@ impl StreamingToolExecutor {
                         .result
                         .take()
                         .unwrap_or_else(|| ToolResult::error("Tool cancelled"));
+                    let duration_ms = tool
+                        .started_at
+                        .map(|s| s.elapsed().as_millis() as u64)
+                        .unwrap_or(0);
                     results.push(CompletedTool {
                         id: tool.id,
                         name: tool.name,
+                        input: tool.input,
                         result,
-                        duration_ms: 0, // TODO: track start time
+                        duration_ms,
                     });
                 }
                 _ => break, // Not yet complete — stop draining.
@@ -256,24 +265,34 @@ impl StreamingToolExecutor {
             let result = tool
                 .result
                 .unwrap_or_else(|| ToolResult::error("Tool never completed"));
+            let duration_ms = tool
+                .started_at
+                .map(|s| s.elapsed().as_millis() as u64)
+                .unwrap_or(0);
             results.push(CompletedTool {
                 id: tool.id,
                 name: tool.name,
+                input: tool.input,
                 result,
-                duration_ms: 0,
+                duration_ms,
             });
         }
         results
     }
 
-    /// Discard all pending tools. Called on streaming fallback or abort.
+    /// Discard all pending tools and abort executing ones.
+    /// Called on streaming fallback, abort, or before_tool halt.
     pub fn discard(&mut self) {
         for tool in self.queue.iter_mut() {
             if tool.status == ToolStatus::Queued {
                 tool.status = ToolStatus::Cancelled;
                 tool.result = Some(ToolResult::error("Discarded: streaming fallback"));
             }
-            // Executing tools will be cleaned up when their JoinHandle is dropped.
+            // Abort executing tasks to prevent orphaned background work.
+            // (Dropping a JoinHandle only detaches — it does NOT cancel the task.)
+            if let Some(handle) = tool.join_handle.take() {
+                handle.abort();
+            }
         }
     }
 

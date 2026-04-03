@@ -10,11 +10,12 @@ use crate::agent_registry::AgentRegistry;
 use crate::chat_engine::{ChatEngine, ChatMessage, ChatSource};
 use crate::execution_events::{EventBroadcaster, ExecutionEvent};
 use crate::message::{Dispatch, DispatchBus, DispatchHealth, DispatchKind};
+use crate::progress_tracker::ProgressTracker;
 use crate::registry::CompanyRegistry;
+use crate::session_manager::{RunningSession, SessionManager};
 use crate::session_store::{
     agency_chat_id, company_chat_id, department_chat_id, named_channel_chat_id,
 };
-use crate::session_tracker::SessionTracker;
 use crate::trigger::TriggerStore;
 
 const ACK_RETRY_AGE_SECS: u64 = 60;
@@ -207,6 +208,7 @@ pub struct Daemon {
     pub default_provider: Option<Arc<dyn aeqi_core::traits::Provider>>,
     pub default_model: String,
     event_buffer: Arc<Mutex<EventBuffer>>,
+    pub session_manager: Arc<SessionManager>,
     pub pid_file: Option<PathBuf>,
     pub socket_path: Option<PathBuf>,
     session_tracker_shutdown: Option<Arc<tokio::sync::Notify>>,
@@ -233,6 +235,7 @@ impl Daemon {
             default_provider: None,
             default_model: String::new(),
             event_buffer: Arc::new(Mutex::new(EventBuffer::default())),
+            session_manager: Arc::new(SessionManager::new()),
             pid_file: None,
             socket_path: None,
             session_tracker_shutdown: None,
@@ -252,7 +255,7 @@ impl Daemon {
         // Look up agent to determine project.
         let project = if let Some(ref registry) = self.agent_registry {
             match registry.get(&trigger.agent_id).await {
-                Ok(Some(agent)) => match agent.company {
+                Ok(Some(agent)) => match agent.project {
                     Some(p) => p,
                     None => {
                         warn!(
@@ -365,12 +368,12 @@ impl Daemon {
                 self.process_agent_dispatches(
                     &agent.id,
                     &agent.name,
-                    &agent.company,
+                    &agent.project,
                     &id_dispatches,
                 )
                 .await;
             } else {
-                self.process_agent_dispatches(&agent.id, &agent.name, &agent.company, &dispatches)
+                self.process_agent_dispatches(&agent.id, &agent.name, &agent.project, &dispatches)
                     .await;
             }
         }
@@ -490,7 +493,7 @@ impl Daemon {
 
     /// Start the session tracker in a dedicated tokio::spawn.
     /// Returns the shutdown Notify so it can be stopped later.
-    pub fn start_session_tracker(&mut self, tracker: SessionTracker) {
+    pub fn start_session_tracker(&mut self, tracker: ProgressTracker) {
         let shutdown = Arc::new(tokio::sync::Notify::new());
         let shutdown_clone = shutdown.clone();
         tokio::spawn(async move {
@@ -573,12 +576,31 @@ impl Daemon {
     }
 
     /// Start the daemon loop with graceful shutdown on Ctrl+C.
+    /// Main daemon entry point. Spawns background services, then runs the patrol loop.
     pub async fn run(&mut self) -> Result<()> {
         self.running
             .store(true, std::sync::atomic::Ordering::SeqCst);
 
         self.write_pid_file()?;
 
+        self.spawn_signal_handlers();
+        self.spawn_event_listeners();
+        self.spawn_ipc_listener();
+        self.load_persisted_state().await;
+
+        info!(triggers = self.trigger_store.is_some(), "daemon started");
+
+        self.run_patrol_loop().await;
+
+        self.stop_session_tracker();
+        self.remove_pid_file();
+        self.remove_socket_file();
+        info!("daemon stopped");
+        Ok(())
+    }
+
+    /// Spawn OS signal handlers: Ctrl+C, SIGHUP (config reload), SIGTERM (graceful shutdown).
+    fn spawn_signal_handlers(&self) {
         let running = self.running.clone();
         let shutdown_notify = self.shutdown_notify.clone();
         tokio::spawn(async move {
@@ -589,7 +611,6 @@ impl Daemon {
             }
         });
 
-        // Set up SIGHUP handler for config reload.
         #[cfg(unix)]
         {
             let config_reloaded = self.config_reloaded.clone();
@@ -610,7 +631,6 @@ impl Daemon {
             });
         }
 
-        // Set up SIGTERM handler for graceful shutdown (e.g. `rm daemon stop`, Docker, systemd).
         #[cfg(unix)]
         {
             let running = self.running.clone();
@@ -631,8 +651,11 @@ impl Daemon {
                 shutdown_notify.notify_waiters();
             });
         }
+    }
 
-        // Spawn event trigger listener.
+    /// Spawn background listeners for event triggers and execution event buffering.
+    fn spawn_event_listeners(&self) {
+        // Event trigger listener — matches events against trigger patterns, fires tasks.
         if let Some(ref trigger_store) = self.trigger_store {
             let ts = trigger_store.clone();
             let registry = self.registry.clone();
@@ -669,7 +692,6 @@ impl Daemon {
                         if !pattern.matches_event(&event) {
                             continue;
                         }
-                        // Check cooldown.
                         if let Some(last) = cooldowns.get(&trigger.id)
                             && (Utc::now() - *last).num_seconds() < cooldown_secs as i64
                         {
@@ -677,10 +699,9 @@ impl Daemon {
                         }
                         cooldowns.insert(trigger.id.clone(), Utc::now());
 
-                        // Look up agent project.
                         let project = if let Some(ref ar) = agent_reg {
                             match ar.get(&trigger.agent_id).await {
-                                Ok(Some(a)) => a.company,
+                                Ok(Some(a)) => a.project,
                                 _ => None,
                             }
                         } else {
@@ -688,8 +709,6 @@ impl Daemon {
                         };
                         if let Some(project) = project {
                             let subject = format!("[trigger:{}] {}", trigger.name, trigger.skill);
-                            // For DispatchReceived events, read pending dispatches for
-                            // the target agent and inject the prompt into the task.
                             let mut delegation_labels: Vec<String> = Vec::new();
                             let dispatch_context =
                                 if let crate::execution_events::ExecutionEvent::DispatchReceived {
@@ -707,7 +726,6 @@ impl Daemon {
                                                 ..
                                             } = d.kind
                                             {
-                                                // Store origin info so response can be routed back.
                                                 delegation_labels
                                                     .push(format!("delegate_from:{}", d.from));
                                                 delegation_labels
@@ -767,7 +785,7 @@ impl Daemon {
             });
         }
 
-        // Spawn background task to collect execution events from the broadcaster.
+        // Execution event buffer — collects events for the event buffer API.
         {
             let event_buffer = self.event_buffer.clone();
             let mut rx = self.event_broadcaster.subscribe();
@@ -790,52 +808,65 @@ impl Daemon {
                 }
             });
         }
+    }
 
-        // Start Unix socket listener for IPC queries.
-        #[cfg(unix)]
-        if let Some(ref sock_path) = self.socket_path {
-            // Remove stale socket file.
-            let _ = std::fs::remove_file(sock_path);
-            if let Some(parent) = sock_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+    /// Bind the Unix socket for IPC queries (if configured).
+    #[cfg(unix)]
+    fn spawn_ipc_listener(&self) {
+        let Some(ref sock_path) = self.socket_path else {
+            return;
+        };
+        let _ = std::fs::remove_file(sock_path);
+        if let Some(parent) = sock_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match tokio::net::UnixListener::bind(sock_path) {
+            Ok(listener) => {
+                let registry = self.registry.clone();
+                let dispatch_bus = self.dispatch_bus.clone();
+                let trigger_store = self.trigger_store.clone();
+                let agent_registry = self.agent_registry.clone();
+                let chat_engine = self.chat_engine.clone();
+                let event_buffer = self.event_buffer.clone();
+                let running = self.running.clone();
+                let readiness = self.readiness.clone();
+                let default_provider = self.default_provider.clone();
+                let default_model = self.default_model.clone();
+                let session_manager = self.session_manager.clone();
+                let event_broadcaster = self.event_broadcaster.clone();
+                info!(path = %sock_path.display(), "IPC socket listening");
+                tokio::spawn(async move {
+                    Self::socket_accept_loop(
+                        listener,
+                        registry,
+                        dispatch_bus,
+                        trigger_store,
+                        agent_registry,
+                        chat_engine,
+                        event_buffer,
+                        running,
+                        readiness,
+                        default_provider,
+                        default_model,
+                        session_manager,
+                        event_broadcaster,
+                    )
+                    .await;
+                });
             }
-            match tokio::net::UnixListener::bind(sock_path) {
-                Ok(listener) => {
-                    let registry = self.registry.clone();
-                    let dispatch_bus = self.dispatch_bus.clone();
-                    let trigger_store = self.trigger_store.clone();
-                    let agent_registry = self.agent_registry.clone();
-                    let chat_engine = self.chat_engine.clone();
-                    let event_buffer = self.event_buffer.clone();
-                    let running = self.running.clone();
-                    let readiness = self.readiness.clone();
-                    let default_provider = self.default_provider.clone();
-                    let default_model = self.default_model.clone();
-                    info!(path = %sock_path.display(), "IPC socket listening");
-                    tokio::spawn(async move {
-                        Self::socket_accept_loop(
-                            listener,
-                            registry,
-                            dispatch_bus,
-                            trigger_store,
-                            agent_registry,
-                            chat_engine,
-                            event_buffer,
-                            running,
-                            readiness,
-                            default_provider,
-                            default_model,
-                        )
-                        .await;
-                    });
-                }
-                Err(e) => {
-                    warn!(error = %e, path = %sock_path.display(), "failed to bind IPC socket");
-                }
+            Err(e) => {
+                warn!(error = %e, path = %sock_path.display(), "failed to bind IPC socket");
             }
         }
+    }
 
-        // Load persisted state from disk.
+    #[cfg(not(unix))]
+    fn spawn_ipc_listener(&self) {
+        // IPC over Unix sockets is not supported on non-unix platforms.
+    }
+
+    /// Load persisted state (dispatch bus, cost ledger) from disk.
+    async fn load_persisted_state(&self) {
         match self.dispatch_bus.load().await {
             Ok(n) if n > 0 => info!(count = n, "loaded persisted dispatches"),
             Ok(_) => {}
@@ -846,220 +877,231 @@ impl Daemon {
             Ok(_) => {}
             Err(e) => warn!(error = %e, "failed to load cost ledger"),
         }
+    }
 
-        info!(triggers = self.trigger_store.is_some(), "daemon started");
+    /// Run one patrol iteration: triggers, config reload, persistence, metrics, pruning.
+    async fn run_patrol_iteration(&mut self) {
+        // 1. Patrol cycle: reap finished workers, assign + launch new ones.
+        if let Err(e) = self.registry.patrol_all().await {
+            warn!(error = %e, "patrol cycle failed");
+        }
 
-        while self.running.load(std::sync::atomic::Ordering::SeqCst) {
-            // 1. Patrol cycle: reap finished workers, assign + launch new ones (non-blocking).
-            if let Err(e) = self.registry.patrol_all().await {
-                warn!(error = %e, "patrol cycle failed");
-            }
+        // 1b. Consume dispatches for all active agents.
+        self.consume_agent_dispatches().await;
 
-            // 1b. Consume dispatches for all active agents (not just leader).
-            self.consume_agent_dispatches().await;
-
-            // 2. Run due triggers (schedule + once types).
-            if let Some(ref trigger_store) = self.trigger_store {
-                match trigger_store.due_schedule_triggers().await {
-                    Ok(due) => {
-                        for trigger in due {
-                            info!(
-                                trigger_id = %trigger.id,
-                                agent_id = %trigger.agent_id,
-                                name = %trigger.name,
-                                skill = %trigger.skill,
-                                "trigger fired"
-                            );
-                            self.fire_trigger(&trigger).await;
-                        }
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "failed to check due triggers");
+        // 2. Run due triggers (schedule + once types).
+        if let Some(ref trigger_store) = self.trigger_store {
+            match trigger_store.due_schedule_triggers().await {
+                Ok(due) => {
+                    for trigger in due {
+                        info!(
+                            trigger_id = %trigger.id,
+                            agent_id = %trigger.agent_id,
+                            name = %trigger.name,
+                            skill = %trigger.skill,
+                            "trigger fired"
+                        );
+                        self.fire_trigger(&trigger).await;
                     }
                 }
+                Err(e) => {
+                    warn!(error = %e, "failed to check due triggers");
+                }
             }
+        }
 
-            // 3. Check for config reload signal (SIGHUP).
-            if self
-                .config_reloaded
-                .swap(false, std::sync::atomic::Ordering::SeqCst)
-            {
-                info!("config reload requested (SIGHUP received)");
-                match aeqi_core::config::AEQIConfig::discover() {
-                    Ok((new_config, path)) => {
-                        // Apply runtime-safe fields from the reloaded config.
+        // 3. Check for config reload signal (SIGHUP).
+        if self
+            .config_reloaded
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.apply_config_reload().await;
+        }
 
-                        // (a) Global daily budget.
+        // 4. Periodic persistence: save dispatch bus + cost ledger every patrol.
+        if let Err(e) = self.dispatch_bus.save().await {
+            warn!(error = %e, "failed to save dispatch bus");
+        }
+        if let Err(e) = self.registry.cost_ledger.save() {
+            warn!(error = %e, "failed to save cost ledger");
+        }
+
+        // 5. Surface dispatch retries / dead letters for critical dispatches.
+        let retried = self.dispatch_bus.retry_unacked(ACK_RETRY_AGE_SECS).await;
+        for dispatch in &retried {
+            warn!(
+                to = %dispatch.to,
+                subject = %dispatch.kind.subject_tag(),
+                retry = dispatch.retry_count,
+                "retrying unacknowledged dispatch"
+            );
+        }
+        self.registry
+            .metrics
+            .dispatch_retries
+            .inc_by(retried.len() as u64);
+        let dead_letters = self.dispatch_bus.dead_letters().await;
+        for dispatch in &dead_letters {
+            warn!(
+                to = %dispatch.to,
+                subject = %dispatch.kind.subject_tag(),
+                retries = dispatch.retry_count,
+                "dispatch moved to dead-letter state"
+            );
+        }
+
+        // 6. Update daily cost gauge and dispatch health metrics.
+        let (spent, _, _) = self.registry.cost_ledger.budget_status();
+        self.registry.metrics.daily_cost_usd.set(spent);
+        let dispatch_health = self.dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
+        self.registry
+            .metrics
+            .dispatch_queue_depth
+            .set(dispatch_health.unread as f64);
+        self.registry
+            .metrics
+            .dispatches_awaiting_ack
+            .set(dispatch_health.awaiting_ack as f64);
+        self.registry
+            .metrics
+            .dispatches_overdue_ack
+            .set(dispatch_health.overdue_ack as f64);
+        self.registry
+            .metrics
+            .dispatch_dead_letters
+            .set(dispatch_health.dead_letters as f64);
+
+        // 7. Prune old cost entries (older than 7 days).
+        self.registry.cost_ledger.prune_old();
+
+        // 8. Prune expired blackboard entries.
+        if let Some(ref bb) = self.registry.notes
+            && let Err(e) = bb.prune_expired()
+        {
+            warn!(error = %e, "failed to prune blackboard");
+        }
+
+        // 9. Flush debounced memory writes to project memory stores.
+        self.flush_debounced_writes().await;
+
+        // 10. Reap dead sessions (agent loops that exited on their own).
+        self.session_manager.reap_dead().await;
+    }
+
+    /// Handle SIGHUP config reload: apply budgets, worker pool params, patrol interval.
+    async fn apply_config_reload(&mut self) {
+        info!("config reload requested (SIGHUP received)");
+        match aeqi_core::config::AEQIConfig::discover() {
+            Ok((new_config, path)) => {
+                self.registry
+                    .cost_ledger
+                    .set_daily_budget(new_config.security.max_cost_per_day_usd);
+
+                let orch = &new_config.orchestrator;
+                for pcfg in &new_config.companies {
+                    if let Some(budget) = pcfg.max_cost_per_day_usd {
                         self.registry
                             .cost_ledger
-                            .set_daily_budget(new_config.security.max_cost_per_day_usd);
-
-                        // (b) Per-project budgets + worker counts + orchestrator params.
-                        let orch = &new_config.orchestrator;
-                        for pcfg in &new_config.companies {
-                            if let Some(budget) = pcfg.max_cost_per_day_usd {
-                                self.registry
-                                    .cost_ledger
-                                    .set_company_budget(&pcfg.name, budget);
-                            }
-
-                            // Update worker pool parameters.
-                            if let Some(pool) = self.registry.get_worker_pool(&pcfg.name).await {
-                                let mut s = pool.lock().await;
-                                s.max_workers = pcfg.max_workers;
-
-                                // Apply orchestrator config (per-project override or global).
-                                let proj_orch = pcfg.orchestrator.as_ref().unwrap_or(orch);
-                                s.max_resolution_attempts = proj_orch.max_resolution_attempts;
-                                s.max_description_chars = proj_orch.max_description_chars;
-                                s.max_task_retries = proj_orch.max_task_retries;
-
-                                // V3 feature flags.
-                                s.expertise_routing = orch.expertise_routing;
-                                s.preflight_enabled = orch.preflight_enabled;
-                                s.preflight_model = orch.preflight_model.clone();
-                                s.preflight_max_cost_usd = orch.preflight_max_cost_usd;
-                                s.adaptive_retry = orch.adaptive_retry;
-                                s.failure_analysis_model = orch.failure_analysis_model.clone();
-                                s.infer_deps_threshold = orch.infer_deps_threshold;
-
-                                debug!(
-                                    project = %pcfg.name,
-                                    max_workers = s.max_workers,
-                                    max_retries = s.max_task_retries,
-                                    expertise_routing = s.expertise_routing,
-                                    preflight = s.preflight_enabled,
-                                    adaptive_retry = s.adaptive_retry,
-                                    "worker_pool config updated via SIGHUP"
-                                );
-                            }
-                        }
-
-                        // (c) Patrol interval.
-                        if let Some(interval) = new_config.aeqi.patrol_interval_secs {
-                            self.patrol_interval_secs = interval;
-                        }
-
-                        info!(path = %path.display(), "config reloaded and applied via SIGHUP");
+                            .set_company_budget(&pcfg.name, budget);
                     }
-                    Err(e) => {
-                        warn!(error = %e, "failed to reload config, keeping current");
+
+                    if let Some(pool) = self.registry.get_worker_pool(&pcfg.name).await {
+                        let mut s = pool.lock().await;
+                        s.max_workers = pcfg.max_workers;
+
+                        let proj_orch = pcfg.orchestrator.as_ref().unwrap_or(orch);
+                        s.max_resolution_attempts = proj_orch.max_resolution_attempts;
+                        s.max_description_chars = proj_orch.max_description_chars;
+                        s.max_task_retries = proj_orch.max_task_retries;
+
+                        s.expertise_routing = orch.expertise_routing;
+                        s.preflight_enabled = orch.preflight_enabled;
+                        s.preflight_model = orch.preflight_model.clone();
+                        s.preflight_max_cost_usd = orch.preflight_max_cost_usd;
+                        s.adaptive_retry = orch.adaptive_retry;
+                        s.failure_analysis_model = orch.failure_analysis_model.clone();
+                        s.infer_deps_threshold = orch.infer_deps_threshold;
+
+                        debug!(
+                            project = %pcfg.name,
+                            max_workers = s.max_workers,
+                            max_retries = s.max_task_retries,
+                            expertise_routing = s.expertise_routing,
+                            preflight = s.preflight_enabled,
+                            adaptive_retry = s.adaptive_retry,
+                            "worker_pool config updated via SIGHUP"
+                        );
                     }
                 }
-            }
 
-            // 7. Periodic persistence: save dispatch bus + cost ledger every patrol.
-            if let Err(e) = self.dispatch_bus.save().await {
-                warn!(error = %e, "failed to save dispatch bus");
-            }
-            if let Err(e) = self.registry.cost_ledger.save() {
-                warn!(error = %e, "failed to save cost ledger");
-            }
+                if let Some(interval) = new_config.aeqi.patrol_interval_secs {
+                    self.patrol_interval_secs = interval;
+                }
 
-            // 8. Surface dispatch retries / dead letters for critical dispatches.
-            let retried = self.dispatch_bus.retry_unacked(ACK_RETRY_AGE_SECS).await;
-            for dispatch in &retried {
-                warn!(
-                    to = %dispatch.to,
-                    subject = %dispatch.kind.subject_tag(),
-                    retry = dispatch.retry_count,
-                    "retrying unacknowledged dispatch"
+                info!(path = %path.display(), "config reloaded and applied via SIGHUP");
+            }
+            Err(e) => {
+                warn!(error = %e, "failed to reload config, keeping current");
+            }
+        }
+    }
+
+    /// Drain the debounced write queue and persist entries to project memory stores.
+    async fn flush_debounced_writes(&self) {
+        let ready = match self.write_queue.lock() {
+            Ok(mut wq) => wq.drain_ready(chrono::Utc::now()),
+            Err(_) => Vec::new(),
+        };
+        if ready.is_empty() {
+            return;
+        }
+
+        info!(count = ready.len(), "flushing debounced memory writes");
+        let Some(ref engine) = self.chat_engine else {
+            return;
+        };
+        for w in &ready {
+            if let Some(mem) = engine.memory_stores.get(&w.company) {
+                let category = match w.category.as_str() {
+                    "fact" => aeqi_core::traits::MemoryCategory::Fact,
+                    "procedure" => aeqi_core::traits::MemoryCategory::Procedure,
+                    "preference" => aeqi_core::traits::MemoryCategory::Preference,
+                    "context" => aeqi_core::traits::MemoryCategory::Context,
+                    _ => aeqi_core::traits::MemoryCategory::Fact,
+                };
+                let scope = match w.scope.as_str() {
+                    "entity" => aeqi_core::traits::MemoryScope::Entity,
+                    "department" => aeqi_core::traits::MemoryScope::Department,
+                    "system" => aeqi_core::traits::MemoryScope::System,
+                    _ => aeqi_core::traits::MemoryScope::Domain,
+                };
+                match mem.store(&w.key, &w.content, category, scope, None).await {
+                    Ok(id) => debug!(
+                        project = %w.company,
+                        id = %id,
+                        key = %w.key,
+                        "debounced write persisted"
+                    ),
+                    Err(e) => warn!(
+                        project = %w.company,
+                        key = %w.key,
+                        "debounced write failed: {e}"
+                    ),
+                }
+            } else {
+                debug!(
+                    project = %w.company,
+                    key = %w.key,
+                    "no memory store for project — write dropped"
                 );
             }
-            self.registry
-                .metrics
-                .dispatch_retries
-                .inc_by(retried.len() as u64);
-            let dead_letters = self.dispatch_bus.dead_letters().await;
-            for dispatch in &dead_letters {
-                warn!(
-                    to = %dispatch.to,
-                    subject = %dispatch.kind.subject_tag(),
-                    retries = dispatch.retry_count,
-                    "dispatch moved to dead-letter state"
-                );
-            }
+        }
+    }
 
-            // 9. Update daily cost gauge.
-            let (spent, _, _) = self.registry.cost_ledger.budget_status();
-            self.registry.metrics.daily_cost_usd.set(spent);
-            let dispatch_health = self.dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
-            self.registry
-                .metrics
-                .dispatch_queue_depth
-                .set(dispatch_health.unread as f64);
-            self.registry
-                .metrics
-                .dispatches_awaiting_ack
-                .set(dispatch_health.awaiting_ack as f64);
-            self.registry
-                .metrics
-                .dispatches_overdue_ack
-                .set(dispatch_health.overdue_ack as f64);
-            self.registry
-                .metrics
-                .dispatch_dead_letters
-                .set(dispatch_health.dead_letters as f64);
-
-            // 10. Prune old cost entries (older than 7 days) every cycle.
-            self.registry.cost_ledger.prune_old();
-
-            // 11. Prune expired blackboard entries.
-            if let Some(ref bb) = self.registry.notes
-                && let Err(e) = bb.prune_expired()
-            {
-                warn!(error = %e, "failed to prune blackboard");
-            }
-
-            // 9. Flush debounced memory writes to project memory stores.
-            let ready = {
-                match self.write_queue.lock() {
-                    Ok(mut wq) => wq.drain_ready(chrono::Utc::now()),
-                    Err(_) => Vec::new(),
-                }
-            };
-            {
-                if !ready.is_empty() {
-                    info!(count = ready.len(), "flushing debounced memory writes");
-                    if let Some(ref engine) = self.chat_engine {
-                        for w in &ready {
-                            if let Some(mem) = engine.memory_stores.get(&w.company) {
-                                let category = match w.category.as_str() {
-                                    "fact" => aeqi_core::traits::MemoryCategory::Fact,
-                                    "procedure" => aeqi_core::traits::MemoryCategory::Procedure,
-                                    "preference" => aeqi_core::traits::MemoryCategory::Preference,
-                                    "context" => aeqi_core::traits::MemoryCategory::Context,
-                                    _ => aeqi_core::traits::MemoryCategory::Fact,
-                                };
-                                let scope = match w.scope.as_str() {
-                                    "entity" => aeqi_core::traits::MemoryScope::Entity,
-                                    "system" => aeqi_core::traits::MemoryScope::System,
-                                    _ => aeqi_core::traits::MemoryScope::Domain,
-                                };
-                                match mem.store(&w.key, &w.content, category, scope, None).await {
-                                    Ok(id) => debug!(
-                                        project = %w.company,
-                                        id = %id,
-                                        key = %w.key,
-                                        "debounced write persisted"
-                                    ),
-                                    Err(e) => warn!(
-                                        project = %w.company,
-                                        key = %w.key,
-                                        "debounced write failed: {e}"
-                                    ),
-                                }
-                            } else {
-                                debug!(
-                                    project = %w.company,
-                                    key = %w.key,
-                                    "no memory store for project — write dropped"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+    /// The main patrol loop: runs until shutdown signal received.
+    async fn run_patrol_loop(&mut self) {
+        while self.running.load(std::sync::atomic::Ordering::SeqCst) {
+            self.run_patrol_iteration().await;
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(self.patrol_interval_secs)) => {},
@@ -1069,12 +1111,6 @@ impl Daemon {
                 _ = self.shutdown_notify.notified() => break,
             }
         }
-
-        self.stop_session_tracker();
-        self.remove_pid_file();
-        self.remove_socket_file();
-        info!("daemon stopped");
-        Ok(())
     }
 
     /// Remove Unix socket file.
@@ -1099,6 +1135,8 @@ impl Daemon {
         readiness: ReadinessContext,
         default_provider: Option<Arc<dyn aeqi_core::traits::Provider>>,
         default_model: String,
+        session_manager: Arc<SessionManager>,
+        event_broadcaster: Arc<EventBroadcaster>,
     ) {
         loop {
             if !running.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1115,6 +1153,8 @@ impl Daemon {
                     let readiness = readiness.clone();
                     let default_provider = default_provider.clone();
                     let default_model = default_model.clone();
+                    let session_manager = session_manager.clone();
+                    let event_broadcaster = event_broadcaster.clone();
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_socket_connection(
                             stream,
@@ -1127,6 +1167,8 @@ impl Daemon {
                             readiness,
                             default_provider,
                             default_model,
+                            session_manager,
+                            event_broadcaster,
                         )
                         .await
                         {
@@ -1156,6 +1198,8 @@ impl Daemon {
         readiness: ReadinessContext,
         default_provider: Option<Arc<dyn aeqi_core::traits::Provider>>,
         default_model: String,
+        session_manager: Arc<SessionManager>,
+        event_broadcaster: Arc<EventBroadcaster>,
     ) -> Result<()> {
         const MAX_IPC_LINE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
         let (reader, mut writer) = stream.into_split();
@@ -1268,7 +1312,7 @@ impl Daemon {
                     })
                 }
 
-                "companies" | "projects" => {
+                "companies" => {
                     let summaries = registry.list_company_summaries().await;
                     let projects: Vec<serde_json::Value> = summaries
                         .iter()
@@ -1409,7 +1453,7 @@ impl Daemon {
                     }
                 }
 
-                "notes" | "blackboard" => {
+                "notes" => {
                     let project_filter = request
                         .get("project")
                         .and_then(|v| v.as_str())
@@ -1492,7 +1536,7 @@ impl Daemon {
                     }
                 }
 
-                "get_notes" | "get_blackboard" => {
+                "get_notes" => {
                     let project = request
                         .get("project")
                         .and_then(|v| v.as_str())
@@ -1521,7 +1565,7 @@ impl Daemon {
                     }
                 }
 
-                "claim_notes" | "claim_blackboard" => {
+                "claim_notes" => {
                     let resource = request
                         .get("resource")
                         .and_then(|v| v.as_str())
@@ -1562,7 +1606,7 @@ impl Daemon {
                     }
                 }
 
-                "release_notes" | "release_blackboard" => {
+                "release_notes" => {
                     let resource = request
                         .get("resource")
                         .and_then(|v| v.as_str())
@@ -1594,7 +1638,7 @@ impl Daemon {
                     }
                 }
 
-                "delete_notes" | "delete_blackboard" => {
+                "delete_notes" => {
                     let project = request
                         .get("project")
                         .and_then(|v| v.as_str())
@@ -1852,7 +1896,7 @@ impl Daemon {
                     }
                 }
 
-                "post_notes" | "post_blackboard" => {
+                "post_notes" => {
                     let key = request.get("key").and_then(|v| v.as_str()).unwrap_or("");
                     let content = request
                         .get("content")
@@ -2057,16 +2101,12 @@ impl Daemon {
                     let project_hint = request_field(&request, "project");
                     let department_hint = request_field(&request, "department");
                     let channel_name = request_field(&request, "channel_name");
+                    let agent_id_param = request_field(&request, "agent_id").map(|s| s.to_string());
 
-                    match &chat_engine {
-                        Some(engine) => {
-                            let resolved_chat_id = resolve_web_chat_id(
-                                if chat_id != 0 { Some(chat_id) } else { None },
-                                project_hint,
-                                department_hint,
-                                channel_name,
-                            );
-                            match engine.get_history(resolved_chat_id, limit, offset).await {
+                    // If agent_id is provided, look up history directly by agent UUID.
+                    if let Some(ref aid) = agent_id_param {
+                        if let Some(ref ss) = registry.session_store {
+                            match ss.get_history_by_agent_id(aid, limit).await {
                                 Ok(messages) => {
                                     let msgs: Vec<serde_json::Value> = messages
                                         .iter()
@@ -2079,13 +2119,45 @@ impl Daemon {
                                             })
                                         })
                                         .collect();
-                                    serde_json::json!({"ok": true, "messages": msgs, "chat_id": resolved_chat_id})
+                                    serde_json::json!({"ok": true, "messages": msgs})
                                 }
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             }
+                        } else {
+                            serde_json::json!({"ok": false, "error": "session store not initialized"})
                         }
-                        None => {
-                            serde_json::json!({"ok": false, "error": "chat engine not initialized"})
+                    } else {
+                        match &chat_engine {
+                            Some(engine) => {
+                                let resolved_chat_id = resolve_web_chat_id(
+                                    if chat_id != 0 { Some(chat_id) } else { None },
+                                    project_hint,
+                                    department_hint,
+                                    channel_name,
+                                );
+                                match engine.get_history(resolved_chat_id, limit, offset).await {
+                                    Ok(messages) => {
+                                        let msgs: Vec<serde_json::Value> = messages
+                                            .iter()
+                                            .map(|m| {
+                                                serde_json::json!({
+                                                    "role": m.role,
+                                                    "content": m.content,
+                                                    "timestamp": m.timestamp.to_rfc3339(),
+                                                    "source": m.source,
+                                                })
+                                            })
+                                            .collect();
+                                        serde_json::json!({"ok": true, "messages": msgs, "chat_id": resolved_chat_id})
+                                    }
+                                    Err(e) => {
+                                        serde_json::json!({"ok": false, "error": e.to_string()})
+                                    }
+                                }
+                            }
+                            None => {
+                                serde_json::json!({"ok": false, "error": "chat engine not initialized"})
+                            }
                         }
                     }
                 }
@@ -2274,7 +2346,7 @@ impl Daemon {
                                             let project = match &agent_registry {
                                                 Some(reg) => match reg.get(&trigger.agent_id).await
                                                 {
-                                                    Ok(Some(agent)) => agent.company.clone(),
+                                                    Ok(Some(agent)) => agent.project.clone(),
                                                     _ => None,
                                                 },
                                                 None => None,
@@ -2493,6 +2565,7 @@ impl Daemon {
                                 mq = mq.with_scope(match scope_str {
                                     "system" => aeqi_core::traits::MemoryScope::System,
                                     "entity" => aeqi_core::traits::MemoryScope::Entity,
+                                    "department" => aeqi_core::traits::MemoryScope::Department,
                                     _ => aeqi_core::traits::MemoryScope::Domain,
                                 });
                             }
@@ -2799,7 +2872,7 @@ impl Daemon {
                     serde_json::json!({"ok": true, "pipelines": pipelines})
                 }
 
-                "company_knowledge" | "project_knowledge" => {
+                "company_knowledge" => {
                     let project = request
                         .get("project")
                         .and_then(|v| v.as_str())
@@ -2920,6 +2993,7 @@ impl Daemon {
                             let sc = match scope {
                                 "system" => aeqi_core::traits::MemoryScope::System,
                                 "entity" => aeqi_core::traits::MemoryScope::Entity,
+                                "department" => aeqi_core::traits::MemoryScope::Department,
                                 _ => aeqi_core::traits::MemoryScope::Domain,
                             };
                             let entity_id = request.get("entity_id").and_then(|v| v.as_str());
@@ -2978,7 +3052,7 @@ impl Daemon {
                                         "name": a.name,
                                         "display_name": a.display_name,
                                         "template": a.template,
-                                        "project": a.company,
+                                        "project": a.project,
                                         "department_id": a.department_id,
                                         "model": a.model,
                                         "capabilities": a.capabilities,
@@ -3013,7 +3087,7 @@ impl Daemon {
                                         serde_json::json!({
                                             "id": d.id,
                                             "name": d.name,
-                                            "project": d.company,
+                                            "project": d.project,
                                             "manager_id": d.manager_id,
                                             "parent_id": d.parent_id,
                                             "created_at": d.created_at,
@@ -3220,106 +3294,460 @@ impl Daemon {
                 },
 
                 // ── Sessions ──
-                "sessions" => match &agent_registry {
-                    Some(reg) => {
-                        let agent_id = request_field(&request, "agent_id").unwrap_or("");
-                        if agent_id.is_empty() {
+                "list_sessions" => {
+                    if let Some(ref ss) = registry.session_store {
+                        let hint = request_field(&request, "agent_id").unwrap_or("");
+                        if hint.is_empty() {
                             serde_json::json!({"ok": false, "error": "agent_id is required"})
                         } else {
-                            match reg.list_sessions(agent_id).await {
+                            // Resolve hint to agent UUID if needed.
+                            let resolved_id = if hint.len() == 36 && hint.contains('-') {
+                                hint.to_string()
+                            } else if let Some(ref reg) = agent_registry {
+                                match reg.resolve_by_hint(hint).await {
+                                    Ok(Some(agent)) => agent.id,
+                                    _ => hint.to_string(),
+                                }
+                            } else {
+                                hint.to_string()
+                            };
+                            match ss.list_sessions(Some(&resolved_id), None, 100).await {
                                 Ok(sessions) => {
                                     serde_json::json!({"ok": true, "sessions": sessions})
                                 }
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             }
                         }
+                    } else {
+                        serde_json::json!({"ok": false, "error": "session store not available"})
                     }
-                    None => {
-                        serde_json::json!({"ok": false, "error": "agent registry not available"})
-                    }
-                },
+                }
 
-                "create_session" => match &agent_registry {
-                    Some(reg) => {
+                // ── Sessions ──
+                "sessions" => {
+                    let agent_id = request_field(&request, "agent_id").map(|s| s.to_string());
+                    let project_id = request_field(&request, "project_id").map(|s| s.to_string());
+                    let limit =
+                        request.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+
+                    if let Some(ref ss) = registry.session_store {
+                        match ss
+                            .list_sessions(agent_id.as_deref(), project_id.as_deref(), limit)
+                            .await
+                        {
+                            Ok(sessions) => {
+                                serde_json::json!({"ok": true, "sessions": sessions})
+                            }
+                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                        }
+                    } else {
+                        serde_json::json!({"ok": false, "error": "session store not available"})
+                    }
+                }
+
+                "create_session" => {
+                    if let Some(ref ss) = registry.session_store {
                         let agent_id = request_field(&request, "agent_id").unwrap_or("");
                         if agent_id.is_empty() {
                             serde_json::json!({"ok": false, "error": "agent_id is required"})
                         } else {
-                            match reg.create_session(agent_id).await {
+                            match ss
+                                .create_session(
+                                    agent_id,
+                                    None,
+                                    None,
+                                    "perpetual",
+                                    "Permanent Session",
+                                )
+                                .await
+                            {
                                 Ok(session_id) => {
                                     serde_json::json!({"ok": true, "session_id": session_id})
                                 }
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             }
                         }
+                    } else {
+                        serde_json::json!({"ok": false, "error": "session store not available"})
                     }
-                    None => {
-                        serde_json::json!({"ok": false, "error": "agent registry not available"})
-                    }
-                },
+                }
 
-                "close_session" => match &agent_registry {
-                    Some(reg) => {
-                        let session_id = request_field(&request, "session_id").unwrap_or("");
-                        if session_id.is_empty() {
-                            serde_json::json!({"ok": false, "error": "session_id is required"})
+                "close_session" => {
+                    let session_id = request_field(&request, "session_id").unwrap_or("");
+                    if session_id.is_empty() {
+                        serde_json::json!({"ok": false, "error": "session_id is required"})
+                    } else {
+                        // Stop the running session (drops input channel → agent exits).
+                        let was_running = session_manager.close(session_id).await;
+
+                        // Close in DB via session_store.
+                        let db_closed = if let Some(ref ss) = registry.session_store {
+                            ss.close_session(session_id).await.is_ok()
                         } else {
-                            match reg.close_session(session_id).await {
-                                Ok(()) => serde_json::json!({"ok": true}),
-                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            false
+                        };
+
+                        serde_json::json!({
+                            "ok": true,
+                            "was_running": was_running,
+                            "db_closed": db_closed,
+                        })
+                    }
+                }
+
+                "session_messages" => {
+                    if let Some(ref ss) = registry.session_store {
+                        let session_id = request_field(&request, "session_id").unwrap_or("");
+                        let limit =
+                            request.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+                        match ss.history_by_session(session_id, limit).await {
+                            Ok(messages) => {
+                                let msgs: Vec<serde_json::Value> = messages
+                                    .iter()
+                                    .map(|m| {
+                                        serde_json::json!({
+                                            "role": m.role,
+                                            "content": m.content,
+                                            "created_at": m.timestamp.to_rfc3339(),
+                                            "source": m.source,
+                                        })
+                                    })
+                                    .collect();
+                                serde_json::json!({"ok": true, "messages": msgs})
                             }
+                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                         }
+                    } else {
+                        serde_json::json!({"ok": false, "error": "session store not available"})
                     }
-                    None => {
-                        serde_json::json!({"ok": false, "error": "agent registry not available"})
-                    }
-                },
+                }
 
                 "session_send" => {
                     let message = request_field(&request, "message").unwrap_or("");
                     let agent_hint = request_field(&request, "agent")
                         .map(|s| s.to_lowercase())
                         .unwrap_or_else(|| "assistant".to_string());
+                    let agent_id_direct =
+                        request_field(&request, "agent_id").map(|s| s.to_string());
+                    let session_id_hint =
+                        request_field(&request, "session_id").map(|s| s.to_string());
+                    let stream_mode = request
+                        .get("stream")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
                     if message.is_empty() {
                         serde_json::json!({"ok": false, "error": "message is required"})
                     } else {
-                        // Use agent name as channel — matches transcript:{agent} pattern
                         let chat_id = request
                             .get("chat_id")
                             .and_then(|v| v.as_i64())
-                            .unwrap_or_else(|| named_channel_chat_id(&agent_hint));
+                            .unwrap_or_else(|| {
+                                named_channel_chat_id(
+                                    agent_id_direct.as_deref().unwrap_or(&agent_hint),
+                                )
+                            });
 
                         let session_store = registry.session_store.clone();
 
-                        // Record user message to agent's channel.
-                        if let Some(ref cs) = session_store {
-                            let _ = cs.ensure_channel(chat_id, "web", &agent_hint).await;
+                        // Ensure session and record user message.
+                        let store_session_id = if let Some(ref cs) = session_store {
                             let _ = cs
-                                .record_with_source(chat_id, "user", message, Some("web"))
+                                .ensure_channel_with_agent(
+                                    chat_id,
+                                    "web",
+                                    &agent_hint,
+                                    agent_id_direct.as_deref(),
+                                )
                                 .await;
-                        }
-
-                        // Load recent conversation history for context.
-                        let history = if let Some(ref cs) = session_store {
-                            cs.recent(chat_id, 20).await.unwrap_or_default()
+                            // Get or create a session UUID for this chat_id.
+                            let usid = cs
+                                .ensure_session(
+                                    chat_id,
+                                    "web",
+                                    &agent_hint,
+                                    agent_id_direct.as_deref(),
+                                    None,
+                                )
+                                .await
+                                .ok();
+                            // Record via session if available, else fall back to legacy.
+                            if let Some(ref sid) = usid {
+                                let _ = cs
+                                    .record_by_session(sid, "user", message, Some("web"))
+                                    .await;
+                            } else {
+                                let _ = cs
+                                    .record_with_source(chat_id, "user", message, Some("web"))
+                                    .await;
+                            }
+                            usid
                         } else {
-                            vec![]
+                            None
                         };
 
-                        if let Some(ref provider) = default_provider {
-                            // Resolve agent system prompt from registry.
-                            let agent_system_prompt = if let Some(ref ar) = agent_registry {
-                                match ar.get_active_by_name(&agent_hint).await {
-                                    Ok(Some(agent)) if !agent.system_prompt.is_empty() => {
-                                        agent.system_prompt.clone()
-                                    }
-                                    _ => "You are a helpful AI agent.".to_string(),
+                        // Resolve session_id: explicit > agent's permanent session > create new.
+                        let resolved_session_id = if let Some(ref sid) = session_id_hint {
+                            sid.clone()
+                        } else {
+                            // Find agent's permanent (first active) session via session_store.
+                            // If we have a direct agent UUID, skip resolve_by_hint (saves 2 queries).
+                            let agent_uuid = if let Some(ref aid) = agent_id_direct {
+                                Some(aid.clone())
+                            } else if let Some(ref ar) = agent_registry {
+                                match ar.resolve_by_hint(&agent_hint).await {
+                                    Ok(Some(agent)) => Some(agent.id),
+                                    _ => None,
                                 }
                             } else {
-                                "You are a helpful AI agent.".to_string()
+                                None
+                            };
+                            if let Some(ref uuid) = agent_uuid {
+                                if let Some(ref ss) = session_store {
+                                    match ss.list_sessions(Some(uuid), None, 1).await {
+                                        Ok(sessions) => sessions
+                                            .first()
+                                            .filter(|s| s.status == "active")
+                                            .map(|s| s.id.clone())
+                                            .unwrap_or_default(),
+                                        Err(_) => String::new(),
+                                    }
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            }
+                        };
+
+                        // Check if session is already running in memory.
+                        if !resolved_session_id.is_empty()
+                            && session_manager.is_running(&resolved_session_id).await
+                        {
+                            if stream_mode {
+                                // Inject message and get a broadcast receiver for streaming.
+                                match session_manager
+                                    .send_streaming(&resolved_session_id, message)
+                                    .await
+                                {
+                                    Ok(mut rx) => {
+                                        // Stream events to the IPC writer.
+                                        let mut text = String::new();
+                                        let mut iterations = 0u32;
+                                        let mut prompt_tokens = 0u32;
+                                        let mut completion_tokens = 0u32;
+
+                                        loop {
+                                            match tokio::time::timeout(
+                                                std::time::Duration::from_secs(300),
+                                                rx.recv(),
+                                            )
+                                            .await
+                                            {
+                                                Ok(Ok(event)) => {
+                                                    // Forward ALL events to IPC (they serialize with #[serde(tag = "type")])
+                                                    if let Ok(ev_bytes) = serde_json::to_vec(&event) {
+                                                        let mut bytes = ev_bytes;
+                                                        bytes.push(b'\n');
+                                                        let _ = writer.write_all(&bytes).await;
+                                                    }
+
+                                                    // Track text accumulation and completion for recording
+                                                    match &event {
+                                                        aeqi_core::ChatStreamEvent::TextDelta { text: delta } => {
+                                                            text.push_str(delta);
+                                                        }
+                                                        aeqi_core::ChatStreamEvent::Complete {
+                                                            total_prompt_tokens: pt,
+                                                            total_completion_tokens: ct,
+                                                            iterations: it,
+                                                            ..
+                                                        } => {
+                                                            prompt_tokens = *pt;
+                                                            completion_tokens = *ct;
+                                                            iterations = *it;
+                                                            break;
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                }
+                                                Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(n))) => {
+                                                    warn!(session_id = %resolved_session_id, lagged = n, "stream subscriber lagged");
+                                                }
+                                                Ok(Err(_)) => break,
+                                                Err(_) => {
+                                                    text = "Session response timed out".to_string();
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        // Record assistant response via session or legacy.
+                                        if let Some(ref cs) = session_store {
+                                            if let Some(ref usid) = store_session_id {
+                                                let _ = cs
+                                                    .record_by_session(
+                                                        usid,
+                                                        "assistant",
+                                                        &text,
+                                                        Some("web"),
+                                                    )
+                                                    .await;
+                                            } else {
+                                                let _ = cs
+                                                    .record_with_source(
+                                                        chat_id,
+                                                        "assistant",
+                                                        &text,
+                                                        Some("web"),
+                                                    )
+                                                    .await;
+                                            }
+                                        }
+
+                                        // Final streaming event.
+                                        let cost_usd = aeqi_providers::estimate_cost(
+                                            &default_model,
+                                            prompt_tokens,
+                                            completion_tokens,
+                                        );
+                                        let done = serde_json::json!({
+                                            "done": true,
+                                            "type": "Complete",
+                                            "session_id": resolved_session_id,
+                                            "store_session_id": store_session_id,
+                                            "iterations": iterations,
+                                            "prompt_tokens": prompt_tokens,
+                                            "completion_tokens": completion_tokens,
+                                            "cost_usd": cost_usd,
+                                        });
+                                        let mut bytes =
+                                            serde_json::to_vec(&done).unwrap_or_default();
+                                        bytes.push(b'\n');
+                                        let _ = writer.write_all(&bytes).await;
+                                        serde_json::Value::Null
+                                    }
+                                    Err(e) => {
+                                        serde_json::json!({"ok": false, "error": e.to_string()})
+                                    }
+                                }
+                            } else {
+                                // Non-streaming: inject message and wait.
+                                match session_manager.send(&resolved_session_id, message).await {
+                                    Ok(resp) => {
+                                        // Record assistant response via session or legacy.
+                                        if let Some(ref cs) = session_store {
+                                            if let Some(ref usid) = store_session_id {
+                                                let _ = cs
+                                                    .record_by_session(
+                                                        usid,
+                                                        "assistant",
+                                                        &resp.text,
+                                                        Some("web"),
+                                                    )
+                                                    .await;
+                                            } else {
+                                                let _ = cs
+                                                    .record_with_source(
+                                                        chat_id,
+                                                        "assistant",
+                                                        &resp.text,
+                                                        Some("web"),
+                                                    )
+                                                    .await;
+                                            }
+                                        }
+                                        // Track cost.
+                                        let cost_usd = aeqi_providers::estimate_cost(
+                                            &default_model,
+                                            resp.prompt_tokens,
+                                            resp.completion_tokens,
+                                        );
+                                        let _ = registry.cost_ledger.record(
+                                            crate::cost_ledger::CostEntry {
+                                                company: "session".to_string(),
+                                                task_id: resolved_session_id.clone(),
+                                                worker: agent_hint.clone(),
+                                                cost_usd,
+                                                turns: resp.iterations,
+                                                timestamp: Utc::now(),
+                                                source: "session".to_string(),
+                                                tokens: (resp.prompt_tokens
+                                                    + resp.completion_tokens)
+                                                    as u64,
+                                                input_tokens: resp.prompt_tokens as u64,
+                                                output_tokens: resp.completion_tokens as u64,
+                                                cached_tokens: 0,
+                                                model: default_model.clone(),
+                                                provider: String::new(),
+                                            },
+                                        );
+                                        serde_json::json!({
+                                            "ok": true,
+                                            "text": resp.text,
+                                            "chat_id": chat_id,
+                                            "session_id": resolved_session_id,
+                                            "store_session_id": store_session_id,
+                                            "iterations": resp.iterations,
+                                            "prompt_tokens": resp.prompt_tokens,
+                                            "completion_tokens": resp.completion_tokens,
+                                            "cost_usd": cost_usd,
+                                        })
+                                    }
+                                    Err(e) => {
+                                        serde_json::json!({"ok": false, "error": e.to_string()})
+                                    }
+                                }
+                            }
+                        } else if let Some(ref provider) = default_provider {
+                            // No running session — boot a new persistent agent loop.
+
+                            // Resolve agent identity and company.
+                            // If agent_id_direct is provided, use ar.get() (1 query) instead of
+                            // resolve_by_hint (up to 3 queries).
+                            let (
+                                agent_system_prompt,
+                                agent_uuid,
+                                agent_company,
+                                agent_project_id,
+                                agent_department_id,
+                            ) = if let Some(ref ar) = agent_registry {
+                                let agent_opt = if let Some(ref aid) = agent_id_direct {
+                                    ar.get(aid).await.ok().flatten()
+                                } else {
+                                    ar.resolve_by_hint(&agent_hint).await.ok().flatten()
+                                };
+                                match agent_opt {
+                                    Some(agent) => (
+                                        if agent.system_prompt.is_empty() {
+                                            "You are a helpful AI agent.".to_string()
+                                        } else {
+                                            agent.system_prompt.clone()
+                                        },
+                                        Some(agent.id.clone()),
+                                        agent.project.clone(),
+                                        agent.project_id.clone(),
+                                        agent.department_id.clone(),
+                                    ),
+                                    None => (
+                                        "You are a helpful AI agent.".to_string(),
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                    ),
+                                }
+                            } else {
+                                (
+                                    "You are a helpful AI agent.".to_string(),
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                )
                             };
 
-                            // Build identity with primers (shared + project).
+                            // Build identity with primers.
                             let mut knowledge_parts: Vec<String> = Vec::new();
                             if let Some(ref sp) = registry.shared_primer {
                                 knowledge_parts.push(sp.clone());
@@ -3337,29 +3765,29 @@ impl Daemon {
                                 ..Default::default()
                             };
 
-                            // Build prompt with conversation history + new message.
-                            let mut prompt_parts: Vec<String> = Vec::new();
-                            if !history.is_empty() {
-                                prompt_parts.push("Recent conversation history:".to_string());
-                                for msg in &history {
-                                    let role_label = match msg.role.as_str() {
-                                        "user" | "User" => "User",
-                                        _ => "Assistant",
-                                    };
-                                    prompt_parts.push(format!("[{}]: {}", role_label, msg.content));
+                            // Resolve workdir from agent's company repo.
+                            // Falls back to default company, then daemon cwd (root workspace).
+                            let workdir = {
+                                let company_name = agent_company.as_deref().or_else(|| {
+                                    chat_engine
+                                        .as_ref()
+                                        .map(|e| e.default_company.as_str())
+                                        .filter(|s| !s.is_empty())
+                                });
+                                if let Some(name) = company_name {
+                                    if let Some(company) = registry.get_company(name).await {
+                                        company.repo.clone()
+                                    } else {
+                                        std::env::current_dir()
+                                            .unwrap_or_else(|_| PathBuf::from("/tmp"))
+                                    }
+                                } else {
+                                    std::env::current_dir()
+                                        .unwrap_or_else(|_| PathBuf::from("/tmp"))
                                 }
-                                prompt_parts.push(String::new());
-                                prompt_parts.push(
-                                    "Continue the conversation. The latest user message is the last [User] entry above.".to_string(),
-                                );
-                            } else {
-                                prompt_parts.push(message.to_string());
-                            }
-                            let prompt = prompt_parts.join("\n");
+                            };
 
-                            // Build full tool suite.
-                            let workdir =
-                                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
+                            // Build tools with company-scoped workdir.
                             let mut tools: Vec<Arc<dyn aeqi_core::traits::Tool>> = vec![
                                 Arc::new(aeqi_tools::ShellTool::new(workdir.clone())),
                                 Arc::new(aeqi_tools::FileReadTool::new(workdir.clone())),
@@ -3371,7 +3799,7 @@ impl Daemon {
                                 Arc::new(aeqi_tools::WebSearchTool),
                             ];
 
-                            // Orchestration tools (memory, notes, delegate, tasks).
+                            // Orchestration tools — memory by company, not agent name.
                             let empty_channels: Arc<
                                 tokio::sync::RwLock<
                                     std::collections::HashMap<
@@ -3382,13 +3810,44 @@ impl Daemon {
                             > = Arc::new(
                                 tokio::sync::RwLock::new(std::collections::HashMap::new()),
                             );
-                            // Memory keyed by company name — fall back to first available.
                             let memory_for_agent = chat_engine.as_ref().and_then(|e| {
-                                e.memory_stores
-                                    .get(&agent_hint)
-                                    .or_else(|| e.memory_stores.values().next())
+                                // Prefer UUID-based lookup.
+                                agent_project_id
+                                    .as_deref()
+                                    .and_then(|id| e.memory_stores_by_id.get(id))
+                                    // Fallback to name-based lookup.
+                                    .or_else(|| {
+                                        agent_company
+                                            .as_deref()
+                                            .and_then(|c| e.memory_stores.get(c))
+                                    })
+                                    .or_else(|| e.memory_stores.get(&agent_hint))
+                                    // Fallback: use the default company's memory (root workspace).
+                                    .or_else(|| {
+                                        if !e.default_company.is_empty() {
+                                            e.memory_stores.get(&e.default_company)
+                                        } else {
+                                            e.memory_stores.values().next()
+                                        }
+                                    })
                                     .cloned()
                             });
+                            // Resolve graph DB path from data dir.
+                            // Falls back to default company when agent has no project.
+                            let graph_company = agent_company.as_deref().or_else(|| {
+                                chat_engine
+                                    .as_ref()
+                                    .map(|e| e.default_company.as_str())
+                                    .filter(|s| !s.is_empty())
+                            });
+                            let graph_db_path = graph_company.and_then(|c| {
+                                let data_dir = std::env::var("HOME")
+                                    .map(|h| PathBuf::from(h).join(".aeqi"))
+                                    .unwrap_or_else(|_| PathBuf::from("/tmp"));
+                                let path = data_dir.join("codegraph").join(format!("{c}.db"));
+                                path.exists().then_some(path)
+                            });
+
                             let orch_tools = crate::tools::build_orchestration_tools(
                                 registry.clone(),
                                 dispatch_bus.clone(),
@@ -3396,37 +3855,29 @@ impl Daemon {
                                 None,
                                 memory_for_agent.clone(),
                                 registry.notes.clone(),
-                                None,
+                                Some(event_broadcaster.clone()),
+                                graph_db_path,
                             );
                             tools.extend(orch_tools);
 
-                            // Transcript search tool.
                             if let Some(ref ss) = session_store {
                                 tools.push(Arc::new(crate::tools::TranscriptSearchTool::new(
                                     ss.clone(),
                                 )));
                             }
 
-                            // Resolve agent UUID for entity-scoped memory.
-                            let agent_uuid = if let Some(ref ar) = agent_registry {
-                                ar.get_active_by_name(&agent_hint)
-                                    .await
-                                    .ok()
-                                    .flatten()
-                                    .map(|a| a.id.clone())
-                            } else {
-                                None
-                            };
-
-                            // Session state persists via session store (DB), not files.
+                            // Build agent config — PERPETUAL session type.
                             let context_window =
                                 aeqi_providers::context_window_for_model(&default_model);
                             let agent_config = aeqi_core::AgentConfig {
                                 model: default_model.clone(),
-                                max_iterations: 25,
+                                max_iterations: 200,
                                 name: agent_hint.clone(),
                                 context_window,
                                 entity_id: agent_uuid.clone(),
+                                department_id: agent_department_id.clone(),
+                                project_id: agent_project_id.clone(),
+                                session_type: aeqi_core::SessionType::Perpetual,
                                 ..Default::default()
                             };
 
@@ -3441,36 +3892,180 @@ impl Daemon {
                                 identity,
                             );
 
-                            // Attach memory for mid-loop recall.
-                            if let Some(mem) = memory_for_agent {
-                                agent = agent.with_memory(mem);
+                            // Attach memory.
+                            if let Some(ref mem) = memory_for_agent {
+                                agent = agent.with_memory(mem.clone());
                             }
 
-                            match agent.run(&prompt).await {
-                                Ok(result) => {
-                                    let text = result.text.clone();
-                                    // Record assistant response.
-                                    if let Some(ref cs) = session_store {
-                                        let _ = cs
-                                            .record_with_source(
-                                                chat_id,
-                                                "assistant",
-                                                &text,
-                                                Some("web"),
-                                            )
-                                            .await;
+                            // Attach chat stream for broadcast.
+                            let (stream_sender, _initial_rx) =
+                                aeqi_core::chat_stream::ChatStreamSender::new(256);
+                            agent = agent.with_chat_stream(stream_sender.clone());
+
+                            // Create perpetual input channel.
+                            let (agent, input_tx) = agent.with_perpetual_input();
+                            let cancel_token = agent.cancel_token();
+
+                            // Create or reuse session_id in DB via session_store.
+                            let session_id = if !resolved_session_id.is_empty() {
+                                resolved_session_id.clone()
+                            } else if let Some(ref ss) = session_store {
+                                let aid = agent_uuid.as_deref().unwrap_or("");
+                                ss.create_session(
+                                    aid,
+                                    agent_project_id.as_deref(),
+                                    agent_department_id.as_deref(),
+                                    "perpetual",
+                                    &agent_hint,
+                                )
+                                .await
+                                .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string())
+                            } else {
+                                uuid::Uuid::new_v4().to_string()
+                            };
+
+                            // Spawn the agent loop as a background task.
+                            let initial_prompt = message.to_string();
+                            let join_handle =
+                                tokio::spawn(async move { agent.run(&initial_prompt).await });
+
+                            // Register in session manager.
+                            let running_session = RunningSession {
+                                session_id: session_id.clone(),
+                                agent_id: agent_uuid.unwrap_or_default(),
+                                agent_name: agent_hint.clone(),
+                                input_tx,
+                                stream_sender: stream_sender.clone(),
+                                cancel_token,
+                                join_handle,
+                                chat_id,
+                            };
+                            session_manager.register(running_session).await;
+
+                            // Wait for response — stream events or collect.
+                            let mut rx = stream_sender.subscribe();
+                            let mut text = String::new();
+                            let mut iterations = 0u32;
+                            let mut prompt_tokens = 0u32;
+                            let mut completion_tokens = 0u32;
+
+                            loop {
+                                match tokio::time::timeout(
+                                    std::time::Duration::from_secs(300),
+                                    rx.recv(),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(event)) => {
+                                        // Forward ALL events to IPC (they serialize with #[serde(tag = "type")])
+                                        if stream_mode
+                                            && let Ok(ev_bytes) = serde_json::to_vec(&event)
+                                        {
+                                            let mut bytes = ev_bytes;
+                                            bytes.push(b'\n');
+                                            let _ = writer.write_all(&bytes).await;
+                                        }
+
+                                        // Track text accumulation and completion for recording
+                                        match &event {
+                                            aeqi_core::ChatStreamEvent::TextDelta {
+                                                text: delta,
+                                            } => {
+                                                text.push_str(delta);
+                                            }
+                                            aeqi_core::ChatStreamEvent::Complete {
+                                                total_prompt_tokens: pt,
+                                                total_completion_tokens: ct,
+                                                iterations: it,
+                                                ..
+                                            } => {
+                                                prompt_tokens = *pt;
+                                                completion_tokens = *ct;
+                                                iterations = *it;
+                                                break;
+                                            }
+                                            _ => {}
+                                        }
                                     }
-                                    serde_json::json!({
-                                        "ok": true,
-                                        "text": text,
-                                        "chat_id": chat_id,
-                                        "iterations": result.iterations,
-                                        "prompt_tokens": result.total_prompt_tokens,
-                                        "completion_tokens": result.total_completion_tokens,
-                                        "model": result.model,
-                                    })
+                                    Ok(Err(_)) => break,
+                                    Err(_) => {
+                                        text = "Session response timed out".to_string();
+                                        break;
+                                    }
                                 }
-                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+
+                            // Record assistant response via session or legacy.
+                            if let Some(ref cs) = session_store {
+                                if let Some(ref usid) = store_session_id {
+                                    let _ = cs
+                                        .record_by_session(usid, "assistant", &text, Some("web"))
+                                        .await;
+                                } else {
+                                    let _ = cs
+                                        .record_with_source(
+                                            chat_id,
+                                            "assistant",
+                                            &text,
+                                            Some("web"),
+                                        )
+                                        .await;
+                                }
+                            }
+
+                            // Track cost in ledger.
+                            let cost_usd = aeqi_providers::estimate_cost(
+                                &default_model,
+                                prompt_tokens,
+                                completion_tokens,
+                            );
+                            let _ = registry.cost_ledger.record(crate::cost_ledger::CostEntry {
+                                company: agent_company
+                                    .clone()
+                                    .unwrap_or_else(|| "session".to_string()),
+                                task_id: session_id.clone(),
+                                worker: agent_hint.clone(),
+                                cost_usd,
+                                turns: iterations,
+                                timestamp: Utc::now(),
+                                source: "session".to_string(),
+                                tokens: (prompt_tokens + completion_tokens) as u64,
+                                input_tokens: prompt_tokens as u64,
+                                output_tokens: completion_tokens as u64,
+                                cached_tokens: 0,
+                                model: default_model.clone(),
+                                provider: String::new(),
+                            });
+
+                            if stream_mode {
+                                // Final streaming event — write done line, return null.
+                                let done = serde_json::json!({
+                                    "done": true,
+                                    "type": "Complete",
+                                    "session_id": session_id,
+                                    "store_session_id": store_session_id,
+                                    "iterations": iterations,
+                                    "prompt_tokens": prompt_tokens,
+                                    "completion_tokens": completion_tokens,
+                                    "cost_usd": cost_usd,
+                                });
+                                let mut bytes = serde_json::to_vec(&done).unwrap_or_default();
+                                bytes.push(b'\n');
+                                let _ = writer.write_all(&bytes).await;
+                                serde_json::Value::Null
+                            } else {
+                                serde_json::json!({
+                                    "ok": true,
+                                    "text": text,
+                                    "chat_id": chat_id,
+                                    "session_id": session_id,
+                                    "store_session_id": store_session_id,
+                                    "iterations": iterations,
+                                    "prompt_tokens": prompt_tokens,
+                                    "completion_tokens": completion_tokens,
+                                    "model": default_model,
+                                    "cost_usd": cost_usd,
+                                })
                             }
                         } else {
                             serde_json::json!({"ok": false, "error": "no provider available"})
@@ -3481,9 +4076,12 @@ impl Daemon {
                 _ => serde_json::json!({"ok": false, "error": format!("unknown command: {cmd}")}),
             };
 
-            let mut resp_bytes = serde_json::to_vec(&response)?;
-            resp_bytes.push(b'\n');
-            writer.write_all(&resp_bytes).await?;
+            // Skip writing if response is null (already streamed inline).
+            if !response.is_null() {
+                let mut resp_bytes = serde_json::to_vec(&response)?;
+                resp_bytes.push(b'\n');
+                writer.write_all(&resp_bytes).await?;
+            }
         }
 
         Ok(())

@@ -7,7 +7,6 @@ use std::path::Path;
 /// A pipeline is a workflow template: a sequence of steps with dependencies.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pipeline {
-    #[serde(alias = "ritual")]
     pub meta: PipelineMeta,
     #[serde(default)]
     pub vars: HashMap<String, VarDef>,

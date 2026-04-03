@@ -90,7 +90,8 @@ impl SqliteMemory {
 
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);
-             CREATE INDEX IF NOT EXISTS idx_memories_entity ON memories(entity_id);",
+             CREATE INDEX IF NOT EXISTS idx_memories_entity ON memories(entity_id);
+             CREATE INDEX IF NOT EXISTS idx_memories_scope_entity ON memories(scope, entity_id);",
         )?;
 
         let fts_exists: bool = conn.query_row(
@@ -484,6 +485,7 @@ impl SqliteMemory {
     fn parse_scope(s: &str) -> MemoryScope {
         match s {
             "entity" | "companion" => MemoryScope::Entity,
+            "department" => MemoryScope::Department,
             "system" => MemoryScope::System,
             _ => MemoryScope::Domain,
         }

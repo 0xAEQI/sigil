@@ -17,14 +17,22 @@
 }
 
 .left-sidebar-bar {
-  height: 52px;
+  height: 44px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px;
+  gap: 0;
+  padding: 0 8px 0 0;
   margin: 8px 8px 0 0;
   background: var(--bg-surface);
   border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+  flex-shrink: 0;
+}
+
+.left-sidebar-bar-icon {
+  width: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -48,6 +56,33 @@
   overflow: hidden;
 }
 
+.left-sidebar-footer {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 12px 0 0;
+  margin: 0 8px 8px 0;
+  background: var(--bg-surface);
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.1s ease;
+}
+
+.left-sidebar-footer:hover {
+  background: var(--bg-elevated);
+}
+
+.left-sidebar-footer-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
 /* ── Project Rail (60px icon bar) ── */
 .rail {
   width: 60px;
@@ -68,8 +103,8 @@
 }
 
 .rail-icon {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
@@ -90,7 +125,6 @@
 .rail-icon.active {
   background: var(--text-primary);
   color: var(--bg-base);
-  border-radius: var(--radius-xl);
 }
 
 .rail-home {
@@ -101,11 +135,10 @@
 
 
 .rail-add {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
-  border: 1px dashed rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -117,7 +150,6 @@
 
 .rail-add:hover {
   background: var(--bg-overlay);
-  border-color: rgba(255, 255, 255, 0.15);
   color: var(--text-secondary);
 }
 
@@ -282,7 +314,7 @@
 }
 
 .scope-header-btn {
-  height: 40px;
+  height: 32px;
   width: 100%;
   display: flex;
   align-items: center;
@@ -307,10 +339,8 @@
 .scope-header-text {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text-primary);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .agent-nav-panel {
@@ -324,18 +354,16 @@
 .agent-nav-panel-title {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  font-weight: 700;
+  font-weight: 500;
   color: var(--text-primary);
   text-align: center;
   padding: 8px 0;
-  letter-spacing: 0.06em;
 }
 
 .agent-nav-panel-add {
-  height: 36px;
+  height: 32px;
   border-radius: var(--radius-lg);
   background: var(--bg-elevated);
-  border: 1px dashed rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -347,7 +375,6 @@
 
 .agent-nav-panel-add:hover {
   background: var(--bg-overlay);
-  border-color: rgba(255, 255, 255, 0.15);
   color: var(--text-secondary);
 }
 
@@ -357,10 +384,10 @@
 }
 
 .agent-row {
-  height: 40px;
+  height: 32px;
   padding: 0 12px;
   border: 1px solid transparent;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--text-secondary);
   background: transparent;
   cursor: pointer;
@@ -368,22 +395,21 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-radius: var(--radius-2xl);
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .agent-row:hover {
   color: var(--text-secondary);
   background: var(--bg-elevated);
-  border-radius: var(--radius-xl);
 }
 
 .agent-row.active {
   color: var(--text-primary);
   background: transparent;
   border: 1px solid var(--text-primary);
-  border-radius: var(--radius-xl);
 }
 
 .agent-row.scope-header {
@@ -408,9 +434,9 @@
 }
 
 .dept-name {
-  height: 40px;
+  height: 32px;
   padding: 0 12px;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -431,8 +457,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: var(--radius-md);
   color: var(--text-muted);
   transition: all 0.1s ease;
@@ -501,7 +527,6 @@
 
 .agent-row.dept-agent {
   padding: 0 12px;
-  font-size: var(--font-size-xs);
 }
 
 .agent-nav-add {
@@ -542,43 +567,81 @@
   background: var(--bg-surface);
 }
 
-.rail-settings {
-  width: 40px;
-  height: 40px;
+/* User profile — avatar & text (used in footer bar) */
+
+.user-profile-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--bg-overlay);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-xl);
-  color: var(--border);
-  cursor: pointer;
-  transition: var(--transition-fast);
-  margin-top: auto;
+  flex-shrink: 0;
 }
 
-.rail-settings:hover {
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-}
-
-.agent-nav-bottom {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0 8px 12px;
-}
-
-.agent-nav-footer {
-  padding: 8px 12px;
+.user-profile-name {
   font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.1s ease;
-  text-align: center;
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.agent-nav-footer:hover {
+.user-profile-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.user-profile-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  right: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  margin-bottom: 4px;
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+}
+
+.user-profile-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
   color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  text-decoration: none;
+  transition: all 0.1s ease;
+}
+.user-profile-menu-item:hover {
+  background: var(--accent-bg);
+  color: var(--text-primary);
+}
+.user-profile-menu-item.danger {
+  color: var(--error);
+}
+.user-profile-menu-item.danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.user-profile-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 /* ── Content Area ── */
@@ -597,7 +660,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 52px;
+  height: 44px;
   background: rgba(9, 9, 11, 0.85);
   border-radius: var(--radius-xl);
   padding: 0 8px;
@@ -622,7 +685,7 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--text-muted);
-  height: 40px;
+  height: 32px;
   padding: 0 12px;
   border-radius: var(--radius-lg);
   cursor: pointer;
@@ -644,8 +707,8 @@
 }
 
 .floating-nav-btn {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -665,7 +728,7 @@
   flex: 1;
   height: 32px;
   background: var(--bg-surface);
-  border: 2px solid var(--text-secondary);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   outline: none;
   color: var(--text-primary);

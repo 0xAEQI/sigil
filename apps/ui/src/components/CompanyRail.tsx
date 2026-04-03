@@ -1,31 +1,21 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "@/store/chat";
-import { api } from "@/lib/api";
+import { useDaemonStore } from "@/store/daemon";
 import CompanyPatternIcon from "./CompanyPatternIcon";
 
 export default function CompanyRail() {
   const navigate = useNavigate();
   const channel = useChatStore((s) => s.channel);
   const setChannel = useChatStore((s) => s.setChannel);
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [activeCounts, setActiveCounts] = useState<Record<string, number>>({});
+  const companies = useDaemonStore((s) => s.companies);
+  const tasks = useDaemonStore((s) => s.tasks);
 
-  useEffect(() => {
-    const load = () => {
-      api.getCompanies().then((d) => setCompanies(d.companies || [])).catch(() => {});
-      api.getTasks({ status: "in_progress" }).then((d) => {
-        const counts: Record<string, number> = {};
-        for (const t of d.tasks || []) {
-          counts[t.company] = (counts[t.company] || 0) + 1;
-        }
-        setActiveCounts(counts);
-      }).catch(() => {});
-    };
-    load();
-    const interval = setInterval(load, 15000);
-    return () => clearInterval(interval);
-  }, []);
+  const activeCounts: Record<string, number> = {};
+  for (const t of tasks) {
+    if (t.status === "in_progress") {
+      activeCounts[t.company] = (activeCounts[t.company] || 0) + 1;
+    }
+  }
 
   const selectedCompany = channel ?? null;
 
@@ -56,12 +46,6 @@ export default function CompanyRail() {
             </div>
           );
         })}
-        <div className="rail-settings" title="Settings">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="8" cy="8" r="2" />
-            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" />
-          </svg>
-        </div>
       </div>
     </div>
   );
