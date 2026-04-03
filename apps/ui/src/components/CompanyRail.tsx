@@ -31,26 +31,23 @@ export default function CompanyRail() {
 
   return (
     <div className="rail">
-      {/* AEQI mark */}
-      <div
-        className={`rail-icon rail-home${!channel ? " active" : ""}`}
-        onClick={() => { setChannel(null); navigate("/"); }}
-        title="AEQI"
-      >
-        Æ
-      </div>
+      <div className="rail-inner">
+        <div
+          className={`rail-icon rail-home${!channel ? " active" : ""}`}
+          onClick={() => { setChannel(null); navigate("/"); }}
+          title="AEQI"
+        >
+          Æ
+        </div>
 
-      <div className="rail-separator" />
+        <div className="rail-separator" />
 
-      {/* Company icons */}
-      <div className="rail-projects">
         {companies.map((p) => {
           const isSelected = selectedCompany === p.name;
           const hasActive = (activeCounts[p.name] || 0) > 0;
 
           return (
             <div key={p.name} className="rail-project-wrapper">
-              <div className={`rail-pill${isSelected ? " rail-pill-selected" : ""}`} />
               <button
                 className="rail-project-btn"
                 onClick={() => { setChannel(p.name); navigate("/"); }}
@@ -67,10 +64,7 @@ export default function CompanyRail() {
             </div>
           );
         })}
-      </div>
 
-      {/* Bottom — pinned */}
-      <div className="rail-bottom">
         <div className="rail-separator" />
         <div className="rail-add" title="New company" onClick={() => {}}>+</div>
         <div className="rail-settings" title="Settings">

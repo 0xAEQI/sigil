@@ -179,14 +179,12 @@ export default function AgentNav() {
 
   return (
     <nav className="agent-nav">
-      {/* Company scope — elevated, connects to rail */}
-      <div className="agent-nav-shelf">
-        <div
-          className={`agent-row scope-header${!selectedAgent ? " active" : ""}`}
-          onClick={() => { setSelectedAgent(null); navigate(currentPath()); }}
-        >
-          {scopeName}
-        </div>
+      {/* Company name bar — same style as floating nav */}
+      <div
+        className={`agent-nav-bar${!selectedAgent ? " active" : ""}`}
+        onClick={() => { setSelectedAgent(null); navigate(currentPath()); }}
+      >
+        <span className="scope-header-text">{scopeName}</span>
       </div>
 
       {/* Agents list — dark base */}
