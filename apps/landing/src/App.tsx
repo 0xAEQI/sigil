@@ -103,9 +103,8 @@ function Footer() {
   return (
     <footer className="border-t border-black/5 py-8 px-6">
       <div className="max-w-5xl mx-auto flex items-center justify-between text-[13px] text-black/25">
-        <span className="flex items-center gap-2 font-medium tracking-tight">
-          <span className="text-[18px] font-bold text-black/20">æ</span>
-          aeqi.ai
+        <span className="font-semibold tracking-tight text-black">
+          aeqi.ai&ensp;/&ensp;<span className="text-[16px] font-bold">æ</span>
         </span>
         <div className="flex items-center gap-5">
           <a
