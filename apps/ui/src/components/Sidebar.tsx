@@ -1,24 +1,33 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useChatStore } from "@/store/chat";
 import { useDaemonStore } from "@/store/daemon";
 import type { Agent, AgentRef } from "@/lib/types";
 
+// Deterministic avatar from agent name — picks an emoji
+const AVATARS = ["🤖","🧠","⚡","🔮","🎯","🛡️","📊","🔬","🏗️","🎨","📡","🧬","💎","🌐","🔥","🦾","👁️","🗂️","🧭","⚙️"];
+function agentAvatar(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  return AVATARS[Math.abs(hash) % AVATARS.length];
+}
+
 function Chevron({ expanded }: { expanded: boolean }) {
   return (
     <svg
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
       fill="none"
       style={{
         transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
         transition: "transform 0.15s ease",
         flexShrink: 0,
+        opacity: 0.4,
       }}
     >
       <path
-        d="M5 3.5L8.5 7L5 10.5"
+        d="M4.5 3L7.5 6L4.5 9"
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinecap="round"
@@ -69,30 +78,22 @@ function buildAgentTree(agents: Agent[]): AgentNode[] {
   return roots.map(toNode);
 }
 
-function statusColor(status: string): string {
-  const s = status.toLowerCase();
-  if (s === "active" || s === "working" || s === "running") return "var(--success)";
-  if (s === "paused" || s === "idle") return "var(--text-muted)";
-  if (s === "error" || s === "failed") return "var(--error)";
-  return "var(--text-muted)";
-}
-
 function AgentNodeView({
   node,
   depth,
-  selectedAgent,
+  selectedId,
   collapsed,
   onSelectAgent,
   onToggle,
 }: {
   node: AgentNode;
   depth: number;
-  selectedAgent: AgentRef | null;
+  selectedId: string | null;
   collapsed: Record<string, boolean>;
   onSelectAgent: (agent: AgentRef) => void;
   onToggle: (id: string, e: React.MouseEvent) => void;
 }) {
-  const isActive = selectedAgent?.id === node.id;
+  const isActive = selectedId === node.id;
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed[node.id] ?? false;
   const label = node.display_name || node.name;
@@ -101,7 +102,7 @@ function AgentNodeView({
     <div className="agent-tree-node">
       <div
         className={`agent-row${isActive ? " active" : ""}`}
-        style={{ paddingLeft: `${8 + depth * 12}px` }}
+        style={{ paddingLeft: `${8 + depth * 16}px` }}
         onClick={() =>
           onSelectAgent({
             id: node.id,
@@ -111,21 +112,16 @@ function AgentNodeView({
           })
         }
       >
-        {hasChildren ? (
+        <span className="agent-avatar">{agentAvatar(node.name)}</span>
+        <span className="agent-row-label">{label}</span>
+        {hasChildren && (
           <span
             className="agent-tree-toggle"
             onClick={(e) => onToggle(node.id, e)}
           >
             <Chevron expanded={!isCollapsed} />
           </span>
-        ) : (
-          <span className="agent-tree-spacer" />
         )}
-        <span
-          className="agent-dot"
-          style={{ background: statusColor(node.status) }}
-        />
-        <span className="agent-row-label">{label}</span>
       </div>
       {hasChildren && !isCollapsed && (
         <div className="agent-tree-children">
@@ -134,7 +130,7 @@ function AgentNodeView({
               key={child.id}
               node={child}
               depth={depth + 1}
-              selectedAgent={selectedAgent}
+              selectedId={selectedId}
               collapsed={collapsed}
               onSelectAgent={onSelectAgent}
               onToggle={onToggle}
@@ -148,11 +144,12 @@ function AgentNodeView({
 
 export default function AgentTree() {
   const navigate = useNavigate();
-  const selectedAgent = useChatStore((s) => s.selectedAgent);
+  const [params] = useSearchParams();
   const setSelectedAgent = useChatStore((s) => s.setSelectedAgent);
   const allAgents = useDaemonStore((s) => s.agents);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  const selectedId = params.get("agent");
   const tree = buildAgentTree(allAgents);
 
   const toggleNode = (id: string, e: React.MouseEvent) => {
@@ -165,11 +162,6 @@ export default function AgentTree() {
     navigate(`/?agent=${encodeURIComponent(agent.id)}`);
   };
 
-  const handleClearSelection = () => {
-    setSelectedAgent(null);
-    navigate("/");
-  };
-
   return (
     <nav className="agent-tree">
       <div className="agent-tree-list">
@@ -178,7 +170,7 @@ export default function AgentTree() {
             key={node.id}
             node={node}
             depth={0}
-            selectedAgent={selectedAgent}
+            selectedId={selectedId}
             collapsed={collapsed}
             onSelectAgent={handleSelectAgent}
             onToggle={toggleNode}

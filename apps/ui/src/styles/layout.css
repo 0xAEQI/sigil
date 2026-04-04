@@ -118,6 +118,7 @@
   gap: 1px;
 }
 
+/* Chevron toggle — pushed to the right */
 .agent-tree-toggle {
   display: flex;
   align-items: center;
@@ -127,26 +128,12 @@
   border-radius: var(--radius-sm);
   color: var(--text-muted);
   flex-shrink: 0;
+  margin-left: auto;
   transition: all 0.1s ease;
 }
-
 .agent-tree-toggle:hover {
   background: var(--bg-overlay);
   color: var(--text-secondary);
-}
-
-.agent-tree-spacer {
-  width: 18px;
-  flex-shrink: 0;
-}
-
-.agent-tree-count {
-  font-size: var(--font-size-2xs);
-  color: var(--text-muted);
-  font-weight: 400;
-  flex-shrink: 0;
-  min-width: 16px;
-  text-align: right;
 }
 
 .agent-tree-empty {
@@ -157,18 +144,22 @@
 }
 
 /* ── Agent Rows ── */
-.agent-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
+.agent-avatar {
+  font-size: 14px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  transition: background 0.15s ease;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  line-height: 1;
 }
 
 .agent-row {
-  height: 30px;
-  padding: 0 8px 0 12px;
+  height: 32px;
+  padding: 0 8px;
   border: 1px solid transparent;
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
@@ -181,32 +172,16 @@
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
-
 .agent-row:hover {
   color: var(--text-primary);
   background: var(--bg-elevated);
 }
-
-.agent-row:hover .agent-dot {
-  background: var(--text-secondary);
-}
-
 .agent-row.active {
   color: var(--text-primary);
   background: var(--bg-elevated);
   border-color: var(--border);
-}
-
-.agent-row.active .agent-dot {
-  background: var(--success);
-}
-
-.agent-row-root {
-  font-weight: 500;
-  padding: 0 8px;
-  margin-bottom: 4px;
 }
 
 .agent-row-label {
