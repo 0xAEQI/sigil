@@ -67,7 +67,7 @@ function Hero() {
           className="mt-5 text-lg md:text-xl text-black/40 tracking-wide"
           {...fade(0.35)}
         >
-          agent orchestration kernel
+          the agent runtime
         </motion.p>
 
         <motion.p
