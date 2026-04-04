@@ -1,10 +1,10 @@
 import { motion } from "framer-motion";
 
 const primitives = [
-  { text: "Agent", color: "#c0392b", direction: 1 },
-  { text: "Event", color: "#c0392b", direction: -1 },
-  { text: "Quest", color: "#c0392b", direction: 1 },
-  { text: "Insight", color: "#c0392b", direction: -1 },
+  { text: "agent", color: "#c0392b", direction: 1 },
+  { text: "event", color: "#c0392b", direction: -1 },
+  { text: "quest", color: "#c0392b", direction: 1 },
+  { text: "insight", color: "#c0392b", direction: -1 },
 ];
 
 export function Hero() {

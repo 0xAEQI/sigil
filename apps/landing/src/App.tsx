@@ -66,9 +66,9 @@ function Nav() {
       >
         <a
           href="/"
-          className="text-[14px] font-bold tracking-[0.06em] text-[#c0392b] hover:opacity-80 transition-opacity"
+          className="text-[14px] font-bold tracking-[0.06em] hover:opacity-80 transition-opacity"
         >
-          AEQI
+          <span className="text-[#c0392b]">aeqi</span><span className="text-white/50">.ai</span>
         </a>
         <div className="w-px h-3.5 bg-white/[0.08]" />
         <GitHubStars />
