@@ -8,13 +8,6 @@ const fade = (delay = 0) => ({
   transition: { duration: 0.5, ease: "easeOut" as const, delay },
 });
 
-const fadeView = (delay = 0) => ({
-  initial: { opacity: 0, y: 12 } as const,
-  whileInView: { opacity: 1, y: 0 } as const,
-  viewport: { once: true, margin: "-60px" } as const,
-  transition: { duration: 0.5, ease: "easeOut" as const, delay },
-});
-
 /* ─── Nav ─── */
 function Nav() {
   return (
@@ -100,103 +93,11 @@ function Hero() {
           </button>
         </motion.div>
 
-        <motion.div className="mt-8" {...fade(0.7)}>
-          <a
-            href="https://app.aeqi.ai"
-            className="inline-block bg-black text-white rounded-full px-7 py-2.5 text-[15px] font-medium hover:bg-black/85 transition-colors"
-          >
-            Get Started
-          </a>
-        </motion.div>
       </div>
     </section>
   );
 }
 
-/* ─── Features: The four primitives ─── */
-const primitives = [
-  {
-    name: "Agent",
-    role: "who",
-    desc: "A node in a tree. Teams, specialists, departments — patterns that emerge from how agents arrange themselves.",
-  },
-  {
-    name: "Event",
-    role: "happened",
-    desc: "One row, one table. Audit log, cost report, session transcript — all queries on the same stream.",
-  },
-  {
-    name: "Quest",
-    role: "what",
-    desc: "A unit of work decomposed from intent. Dependencies resolve. Agents claim. Results compound.",
-  },
-  {
-    name: "Insight",
-    role: "known",
-    desc: "Knowledge that walks the tree. Each agent sees its own, its parent's, up to root.",
-  },
-];
-
-function Features() {
-  return (
-    <section className="py-24 px-6 border-t border-black/5">
-      <div className="max-w-5xl mx-auto">
-        <motion.div {...fadeView()} className="text-center mb-16">
-          <p className="text-[11px] uppercase tracking-[0.25em] text-black/25 mb-4">
-            Four Tables
-          </p>
-          <p className="text-[15px] text-black/40 max-w-sm mx-auto leading-relaxed">
-            The entire system. No schema for what you're building.
-          </p>
-        </motion.div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-10 md:gap-8">
-          {primitives.map((p, i) => (
-            <motion.div key={p.name} {...fadeView(0.08 * i)}>
-              <div className="border-t border-black/10 pt-6">
-                <span className="text-[11px] font-mono block mb-2 text-black/25">
-                  {p.role}
-                </span>
-                <h3 className="text-[18px] font-semibold mb-3 text-black">
-                  {p.name}
-                </h3>
-                <p className="text-[13px] leading-relaxed text-black/40">
-                  {p.desc}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* ─── Schema block ─── */
-function Schema() {
-  const code = `agents    { id, parent_id, name, model, prompts }
-events    { id, agent_id, kind, payload, ts }
-quests    { id, agent_id, intent, status, deps }
-insights  { id, agent_id, scope, content }`;
-
-  return (
-    <section className="py-20 px-6">
-      <div className="max-w-2xl mx-auto">
-        <motion.div {...fadeView()} className="text-center mb-10">
-          <p className="text-[11px] uppercase tracking-[0.25em] text-black/25">
-            Schema
-          </p>
-        </motion.div>
-        <motion.pre
-          {...fadeView(0.1)}
-          className="bg-black/[0.03] border border-black/5 rounded-lg px-6 py-5 font-mono text-[13px] leading-relaxed text-black/50 overflow-x-auto"
-        >
-          {code}
-        </motion.pre>
-      </div>
-    </section>
-  );
-}
 
 /* ─── Footer ─── */
 function Footer() {
@@ -230,8 +131,6 @@ export default function App() {
     <div className="min-h-screen bg-white">
       <Nav />
       <Hero />
-      <Features />
-      <Schema />
       <Footer />
     </div>
   );
