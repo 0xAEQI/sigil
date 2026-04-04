@@ -173,16 +173,6 @@ export default function AgentTree() {
   return (
     <nav className="agent-tree">
       <div className="agent-tree-list">
-        {/* "All" root item */}
-        <div
-          className={`agent-row agent-row-root${!selectedAgent ? " active" : ""}`}
-          onClick={handleClearSelection}
-        >
-          <span className="agent-row-label">All Agents</span>
-          <span className="agent-tree-count">{allAgents.length}</span>
-        </div>
-
-        {/* Agent tree */}
         {tree.map((node) => (
           <AgentNodeView
             key={node.id}
@@ -196,7 +186,7 @@ export default function AgentTree() {
         ))}
 
         {allAgents.length === 0 && (
-          <div className="agent-tree-empty">No agents registered</div>
+          <div className="agent-tree-empty">No agents yet</div>
         )}
       </div>
     </nav>
