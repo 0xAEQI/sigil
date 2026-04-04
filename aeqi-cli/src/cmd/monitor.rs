@@ -102,7 +102,7 @@ async fn build_monitor_report(
 
     let projects_cfg: Vec<_> = if let Some(name) = project_filter {
         let projects: Vec<_> = config
-            .companies
+            .agent_spawns
             .iter()
             .filter(|project| project.name == name)
             .collect();
@@ -111,7 +111,7 @@ async fn build_monitor_report(
         }
         projects
     } else {
-        config.companies.iter().collect()
+        config.agent_spawns.iter().collect()
     };
 
     let daemon = load_daemon_monitor(config_path).await;

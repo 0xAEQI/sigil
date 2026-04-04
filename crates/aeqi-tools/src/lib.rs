@@ -24,7 +24,14 @@ pub use secrets::SecretsTool;
 pub use shell::ShellTool;
 pub use skill::{MagicTools, Skill, SkillVerification};
 pub use tasks::{
-    TaskCloseTool, TaskCreateTool, TaskDepTool, TaskReadyTool, TaskShowTool, TaskUpdateTool,
+    QuestCloseTool, QuestCreateTool, QuestDepTool, QuestReadyTool, QuestShowTool, QuestUpdateTool,
 };
+// Compat aliases.
+pub type TaskCreateTool = QuestCreateTool;
+pub type TaskReadyTool = QuestReadyTool;
+pub type TaskUpdateTool = QuestUpdateTool;
+pub type TaskCloseTool = QuestCloseTool;
+pub type TaskShowTool = QuestShowTool;
+pub type TaskDepTool = QuestDepTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;

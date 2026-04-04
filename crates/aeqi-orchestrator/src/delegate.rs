@@ -17,8 +17,8 @@ use tracing::info;
 
 use crate::SessionStore;
 use crate::agent_registry::AgentRegistry;
+use crate::event_store::{Dispatch, DispatchKind, EventStore};
 use crate::execution_events::{EventBroadcaster, ExecutionEvent};
-use crate::message::{Dispatch, DispatchBus, DispatchKind};
 use crate::session_manager::SessionManager;
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ use crate::session_manager::SessionManager;
 /// - `"dept:<name>"` — post to a department conversation channel
 /// - `<agent_name>` — send a DelegateRequest dispatch to a named agent
 pub struct DelegateTool {
-    dispatch_bus: Arc<DispatchBus>,
+    event_store: Arc<EventStore>,
     /// The name of the calling agent (used as the "from" field in dispatches).
     agent_name: String,
     /// Optional agent registry for resolving default agents.
@@ -56,9 +56,9 @@ pub struct DelegateTool {
 }
 
 impl DelegateTool {
-    pub fn new(dispatch_bus: Arc<DispatchBus>, agent_name: String) -> Self {
+    pub fn new(event_store: Arc<EventStore>, agent_name: String) -> Self {
         Self {
-            dispatch_bus,
+            event_store,
             agent_name,
             agent_registry: None,
             project_name: None,
@@ -160,7 +160,7 @@ impl DelegateTool {
             "sending DelegateRequest dispatch"
         );
 
-        self.dispatch_bus.send(dispatch).await;
+        self.event_store.send(dispatch).await;
 
         let mut msg = format!(
             "Delegation sent to '{to}' (dispatch_id: {dispatch_id}, response_mode: {response_mode})"
@@ -285,7 +285,7 @@ impl DelegateTool {
             "sending DelegateRequest to department"
         );
 
-        self.dispatch_bus.send(dispatch).await;
+        self.event_store.send(dispatch).await;
 
         // Emit DepartmentMessage event for trigger system / observers.
         if let Some(ref broadcaster) = self.event_broadcaster {
@@ -457,8 +457,7 @@ mod tests {
     }
 
     fn make_tool() -> DelegateTool {
-        let bus = Arc::new(DispatchBus::new(test_event_store()));
-        DelegateTool::new(bus, "test-agent".to_string())
+        DelegateTool::new(test_event_store(), "test-agent".to_string())
     }
 
     #[test]
@@ -504,8 +503,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_subagent_with_fallback_target() {
-        let bus = Arc::new(DispatchBus::new(test_event_store()));
-        let mut tool = DelegateTool::new(bus.clone(), "caller".to_string());
+        let es = test_event_store();
+        let mut tool = DelegateTool::new(es.clone(), "caller".to_string());
         tool.fallback_target = Some("leader".to_string());
 
         let args = serde_json::json!({
@@ -521,7 +520,7 @@ mod tests {
         assert!(result.output.contains("code-review"));
 
         // Verify the dispatch was sent to the fallback target.
-        let messages = bus.read("leader").await;
+        let messages = es.read("leader").await;
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].from, "caller");
         assert_eq!(messages[0].to, "leader");
@@ -593,8 +592,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_dispatch_actually_sent() {
-        let bus = Arc::new(DispatchBus::new(test_event_store()));
-        let tool = DelegateTool::new(bus.clone(), "sender".to_string());
+        let es = test_event_store();
+        let tool = DelegateTool::new(es.clone(), "sender".to_string());
 
         let args = serde_json::json!({
             "to": "receiver",
@@ -603,8 +602,8 @@ mod tests {
         let result = tool.execute(args).await.unwrap();
         assert!(!result.is_error);
 
-        // Verify the dispatch landed in the bus.
-        let messages = bus.read("receiver").await;
+        // Verify the dispatch landed in the event store.
+        let messages = es.read("receiver").await;
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].from, "sender");
         assert_eq!(messages[0].to, "receiver");
@@ -613,8 +612,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_department_dispatch_sent() {
-        let bus = Arc::new(DispatchBus::new(test_event_store()));
-        let tool = DelegateTool::new(bus.clone(), "leader".to_string());
+        let es = test_event_store();
+        let tool = DelegateTool::new(es.clone(), "leader".to_string());
 
         let args = serde_json::json!({
             "to": "dept:ops",
@@ -624,7 +623,7 @@ mod tests {
         assert!(!result.is_error);
 
         // Verify dispatch was sent to "dept:ops".
-        let messages = bus.read("dept:ops").await;
+        let messages = es.read("dept:ops").await;
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].from, "leader");
         assert_eq!(messages[0].kind.subject_tag(), "DELEGATE_REQUEST");

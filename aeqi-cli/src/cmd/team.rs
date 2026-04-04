@@ -18,9 +18,13 @@ pub(crate) async fn cmd_team(
 
     // Show per-project info.
     let projects: Vec<_> = if let Some(name) = project_filter {
-        config.companies.iter().filter(|p| p.name == name).collect()
+        config
+            .agent_spawns
+            .iter()
+            .filter(|p| p.name == name)
+            .collect()
     } else {
-        config.companies.iter().collect()
+        config.agent_spawns.iter().collect()
     };
 
     if projects.is_empty() {

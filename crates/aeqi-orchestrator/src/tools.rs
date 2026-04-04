@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::agent_registry::AgentRegistry;
-use crate::message::DispatchBus;
+use crate::event_store::EventStore;
 use aeqi_core::traits::{Insight, InsightCategory, InsightQuery};
 
 /// Tool that surfaces OpenRouter key usage and per-project worker execution
@@ -503,19 +503,26 @@ impl Tool for QuestReprioritizeTool {
     }
 }
 
-/// Tool for posting/querying inter-agent notes.
+/// Tool for posting/querying shared insights and claiming resources via quests.
+///
+/// post/query/get/delete operate on the insight store.
+/// claim/release operate on quests via agent_registry.
 pub struct NotesTool {
-    notes: Arc<crate::notes::Notes>,
+    insight_store: Arc<dyn Insight>,
+    agent_registry: Arc<crate::agent_registry::AgentRegistry>,
     agent_name: String,
-    project_name: String,
 }
 
 impl NotesTool {
-    pub fn new(notes: Arc<crate::notes::Notes>, agent_name: String, project_name: String) -> Self {
+    pub fn new(
+        insight_store: Arc<dyn Insight>,
+        agent_registry: Arc<crate::agent_registry::AgentRegistry>,
+        agent_name: String,
+    ) -> Self {
         Self {
-            notes,
+            insight_store,
+            agent_registry,
             agent_name,
-            project_name,
         }
     }
 }
@@ -538,65 +545,46 @@ impl Tool for NotesTool {
                     .get("content")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("missing content"))?;
-                let tags: Vec<String> = args
-                    .get("tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let durability = match args.get("durability").and_then(|v| v.as_str()) {
-                    Some("durable") => crate::notes::EntryDurability::Durable,
-                    _ => crate::notes::EntryDurability::Transient,
-                };
 
-                match self.notes.post(
-                    key,
-                    content,
-                    &self.agent_name,
-                    &self.project_name,
-                    &tags,
-                    durability,
-                ) {
-                    Ok(entry) => Ok(ToolResult::success(format!(
-                        "Posted to blackboard: {} (expires {})",
-                        entry.key,
-                        entry.expires_at.format("%Y-%m-%d %H:%M"),
+                match self
+                    .insight_store
+                    .store(key, content, aeqi_core::traits::InsightCategory::Fact, None)
+                    .await
+                {
+                    Ok(id) => Ok(ToolResult::success(format!(
+                        "Stored insight: {key} (id: {id})"
                     ))),
-                    Err(e) => Ok(ToolResult::error(format!("Failed to post: {e}"))),
+                    Err(e) => Ok(ToolResult::error(format!("Failed to store: {e}"))),
                 }
             }
             "query" => {
-                let tags: Vec<String> = args
+                let query_text = args
                     .get("tags")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" ")
                     })
-                    .unwrap_or_default();
-                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as u32;
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| args.get("key").and_then(|v| v.as_str()).map(String::from))
+                    .unwrap_or_else(|| "*".to_string());
+                let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
-                match self.notes.query(&self.project_name, &tags, limit) {
+                let q = aeqi_core::traits::InsightQuery::new(&query_text, limit);
+                match self.insight_store.search(&q).await {
                     Ok(entries) if entries.is_empty() => {
-                        Ok(ToolResult::success("No matching blackboard entries."))
+                        Ok(ToolResult::success("No matching entries."))
                     }
                     Ok(entries) => {
                         let mut out = String::new();
                         for e in &entries {
                             out.push_str(&format!(
-                                "{}: {} (by {}, tags: {})\n",
+                                "{}: {} (by {})\n",
                                 e.key,
                                 e.content,
-                                e.agent,
-                                if e.tags.is_empty() {
-                                    "-".to_string()
-                                } else {
-                                    e.tags.join(", ")
-                                },
+                                e.agent_id.as_deref().unwrap_or("system"),
                             ));
                         }
                         Ok(ToolResult::success(out))
@@ -610,17 +598,22 @@ impl Tool for NotesTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("missing key"))?;
 
-                match self.notes.get_by_key(&self.project_name, key) {
-                    Ok(Some(entry)) => Ok(ToolResult::success(format!(
-                        "{}: {} (by {}, expires {})",
-                        entry.key,
-                        entry.content,
-                        entry.agent,
-                        entry.expires_at.format("%Y-%m-%d %H:%M"),
-                    ))),
-                    Ok(None) => Ok(ToolResult::success(format!(
-                        "No entry found for key: {key}"
-                    ))),
+                let q = aeqi_core::traits::InsightQuery::new(key, 5);
+                match self.insight_store.search(&q).await {
+                    Ok(entries) => {
+                        if let Some(e) = entries.into_iter().find(|e| e.key == key) {
+                            Ok(ToolResult::success(format!(
+                                "{}: {} (by {})",
+                                e.key,
+                                e.content,
+                                e.agent_id.as_deref().unwrap_or("system"),
+                            )))
+                        } else {
+                            Ok(ToolResult::success(format!(
+                                "No entry found for key: {key}"
+                            )))
+                        }
+                    }
                     Err(e) => Ok(ToolResult::error(format!("Get failed: {e}"))),
                 }
             }
@@ -630,23 +623,62 @@ impl Tool for NotesTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("missing resource"))?;
                 let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let claim_label = format!("claim:{resource}");
 
-                match self
-                    .notes
-                    .claim(resource, &self.agent_name, &self.project_name, content)
-                {
-                    Ok(crate::notes::ClaimResult::Acquired) => {
-                        Ok(ToolResult::success(format!("Claimed: {resource}")))
+                // Check for existing in-progress claim quest.
+                let existing = self
+                    .agent_registry
+                    .list_tasks(Some("in_progress"), None)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|t| t.labels.contains(&claim_label));
+
+                match existing {
+                    Some(task) => {
+                        let holder = task.assignee.as_deref().unwrap_or("unknown");
+                        if holder == self.agent_name {
+                            Ok(ToolResult::success(format!("Renewed claim: {resource}")))
+                        } else {
+                            Ok(ToolResult::success(format!(
+                                "BLOCKED — {resource} is claimed by {holder}: {}",
+                                task.description
+                            )))
+                        }
                     }
-                    Ok(crate::notes::ClaimResult::Renewed) => {
-                        Ok(ToolResult::success(format!("Renewed claim: {resource}")))
+                    None => {
+                        let agent_id = self
+                            .agent_registry
+                            .resolve_by_hint(&self.agent_name)
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(|a| a.name.clone())
+                            .unwrap_or_else(|| self.agent_name.clone());
+                        match self
+                            .agent_registry
+                            .create_task(
+                                &agent_id,
+                                &format!("claim: {resource}"),
+                                content,
+                                None,
+                                &[claim_label],
+                            )
+                            .await
+                        {
+                            Ok(task) => {
+                                let _ = self
+                                    .agent_registry
+                                    .update_task_status(
+                                        &task.id.0,
+                                        aeqi_quests::QuestStatus::InProgress,
+                                    )
+                                    .await;
+                                Ok(ToolResult::success(format!("Claimed: {resource}")))
+                            }
+                            Err(e) => Ok(ToolResult::error(format!("Claim failed: {e}"))),
+                        }
                     }
-                    Ok(crate::notes::ClaimResult::Held { holder, content }) => {
-                        Ok(ToolResult::success(format!(
-                            "BLOCKED — {resource} is claimed by {holder}: {content}"
-                        )))
-                    }
-                    Err(e) => Ok(ToolResult::error(format!("Claim failed: {e}"))),
                 }
             }
             "release" => {
@@ -654,17 +686,30 @@ impl Tool for NotesTool {
                     .get("resource")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("missing resource"))?;
-                let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
+                let claim_label = format!("claim:{resource}");
 
-                match self
-                    .notes
-                    .release(resource, &self.agent_name, &self.project_name, force)
-                {
-                    Ok(true) => Ok(ToolResult::success(format!("Released: {resource}"))),
-                    Ok(false) => Ok(ToolResult::success(format!(
+                let existing = self
+                    .agent_registry
+                    .list_tasks(Some("in_progress"), None)
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .find(|t| t.labels.contains(&claim_label));
+
+                match existing {
+                    Some(task) => {
+                        match self
+                            .agent_registry
+                            .update_task_status(&task.id.0, aeqi_quests::QuestStatus::Done)
+                            .await
+                        {
+                            Ok(()) => Ok(ToolResult::success(format!("Released: {resource}"))),
+                            Err(e) => Ok(ToolResult::error(format!("Release failed: {e}"))),
+                        }
+                    }
+                    None => Ok(ToolResult::success(format!(
                         "No active claim found for: {resource}"
                     ))),
-                    Err(e) => Ok(ToolResult::error(format!("Release failed: {e}"))),
                 }
             }
             "delete" => {
@@ -673,9 +718,22 @@ impl Tool for NotesTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("missing key"))?;
 
-                match self.notes.delete_by_key(&self.project_name, key) {
-                    Ok(true) => Ok(ToolResult::success(format!("Deleted: {key}"))),
-                    Ok(false) => Ok(ToolResult::success(format!("No entry found for: {key}"))),
+                let q = aeqi_core::traits::InsightQuery::new(key, 5);
+                match self.insight_store.search(&q).await {
+                    Ok(entries) => {
+                        let mut deleted = false;
+                        for e in &entries {
+                            if e.key == key {
+                                let _ = self.insight_store.delete(&e.id).await;
+                                deleted = true;
+                            }
+                        }
+                        if deleted {
+                            Ok(ToolResult::success(format!("Deleted: {key}")))
+                        } else {
+                            Ok(ToolResult::success(format!("No entry found for: {key}")))
+                        }
+                    }
                     Err(e) => Ok(ToolResult::error(format!("Delete failed: {e}"))),
                 }
             }
@@ -688,7 +746,7 @@ impl Tool for NotesTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "aeqi_notes".to_string(),
-            description: "Shared coordination surface. Post discoveries, claim resources, signal state, query entries. Key prefixes: claim: (locks), signal: (broadcasts), finding: (results), decision: (choices).".to_string(),
+            description: "Shared coordination surface. Post discoveries, claim resources, signal state, query entries. Actions: post (store insight), query (search), get (lookup by key), claim (exclusive resource lock via quest), release (drop claim), delete (remove entry).".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -697,7 +755,6 @@ impl Tool for NotesTool {
                     "resource": { "type": "string", "description": "Resource path for claim/release (e.g. src/api/auth.rs)" },
                     "content": { "type": "string", "description": "Content to post or claim description" },
                     "tags": { "type": "array", "items": { "type": "string" }, "description": "Tags for filtering/categorization" },
-                    "durability": { "type": "string", "enum": ["transient", "durable"], "description": "How long the entry persists (default: transient)" },
                     "limit": { "type": "integer", "description": "Max results for query (default: 10)" },
                     "force": { "type": "boolean", "description": "Force release even if claimed by another agent" }
                 }
@@ -718,13 +775,12 @@ impl Tool for NotesTool {
 /// task's closed_reason (the LLM's confirmation text) gets sent again.
 pub fn build_orchestration_tools(
     leader_name: String,
-    default_project: String,
+    _default_project: String,
     project_name: Option<String>,
-    dispatch_bus: Arc<DispatchBus>,
+    event_store: Arc<EventStore>,
     _channels: Arc<RwLock<HashMap<String, Arc<dyn Channel>>>>,
     api_key: Option<String>,
     memory: Option<Arc<dyn Insight>>,
-    notes: Option<Arc<crate::notes::Notes>>,
     event_broadcaster: Option<Arc<crate::EventBroadcaster>>,
     graph_db_path: Option<PathBuf>,
     session_id: Option<String>,
@@ -734,7 +790,7 @@ pub fn build_orchestration_tools(
     default_model: String,
     agent_registry: Arc<crate::agent_registry::AgentRegistry>,
 ) -> Vec<Arc<dyn Tool>> {
-    let mut delegate_tool = crate::delegate::DelegateTool::new(dispatch_bus, leader_name.clone())
+    let mut delegate_tool = crate::delegate::DelegateTool::new(event_store, leader_name.clone())
         .with_project(project_name)
         .with_agent_registry(agent_registry.clone());
     if let Some(broadcaster) = event_broadcaster {
@@ -756,7 +812,7 @@ pub fn build_orchestration_tools(
 
     let detail_tool = QuestDetailTool::new(agent_registry.clone());
     let cancel_tool = QuestCancelTool::new(agent_registry.clone());
-    let reprioritize_tool = QuestReprioritizeTool::new(agent_registry);
+    let reprioritize_tool = QuestReprioritizeTool::new(agent_registry.clone());
 
     let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(detail_tool),
@@ -768,11 +824,8 @@ pub fn build_orchestration_tools(
 
     if let Some(mem) = memory {
         tools.push(Arc::new(InsightStoreTool::new(mem.clone())));
-        tools.push(Arc::new(InsightRecallTool::new(mem)));
-    }
-
-    if let Some(bb) = notes {
-        tools.push(Arc::new(NotesTool::new(bb, leader_name, default_project)));
+        tools.push(Arc::new(InsightRecallTool::new(mem.clone())));
+        tools.push(Arc::new(NotesTool::new(mem, agent_registry, leader_name)));
     }
 
     if let Some(gp) = graph_db_path {

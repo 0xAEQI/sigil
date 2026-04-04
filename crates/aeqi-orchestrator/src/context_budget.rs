@@ -116,79 +116,17 @@ impl ContextBudget {
         Self::truncate(&out, self.max_checkpoints)
     }
 
-    /// Apply budget to a full identity system prompt.
-    pub fn apply_to_identity(&self, identity: &aeqi_core::Identity) -> String {
-        let mut parts = Vec::new();
-
-        if let Some(ref shared) = identity.shared_workflow {
-            parts.push(format!(
-                "# Shared Workflow\n\n{}",
-                Self::truncate(shared, self.max_shared_workflow)
-            ));
-        }
-        if let Some(ref persona) = identity.persona {
-            parts.push(format!(
-                "# Persona\n\n{}",
-                Self::truncate(persona, self.max_persona)
-            ));
-        }
-        if let Some(ref ident) = identity.identity {
-            // Identity is kept small by convention; no separate budget.
-            parts.push(format!("# Identity\n\n{ident}"));
-        }
-        if let Some(ref evolution) = identity.evolution {
-            // Evolution patches share persona budget slot (2000 chars default).
-            parts.push(format!(
-                "# Evolution\n\n{}",
-                Self::truncate(evolution, self.max_evolution)
-            ));
-        }
-        if let Some(ref operational) = identity.operational {
-            parts.push(format!(
-                "# Operational Instructions\n\n{}",
-                Self::truncate(operational, self.max_agents)
-            ));
-        }
-        if let Some(ref agents) = identity.agents {
-            parts.push(format!(
-                "# Operating Instructions\n\n{}",
-                Self::truncate(agents, self.max_agents)
-            ));
-        }
-        if let Some(ref knowledge) = identity.knowledge {
-            parts.push(format!(
-                "# Domain Knowledge\n\n{}",
-                Self::truncate(knowledge, self.max_knowledge)
-            ));
-        }
-        if let Some(ref preferences) = identity.preferences {
-            parts.push(format!(
-                "# Architect Preferences\n\n{}",
-                Self::truncate(preferences, self.max_preferences)
-            ));
-        }
-        if let Some(ref memory) = identity.memory {
-            parts.push(format!(
-                "# Persistent Memory\n\n{}",
-                Self::truncate(memory, self.max_memory)
-            ));
-        }
-
-        let combined = if parts.is_empty() {
-            "You are a helpful AI agent.".to_string()
-        } else {
-            parts.join("\n\n---\n\n")
-        };
-
-        if combined.len() > self.max_total {
+    /// Apply budget to a full system prompt string (total truncation only).
+    pub fn apply_to_system_prompt(&self, prompt: &str) -> String {
+        if prompt.len() > self.max_total {
             debug!(
-                total = combined.len(),
+                total = prompt.len(),
                 budget = self.max_total,
                 "context exceeds budget, truncating"
             );
-            Self::truncate(&combined, self.max_total)
+            Self::truncate(prompt, self.max_total)
         } else {
-            combined
+            prompt.to_string()
         }
     }
 }

@@ -425,7 +425,7 @@ impl AgentRegistry {
              CREATE INDEX IF NOT EXISTS idx_quests_assignee ON quests(assignee);
              CREATE INDEX IF NOT EXISTS idx_quests_created ON quests(created_at);
 
-             CREATE TABLE IF NOT EXISTS task_sequences (
+             CREATE TABLE IF NOT EXISTS quest_sequences (
                  prefix TEXT PRIMARY KEY,
                  next_seq INTEGER NOT NULL DEFAULT 1
              );",
@@ -488,6 +488,9 @@ impl AgentRegistry {
 
         // Create events table (unified event store).
         crate::event_store::EventStore::create_tables(&conn)?;
+
+        // Create session/conversation tables (unified session store).
+        crate::session_store::SessionStore::create_tables(&conn)?;
 
         // Backfill: populate prompts from system_prompt for existing agents.
         conn.execute_batch(
@@ -878,10 +881,10 @@ impl AgentRegistry {
 
     /// Find the default agent to talk to — the root, or a named child.
     pub async fn default_agent(&self, hint: Option<&str>) -> Result<Option<Agent>> {
-        if let Some(h) = hint {
-            if let Some(agent) = self.resolve_by_hint(h).await? {
-                return Ok(Some(agent));
-            }
+        if let Some(h) = hint
+            && let Some(agent) = self.resolve_by_hint(h).await?
+        {
+            return Ok(Some(agent));
         }
         self.get_root().await
     }
@@ -1247,11 +1250,11 @@ impl AgentRegistry {
 
         // Get and increment sequence for this prefix.
         db.execute(
-            "INSERT OR IGNORE INTO task_sequences (prefix, next_seq) VALUES (?1, 1)",
+            "INSERT OR IGNORE INTO quest_sequences (prefix, next_seq) VALUES (?1, 1)",
             params![prefix],
         )?;
         let seq: u32 = db.query_row(
-            "UPDATE task_sequences SET next_seq = next_seq + 1 WHERE prefix = ?1 RETURNING next_seq - 1",
+            "UPDATE quest_sequences SET next_seq = next_seq + 1 WHERE prefix = ?1 RETURNING next_seq - 1",
             params![prefix],
             |row| row.get(0),
         )?;

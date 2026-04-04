@@ -2,8 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::verification::VerificationResult;
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimePhase {
@@ -68,61 +66,6 @@ impl Artifact {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct VerificationReport {
-    pub checks_run: Vec<String>,
-    pub confidence: Option<f32>,
-    pub approved: Option<bool>,
-    pub warnings: Vec<String>,
-    pub evidence_summary: Vec<String>,
-}
-
-impl From<&VerificationResult> for VerificationReport {
-    fn from(value: &VerificationResult) -> Self {
-        let mut checks_run = Vec::new();
-        let mut warnings = value.suggestions.clone();
-        let mut evidence_summary = Vec::new();
-
-        if !value.signals.is_empty() {
-            checks_run.push(format!("signals: {}", value.signals.len()));
-        }
-
-        if let Some(ref evidence) = value.evidence {
-            if evidence.test_exit_code.is_some() {
-                checks_run.push("test_runner".to_string());
-            }
-            if !evidence.files_changed.is_empty() {
-                checks_run.push("git_diff".to_string());
-                evidence_summary.push(format!(
-                    "files changed: {}",
-                    evidence.files_changed.join(", ")
-                ));
-            }
-            if let Some(code) = evidence.test_exit_code {
-                evidence_summary.push(format!("test exit code: {code}"));
-            }
-            if evidence.lines_added > 0 || evidence.lines_removed > 0 {
-                evidence_summary.push(format!(
-                    "diff stats: +{} -{}",
-                    evidence.lines_added, evidence.lines_removed
-                ));
-            }
-        }
-
-        if !value.approved {
-            warnings.push(value.reason.clone());
-        }
-
-        Self {
-            checks_run,
-            confidence: Some(value.confidence),
-            approved: Some(value.approved),
-            warnings,
-            evidence_summary,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeOutcomeStatus {
@@ -139,7 +82,6 @@ pub struct RuntimeOutcome {
     pub reason: Option<String>,
     pub next_action: Option<String>,
     pub artifacts: Vec<Artifact>,
-    pub verification: Option<VerificationReport>,
 }
 
 impl RuntimeOutcome {
@@ -213,7 +155,6 @@ impl RuntimeOutcome {
             reason,
             next_action,
             artifacts,
-            verification: None,
         }
     }
 

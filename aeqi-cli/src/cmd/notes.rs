@@ -1,44 +1,71 @@
 use anyhow::Result;
+use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use crate::cli::NotesAction;
 use crate::helpers::load_config;
-use aeqi_orchestrator::notes::{ClaimResult, EntryDurability, Notes};
+
+/// Send an IPC request to the running daemon.
+fn ipc_request(
+    data_dir: &std::path::Path,
+    request: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let sock_path = data_dir.join("rm.sock");
+    let stream = std::os::unix::net::UnixStream::connect(&sock_path).map_err(|e| {
+        anyhow::anyhow!("failed to connect to daemon IPC socket: {e}. Is the daemon running?")
+    })?;
+    let mut writer = io::BufWriter::new(&stream);
+    let mut reader = io::BufReader::new(&stream);
+
+    let mut req_bytes = serde_json::to_vec(request)?;
+    req_bytes.push(b'\n');
+    writer.write_all(&req_bytes)?;
+    writer.flush()?;
+
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    let response: serde_json::Value = serde_json::from_str(&line)?;
+    Ok(response)
+}
 
 pub(crate) async fn cmd_notes(config_path: &Option<PathBuf>, action: NotesAction) -> Result<()> {
     let (config, _) = load_config(config_path)?;
     let data_dir = config.data_dir();
-    let bb_path = PathBuf::from(&data_dir).join("notes.db");
-    let orch = &config.orchestrator;
-    let bb = Notes::open(
-        &bb_path,
-        orch.notes_transient_ttl_hours,
-        orch.notes_durable_ttl_days,
-        orch.notes_claim_ttl_hours,
-    )?;
 
     match action {
         NotesAction::List { company, limit } => {
-            let entries = bb.list_project(&company, limit)?;
-            if entries.is_empty() {
-                println!("No note entries for company '{company}'.");
-                return Ok(());
-            }
-            for entry in &entries {
-                let tags_str = if entry.tags.is_empty() {
-                    "-".to_string()
-                } else {
-                    entry.tags.join(", ")
-                };
-                println!(
-                    "[{}] {} ({:?}) by {} | tags: {} | {}",
-                    entry.created_at.format("%Y-%m-%d %H:%M"),
-                    entry.key,
-                    entry.durability,
-                    entry.agent,
-                    tags_str,
-                    entry.content,
-                );
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "notes",
+                    "project": company,
+                    "limit": limit,
+                }),
+            )?;
+            let entries = resp.get("entries").and_then(|v| v.as_array());
+            match entries {
+                Some(entries) if entries.is_empty() => {
+                    println!("No entries for project '{company}'.");
+                }
+                Some(entries) => {
+                    for entry in entries {
+                        let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+                        let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                        let agent = entry.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
+                        let created = entry
+                            .get("created_at")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?");
+                        println!("[{created}] {key} by {agent} | {content}");
+                    }
+                }
+                None => {
+                    let error = resp
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown error");
+                    eprintln!("Error: {error}");
+                }
             }
         }
         NotesAction::Post {
@@ -46,45 +73,88 @@ pub(crate) async fn cmd_notes(config_path: &Option<PathBuf>, action: NotesAction
             key,
             content,
             tags,
-            durability,
+            durability: _,
         } => {
-            let dur = match durability.as_str() {
-                "durable" => EntryDurability::Durable,
-                _ => EntryDurability::Transient,
-            };
-            let entry = bb.post(&key, &content, "cli", &company, &tags, dur)?;
-            println!(
-                "Posted {} (expires {})",
-                entry.key,
-                entry.expires_at.format("%Y-%m-%d %H:%M")
-            );
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "post_notes",
+                    "project": company,
+                    "key": key,
+                    "content": content,
+                    "tags": tags,
+                    "agent": "cli",
+                }),
+            )?;
+            if resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let id = resp
+                    .get("entry")
+                    .and_then(|e| e.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                println!("Posted {key} (id: {id})");
+            } else {
+                let error = resp
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown error");
+                eprintln!("Error: {error}");
+            }
         }
         NotesAction::Query {
             company,
             tags,
             limit,
         } => {
-            let entries = bb.query(&company, &tags, limit)?;
-            if entries.is_empty() {
-                println!("No matching entries.");
-                return Ok(());
-            }
-            for entry in &entries {
-                println!("{}: {} (by {})", entry.key, entry.content, entry.agent);
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "notes",
+                    "project": company,
+                    "tags": tags,
+                    "limit": limit,
+                }),
+            )?;
+            let entries = resp.get("entries").and_then(|v| v.as_array());
+            match entries {
+                Some(entries) if entries.is_empty() => {
+                    println!("No matching entries.");
+                }
+                Some(entries) => {
+                    for entry in entries {
+                        let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+                        let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                        let agent = entry.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
+                        println!("{key}: {content} (by {agent})");
+                    }
+                }
+                None => {
+                    let error = resp
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown error");
+                    eprintln!("Error: {error}");
+                }
             }
         }
-        NotesAction::Get { company, key } => match bb.get_by_key(&company, &key)? {
-            Some(entry) => {
-                println!(
-                    "{}: {} (by {}, expires {})",
-                    entry.key,
-                    entry.content,
-                    entry.agent,
-                    entry.expires_at.format("%Y-%m-%d %H:%M"),
-                );
+        NotesAction::Get { company, key } => {
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "get_notes",
+                    "project": company,
+                    "key": key,
+                }),
+            )?;
+            if let Some(entry) = resp.get("entry").filter(|v| !v.is_null()) {
+                let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("?");
+                let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let agent = entry.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
+                println!("{key}: {content} (by {agent})");
+            } else {
+                println!("No entry found for key '{key}'.");
             }
-            None => println!("No entry found for key '{key}'."),
-        },
+        }
         NotesAction::Claim {
             company,
             resource,
@@ -92,15 +162,30 @@ pub(crate) async fn cmd_notes(config_path: &Option<PathBuf>, action: NotesAction
             agent,
         } => {
             let agent = agent.as_deref().unwrap_or("cli");
-            match bb.claim(&resource, agent, &company, &content)? {
-                ClaimResult::Acquired => {
-                    println!("Claimed: {resource}");
-                }
-                ClaimResult::Renewed => {
-                    println!("Renewed claim: {resource}");
-                }
-                ClaimResult::Held { holder, content } => {
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "claim_notes",
+                    "project": company,
+                    "resource": resource,
+                    "content": content,
+                    "agent": agent,
+                }),
+            )?;
+            match resp.get("result").and_then(|v| v.as_str()) {
+                Some("acquired") => println!("Claimed: {resource}"),
+                Some("renewed") => println!("Renewed claim: {resource}"),
+                Some("held") => {
+                    let holder = resp.get("holder").and_then(|v| v.as_str()).unwrap_or("?");
+                    let content = resp.get("content").and_then(|v| v.as_str()).unwrap_or("");
                     println!("Held by {holder}: {content}");
+                }
+                _ => {
+                    let error = resp
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown error");
+                    eprintln!("Error: {error}");
                 }
             }
         }
@@ -111,14 +196,40 @@ pub(crate) async fn cmd_notes(config_path: &Option<PathBuf>, action: NotesAction
             force,
         } => {
             let agent = agent.as_deref().unwrap_or("cli");
-            if bb.release(&resource, agent, &company, force)? {
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "release_notes",
+                    "project": company,
+                    "resource": resource,
+                    "agent": agent,
+                    "force": force,
+                }),
+            )?;
+            if resp
+                .get("released")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 println!("Released: {resource}");
             } else {
                 println!("No claim found for '{resource}' (or not owned by {agent}).");
             }
         }
         NotesAction::Delete { company, key } => {
-            if bb.delete_by_key(&company, &key)? {
+            let resp = ipc_request(
+                &data_dir,
+                &serde_json::json!({
+                    "cmd": "delete_notes",
+                    "project": company,
+                    "key": key,
+                }),
+            )?;
+            if resp
+                .get("deleted")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 println!("Deleted: {key}");
             } else {
                 println!("No entry found for key '{key}'.");

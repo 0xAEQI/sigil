@@ -16,7 +16,7 @@ fn cmd_graph_index(config_path: &Option<PathBuf>, project: &str, full: bool) -> 
     let data_dir = config.data_dir();
 
     let repo_path = config
-        .companies
+        .agent_spawns
         .iter()
         .find(|p| p.name == project)
         .map(|p| {

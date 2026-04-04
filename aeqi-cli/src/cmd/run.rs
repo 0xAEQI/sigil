@@ -1,5 +1,6 @@
+use crate::identity::Identity;
 use aeqi_core::traits::{Insight, LogObserver, Observer};
-use aeqi_core::{Agent, AgentConfig, Identity};
+use aeqi_core::{Agent, AgentConfig};
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;

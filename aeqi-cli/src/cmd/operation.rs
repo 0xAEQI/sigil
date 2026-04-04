@@ -19,7 +19,7 @@ pub(crate) async fn cmd_operation(
                 .map(|id| {
                     let prefix = id.split('-').next().unwrap_or("");
                     let project_name = config
-                        .companies
+                        .agent_spawns
                         .iter()
                         .find(|r| r.prefix == prefix)
                         .map(|r| r.name.clone())

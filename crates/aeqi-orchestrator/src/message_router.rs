@@ -205,8 +205,6 @@ pub struct MessageRouter {
     pub insight_stores: HashMap<String, Arc<dyn Insight>>,
     /// Per-project memory stores keyed by project UUID for id-based lookups.
     pub insight_stores_by_id: HashMap<String, Arc<dyn Insight>>,
-    /// LLM-backed intent classifier for ambiguous messages.
-    pub intent_classifier: Option<Arc<crate::intent::IntentClassifier>>,
     /// Wake signal for the global Scheduler.
     pub scheduler_wake: Arc<tokio::sync::Notify>,
 }

@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 /// Tool for creating tasks.
-pub struct TaskCreateTool {
+pub struct QuestCreateTool {
     store: Mutex<QuestBoard>,
     prefix: String,
 }
 
-impl TaskCreateTool {
+impl QuestCreateTool {
     pub fn new(tasks_dir: PathBuf, prefix: String) -> Result<Self> {
         let store = QuestBoard::open(&tasks_dir)?;
         Ok(Self {
@@ -23,7 +23,7 @@ impl TaskCreateTool {
 }
 
 #[async_trait]
-impl Tool for TaskCreateTool {
+impl Tool for QuestCreateTool {
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
         let subject = args
             .get("subject")
@@ -87,11 +87,11 @@ impl Tool for TaskCreateTool {
 }
 
 /// Tool for listing ready (unblocked) tasks.
-pub struct TaskReadyTool {
+pub struct QuestReadyTool {
     store: Mutex<QuestBoard>,
 }
 
-impl TaskReadyTool {
+impl QuestReadyTool {
     pub fn new(tasks_dir: PathBuf) -> Result<Self> {
         let store = QuestBoard::open(&tasks_dir)?;
         Ok(Self {
@@ -101,7 +101,7 @@ impl TaskReadyTool {
 }
 
 #[async_trait]
-impl Tool for TaskReadyTool {
+impl Tool for QuestReadyTool {
     async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult> {
         let store = self
             .store
@@ -147,11 +147,11 @@ impl Tool for TaskReadyTool {
 }
 
 /// Tool for updating a task's status.
-pub struct TaskUpdateTool {
+pub struct QuestUpdateTool {
     store: Mutex<QuestBoard>,
 }
 
-impl TaskUpdateTool {
+impl QuestUpdateTool {
     pub fn new(tasks_dir: PathBuf) -> Result<Self> {
         let store = QuestBoard::open(&tasks_dir)?;
         Ok(Self {
@@ -161,7 +161,7 @@ impl TaskUpdateTool {
 }
 
 #[async_trait]
-impl Tool for TaskUpdateTool {
+impl Tool for QuestUpdateTool {
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
         let id = args
             .get("id")
@@ -218,11 +218,11 @@ impl Tool for TaskUpdateTool {
 }
 
 /// Tool for closing a task.
-pub struct TaskCloseTool {
+pub struct QuestCloseTool {
     store: Mutex<QuestBoard>,
 }
 
-impl TaskCloseTool {
+impl QuestCloseTool {
     pub fn new(tasks_dir: PathBuf) -> Result<Self> {
         let store = QuestBoard::open(&tasks_dir)?;
         Ok(Self {
@@ -232,7 +232,7 @@ impl TaskCloseTool {
 }
 
 #[async_trait]
-impl Tool for TaskCloseTool {
+impl Tool for QuestCloseTool {
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
         let id = args
             .get("id")
@@ -275,11 +275,11 @@ impl Tool for TaskCloseTool {
 }
 
 /// Tool for showing task details.
-pub struct TaskShowTool {
+pub struct QuestShowTool {
     store: Mutex<QuestBoard>,
 }
 
-impl TaskShowTool {
+impl QuestShowTool {
     pub fn new(tasks_dir: PathBuf) -> Result<Self> {
         let store = QuestBoard::open(&tasks_dir)?;
         Ok(Self {
@@ -289,7 +289,7 @@ impl TaskShowTool {
 }
 
 #[async_trait]
-impl Tool for TaskShowTool {
+impl Tool for QuestShowTool {
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
         let id = args
             .get("id")
@@ -364,11 +364,11 @@ impl Tool for TaskShowTool {
 }
 
 /// Tool for adding a dependency between tasks.
-pub struct TaskDepTool {
+pub struct QuestDepTool {
     store: Mutex<QuestBoard>,
 }
 
-impl TaskDepTool {
+impl QuestDepTool {
     pub fn new(tasks_dir: PathBuf) -> Result<Self> {
         let store = QuestBoard::open(&tasks_dir)?;
         Ok(Self {
@@ -378,7 +378,7 @@ impl TaskDepTool {
 }
 
 #[async_trait]
-impl Tool for TaskDepTool {
+impl Tool for QuestDepTool {
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
         let id = args
             .get("id")

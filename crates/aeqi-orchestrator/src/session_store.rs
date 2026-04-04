@@ -1,11 +1,13 @@
 //! Persistent Session Store — SQLite-backed session history
 //! that survives daemon restarts.
+//!
+//! Uses a shared `Arc<Mutex<Connection>>` from AgentRegistry (agents.db)
+//! instead of opening a separate sessions.db file.
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::debug;
@@ -50,27 +52,24 @@ pub struct ThreadEvent {
 
 /// Persistent session store backed by SQLite.
 pub struct SessionStore {
-    db: Arc<Mutex<rusqlite::Connection>>,
+    db: Arc<Mutex<Connection>>,
     /// Max messages per chat before auto-summarization kicks in.
     pub max_messages_per_chat: usize,
 }
 
 impl SessionStore {
-    /// Open or create a session store at the given path.
-    pub fn open(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create dir: {}", parent.display()))?;
+    /// Create a SessionStore sharing an existing connection (from AgentRegistry).
+    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
+        Self {
+            db,
+            max_messages_per_chat: 30,
         }
+    }
 
-        let conn = rusqlite::Connection::open(path)
-            .with_context(|| format!("failed to open conversation db: {}", path.display()))?;
-
+    /// Create the session-related tables and indexes. Called during AgentRegistry::open().
+    pub fn create_tables(conn: &Connection) -> Result<()> {
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-
-             CREATE TABLE IF NOT EXISTS conversations (
+            "CREATE TABLE IF NOT EXISTS conversations (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  chat_id INTEGER NOT NULL,
                  role TEXT NOT NULL,
@@ -94,7 +93,6 @@ impl SessionStore {
 
              CREATE INDEX IF NOT EXISTS idx_summ_chat ON conversation_summaries(chat_id);
 
-             -- NOTE: `channels` conceptually represents sessions; not renamed to avoid data migration risk.
              CREATE TABLE IF NOT EXISTS channels (
                  chat_id INTEGER PRIMARY KEY,
                  channel_type TEXT NOT NULL,
@@ -148,7 +146,6 @@ impl SessionStore {
                 .is_some();
             if has_old {
                 conn.execute_batch("ALTER TABLE unified_sessions RENAME TO sessions;")?;
-                // Re-create indexes with new names.
                 let _ = conn.execute_batch(
                     "DROP INDEX IF EXISTS idx_usess_agent;
                      DROP INDEX IF EXISTS idx_usess_project;
@@ -200,7 +197,7 @@ impl SessionStore {
              WHERE chat_id NOT IN (SELECT legacy_chat_id FROM sessions WHERE legacy_chat_id IS NOT NULL);",
         );
 
-        // ── 4C: Backfill from agent_sessions (if it exists in THIS db or a shared db) ──
+        // ── 4C: Backfill from agent_sessions (if it exists) ──
         {
             let has_agent_sessions: bool = conn
                 .prepare(
@@ -219,12 +216,9 @@ impl SessionStore {
             }
         }
 
-        debug!(path = %path.display(), "session store opened");
+        debug!("session store tables created");
 
-        Ok(Self {
-            db: Arc::new(Mutex::new(conn)),
-            max_messages_per_chat: 30,
-        })
+        Ok(())
     }
 
     /// Record a message in a conversation.
@@ -918,12 +912,20 @@ pub struct ChannelInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+
+    fn open_test_db() -> Arc<Mutex<Connection>> {
+        let conn = Connection::open_in_memory().unwrap();
+        SessionStore::create_tables(&conn).unwrap();
+        Arc::new(Mutex::new(conn))
+    }
+
+    fn test_store() -> SessionStore {
+        SessionStore::new(open_test_db())
+    }
 
     #[tokio::test]
     async fn test_record_and_recent() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.record(123, "User", "hello").await.unwrap();
         store.record(123, "Assistant", "hi there").await.unwrap();
@@ -938,8 +940,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recent_limit() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         for i in 0..10 {
             store.record(1, "User", &format!("msg {i}")).await.unwrap();
@@ -953,8 +954,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_string() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.record(42, "User", "hello").await.unwrap();
         store.record(42, "Assistant", "world").await.unwrap();
@@ -967,8 +967,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_string_empty() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         let ctx = store.context_string(999, 10).await.unwrap();
         assert!(ctx.is_empty());
@@ -976,8 +975,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_summary() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         for i in 0..10 {
             store.record(1, "User", &format!("msg {i}")).await.unwrap();
@@ -999,8 +997,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_message_count() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.record(1, "User", "a").await.unwrap();
         store.record(1, "User", "b").await.unwrap();
@@ -1013,8 +1010,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_chat_isolation() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.record(1, "User", "chat1").await.unwrap();
         store.record(2, "User", "chat2").await.unwrap();
@@ -1030,8 +1026,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeline_records_typed_events() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.record(7, "User", "hello").await.unwrap();
         store
@@ -1068,8 +1063,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_channel_and_list() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store
             .ensure_channel(100, "company", "myproject")
@@ -1087,8 +1081,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_channel_idempotent() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.ensure_channel(100, "company", "proj").await.unwrap();
         store.ensure_channel(100, "company", "proj").await.unwrap();
@@ -1099,8 +1092,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_with_messages() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store.ensure_channel(100, "company", "proj").await.unwrap();
         store.record(100, "User", "hello company").await.unwrap();
@@ -1133,8 +1125,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_session_creates_and_returns() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         let id1 = store
             .ensure_session(100, "web", "test-session", None)
@@ -1153,8 +1144,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ensure_session_with_agent() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         let id = store
             .ensure_session(200, "web", "agent-session", Some("agent-uuid-1"))
@@ -1170,8 +1160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_record_and_history_by_session() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         let session_id = store
             .ensure_session(300, "web", "history-test", None)
@@ -1199,8 +1188,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_sessions_filtering() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let store = test_store();
 
         store
             .ensure_session(400, "web", "s1", Some("a1"))
@@ -1224,8 +1212,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_backfill_creates_sessions() {
-        let dir = TempDir::new().unwrap();
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        let db = open_test_db();
+        let store = SessionStore::new(db.clone());
 
         // Create channels.
         store
@@ -1234,9 +1222,11 @@ mod tests {
             .unwrap();
         store.ensure_channel(501, "dm", "akira").await.unwrap();
 
-        // Re-open the store to trigger backfill.
-        drop(store);
-        let store = SessionStore::open(&dir.path().join("conv.db")).unwrap();
+        // Re-run create_tables to trigger backfill (simulates re-open).
+        {
+            let conn = db.lock().await;
+            SessionStore::create_tables(&conn).unwrap();
+        }
 
         let sessions = store.list_sessions(None, 100).await.unwrap();
         assert_eq!(sessions.len(), 2);

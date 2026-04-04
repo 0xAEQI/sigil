@@ -25,9 +25,9 @@ pub struct AEQIConfig {
     /// Shared primer injected into ALL agents regardless of project.
     #[serde(default)]
     pub shared_primer: Option<String>,
-    /// Companies = repos, tasks, knowledge, budget.
-    #[serde(default)]
-    pub companies: Vec<CompanyConfig>,
+    /// Agent spawn configs = repos, tasks, knowledge, budget.
+    #[serde(default, alias = "companies")]
+    pub agent_spawns: Vec<AgentSpawnConfig>,
     /// Agents = personalities (equal peers).
     #[serde(default)]
     pub agents: Vec<PeerAgentConfig>,
@@ -593,15 +593,6 @@ pub struct OrchestratorConfig {
     /// Model to use for failure analysis (Phase 4).
     #[serde(default)]
     pub failure_analysis_model: String,
-    /// Enable pre-flight assessment before worker spawn (Phase 5).
-    #[serde(default)]
-    pub preflight_enabled: bool,
-    /// Model to use for pre-flight assessment (Phase 5).
-    #[serde(default)]
-    pub preflight_model: String,
-    /// Max cost for pre-flight assessment (Phase 5).
-    #[serde(default = "default_preflight_max_cost_usd")]
-    pub preflight_max_cost_usd: f64,
     /// Confidence threshold for inferred dependencies; 0.0 = disabled (Phase 7).
     #[serde(default)]
     pub infer_deps_threshold: f64,
@@ -624,9 +615,6 @@ impl Default for OrchestratorConfig {
             notes_claim_ttl_hours: default_notes_claim_ttl_hours(),
             adaptive_retry: false,
             failure_analysis_model: String::new(),
-            preflight_enabled: false,
-            preflight_model: String::new(),
-            preflight_max_cost_usd: default_preflight_max_cost_usd(),
             infer_deps_threshold: 0.0,
         }
     }
@@ -704,10 +692,6 @@ fn default_notes_durable_ttl_days() -> u64 {
 fn default_notes_claim_ttl_hours() -> u64 {
     2
 }
-fn default_preflight_max_cost_usd() -> f64 {
-    0.01
-}
-
 /// How workers execute tasks.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -720,7 +704,7 @@ pub enum ExecutionMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompanyConfig {
+pub struct AgentSpawnConfig {
     #[serde(default)]
     pub id: Option<String>,
     pub name: String,
@@ -897,7 +881,7 @@ impl AEQIConfig {
     }
 
     pub fn runtime_for_company(&self, project_name: &str) -> RuntimePresetConfig {
-        let project = self.company(project_name);
+        let project = self.agent_spawn(project_name);
         let fallback_mode = project
             .map(|p| p.execution_mode.clone())
             .unwrap_or_default();
@@ -982,7 +966,7 @@ impl AEQIConfig {
         for path in config.repos.values_mut() {
             *path = expand_tilde(path);
         }
-        for project in &mut config.companies {
+        for project in &mut config.agent_spawns {
             project.repo = expand_tilde(&project.repo);
             if let Some(ref mut wt) = project.worktree_root {
                 *wt = expand_tilde(wt);
@@ -1048,9 +1032,14 @@ impl AEQIConfig {
         anyhow::bail!("No aeqi.toml found. Run 'aeqi setup' to create one.")
     }
 
-    /// Get company config by name.
-    pub fn company(&self, name: &str) -> Option<&CompanyConfig> {
-        self.companies.iter().find(|r| r.name == name)
+    /// Get agent spawn config by name.
+    pub fn agent_spawn(&self, name: &str) -> Option<&AgentSpawnConfig> {
+        self.agent_spawns.iter().find(|r| r.name == name)
+    }
+
+    /// Compat alias — old callers used `.company(name)`.
+    pub fn company(&self, name: &str) -> Option<&AgentSpawnConfig> {
+        self.agent_spawn(name)
     }
 
     /// Get agent config by name.
@@ -1061,7 +1050,7 @@ impl AEQIConfig {
     /// Get the default model for a project, falling back to provider default.
     pub fn model_for_company(&self, project_name: &str) -> String {
         let runtime = self.runtime_for_company(project_name);
-        self.company(project_name)
+        self.agent_spawn(project_name)
             .and_then(|r| r.model.clone())
             .or(runtime.model)
             .unwrap_or_else(|| self.default_model_for_provider(runtime.provider))
@@ -1078,7 +1067,7 @@ impl AEQIConfig {
 
     /// Get the effective orchestrator config for a project (project override or global).
     pub fn orchestrator_for_company(&self, project_name: &str) -> OrchestratorConfig {
-        self.company(project_name)
+        self.agent_spawn(project_name)
             .and_then(|p| p.orchestrator.clone())
             .unwrap_or_else(|| self.orchestrator.clone())
     }
@@ -1160,7 +1149,7 @@ impl AEQIConfig {
         // Project validation.
         let mut seen_names = std::collections::HashSet::new();
         let mut seen_prefixes = std::collections::HashSet::new();
-        for d in &self.companies {
+        for d in &self.agent_spawns {
             if d.name.is_empty() {
                 errors.push("project with empty name".to_string());
             }
@@ -1171,7 +1160,7 @@ impl AEQIConfig {
                 errors.push(format!("duplicate project name: '{}'", d.name));
             }
             if !seen_prefixes.insert(&d.prefix) {
-                errors.push(format!("duplicate company prefix: '{}'", d.prefix));
+                errors.push(format!("duplicate project prefix: '{}'", d.prefix));
             }
             if d.worker_timeout_secs == 0 {
                 errors.push(format!("project '{}' has zero worker_timeout_secs", d.name));
@@ -1239,7 +1228,7 @@ impl AEQIConfig {
         }
 
         // Repo refs resolve.
-        for d in &self.companies {
+        for d in &self.agent_spawns {
             if !d.repo.starts_with('/')
                 && !d.repo.starts_with('~')
                 && !self.repos.contains_key(&d.repo)
@@ -1290,7 +1279,7 @@ impl AEQIConfig {
         };
 
         let mut changed = false;
-        for project in &mut self.companies {
+        for project in &mut self.agent_spawns {
             if project.id.is_none() {
                 let id = ids.entry(project.name.clone()).or_insert_with(|| {
                     changed = true;
@@ -1466,8 +1455,8 @@ repo = "/tmp/test"
 "#;
         let config = AEQIConfig::parse(toml).unwrap();
         assert_eq!(config.aeqi.name, "test");
-        assert_eq!(config.companies.len(), 1);
-        assert_eq!(config.companies[0].name, "test-domain");
+        assert_eq!(config.agent_spawns.len(), 1);
+        assert_eq!(config.agent_spawns[0].name, "test-domain");
         assert!(config.web.ui_dist_dir.is_none());
     }
 
@@ -1560,7 +1549,7 @@ repo = "/tmp/beta"
         assert!(
             issues
                 .iter()
-                .any(|i| i.contains("duplicate company prefix")),
+                .any(|i| i.contains("duplicate project prefix")),
             "expected duplicate prefix: {issues:?}"
         );
     }

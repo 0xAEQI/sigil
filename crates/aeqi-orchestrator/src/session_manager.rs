@@ -20,9 +20,8 @@ use aeqi_core::chat_stream::{ChatStreamEvent, ChatStreamSender};
 use aeqi_core::traits::{Insight, Provider};
 
 use crate::agent_registry::AgentRegistry;
+use crate::event_store::EventStore;
 use crate::execution_events::EventBroadcaster;
-use crate::message::DispatchBus;
-use crate::notes::Notes;
 use crate::session_store::SessionStore;
 
 /// A running agent session — the in-memory handle to a live agent loop.
@@ -206,8 +205,7 @@ pub struct SessionManager {
     session_store: Option<Arc<SessionStore>>,
     default_model: String,
     event_broadcaster: Option<Arc<EventBroadcaster>>,
-    dispatch_bus: Option<Arc<DispatchBus>>,
-    notes: Option<Arc<Notes>>,
+    event_store: Option<Arc<EventStore>>,
     shared_primer: Option<String>,
     project_primer: Option<String>,
     insight_stores: HashMap<String, Arc<dyn Insight>>,
@@ -223,8 +221,7 @@ impl SessionManager {
             session_store: None,
             default_model: String::new(),
             event_broadcaster: None,
-            dispatch_bus: None,
-            notes: None,
+            event_store: None,
             shared_primer: None,
             project_primer: None,
             insight_stores: HashMap::new(),
@@ -241,8 +238,7 @@ impl SessionManager {
         session_store: Arc<SessionStore>,
         default_model: String,
         event_broadcaster: Option<Arc<EventBroadcaster>>,
-        dispatch_bus: Arc<DispatchBus>,
-        notes: Option<Arc<Notes>>,
+        event_store: Arc<EventStore>,
         insight_stores: HashMap<String, Arc<dyn Insight>>,
         insight_stores_by_id: HashMap<String, Arc<dyn Insight>>,
         default_project: String,
@@ -255,8 +251,7 @@ impl SessionManager {
         self.session_store = Some(session_store);
         self.default_model = default_model;
         self.event_broadcaster = event_broadcaster;
-        self.dispatch_bus = Some(dispatch_bus);
-        self.notes = notes;
+        self.event_store = Some(event_store);
         self.insight_stores = insight_stores;
         self.insight_stores_by_id = insight_stores_by_id;
         self.default_project = default_project;
@@ -285,10 +280,10 @@ impl SessionManager {
             .agent_registry
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("session manager not configured (no agent_registry)"))?;
-        let dispatch_bus = self
-            .dispatch_bus
+        let event_store = self
+            .event_store
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("session manager not configured (no dispatch_bus)"))?;
+            .ok_or_else(|| anyhow::anyhow!("session manager not configured (no event_store)"))?;
 
         // 1. Resolve agent from agent_registry by UUID (or by name via resolve_by_hint).
         let agent_opt = if uuid::Uuid::parse_str(agent_id_or_hint).is_ok() {
@@ -412,11 +407,10 @@ impl SessionManager {
                 agent_name.clone(),
                 self.default_project.clone(),
                 project_name,
-                dispatch_bus.clone(),
+                event_store.clone(),
                 empty_channels,
                 None,
                 memory_for_agent.clone(),
-                self.notes.clone(),
                 self.event_broadcaster.clone(),
                 graph_db_path,
                 None, // session_id — not yet known, delegate uses parent_session_id from SpawnType
@@ -452,15 +446,15 @@ impl SessionManager {
             {
                 all_skills.extend(shared);
             }
-            if !self.default_project.is_empty() {
-                if let Ok(proj_skills) = aeqi_tools::Skill::discover(
+            if !self.default_project.is_empty()
+                && let Ok(proj_skills) = aeqi_tools::Skill::discover(
                     &base_dir
                         .join("projects")
                         .join(&self.default_project)
                         .join("skills"),
-                ) {
-                    all_skills.extend(proj_skills);
-                }
+                )
+            {
+                all_skills.extend(proj_skills);
             }
 
             for skill_name in &opts.skills {

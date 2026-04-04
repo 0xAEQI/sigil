@@ -1,5 +1,6 @@
+use crate::identity::Identity;
 use aeqi_core::traits::{Provider, Tool};
-use aeqi_core::{AEQIConfig, Identity, ProviderKind, SecretStore};
+use aeqi_core::{AEQIConfig, ProviderKind, SecretStore};
 use anyhow::{Context, Result};
 
 /// Resolve `${ENV_VAR}` patterns in a config value. Returns empty string if
@@ -312,7 +313,7 @@ pub(crate) fn project_name_for_prefix(config: &AEQIConfig, prefix: &str) -> Opti
         }
     }
     config
-        .companies
+        .agent_spawns
         .iter()
         .find(|r| r.prefix == prefix)
         .map(|r| r.name.clone())
@@ -416,13 +417,13 @@ pub(crate) async fn handle_fast_lane(
                 }
             }
             // List agents from agent registry.
-            if let Ok(agents) = scheduler.agent_registry.list_active().await {
-                if !agents.is_empty() {
-                    lines.push(String::new());
-                    lines.push("*Agents*".to_string());
-                    for a in &agents {
-                        lines.push(format!("  {} — active", a.name));
-                    }
+            if let Ok(agents) = scheduler.agent_registry.list_active().await
+                && !agents.is_empty()
+            {
+                lines.push(String::new());
+                lines.push("*Agents*".to_string());
+                for a in &agents {
+                    lines.push(format!("  {} — active", a.name));
                 }
             }
             lines.join("\n")

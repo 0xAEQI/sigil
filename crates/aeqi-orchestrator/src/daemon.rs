@@ -8,11 +8,10 @@ use tracing::{debug, info, warn};
 
 use crate::agent_registry::AgentRegistry;
 use crate::event_store::EventStore;
+use crate::event_store::{Dispatch, DispatchHealth, DispatchKind};
 use crate::execution_events::{EventBroadcaster, ExecutionEvent};
-use crate::message::{Dispatch, DispatchBus, DispatchHealth, DispatchKind};
 use crate::message_router::{IncomingMessage, MessageRouter, MessageSource};
 use crate::metrics::AEQIMetrics;
-use crate::notes::Notes;
 use crate::progress_tracker::ProgressTracker;
 use crate::scheduler::Scheduler;
 use crate::session_manager::SessionManager;
@@ -186,11 +185,9 @@ fn attach_chat_id(mut payload: serde_json::Value, chat_id: i64) -> serde_json::V
 /// Avoids passing many individual parameters to socket_accept_loop / handle_socket_connection.
 struct IpcContext {
     metrics: Arc<AEQIMetrics>,
-    notes: Option<Arc<Notes>>,
     event_store: Arc<EventStore>,
     session_store: Option<Arc<SessionStore>>,
     leader_agent_name: String,
-    config_project_names: Vec<String>,
     daily_budget_usd: f64,
     project_budgets: std::collections::HashMap<String, f64>,
 }
@@ -199,14 +196,11 @@ struct IpcContext {
 /// and trigger system.
 pub struct Daemon {
     pub metrics: Arc<AEQIMetrics>,
-    pub notes: Option<Arc<Notes>>,
     pub event_store: Arc<EventStore>,
     pub session_store: Option<Arc<SessionStore>>,
     pub leader_agent_name: String,
-    pub config_project_names: Vec<String>,
     pub shared_primer: Option<String>,
     pub project_primer: Option<String>,
-    pub dispatch_bus: Arc<DispatchBus>,
     pub patrol_interval_secs: u64,
     pub background_automation_enabled: bool,
     pub trigger_store: Option<Arc<TriggerStore>>,
@@ -236,21 +230,17 @@ pub struct Daemon {
 impl Daemon {
     pub fn new(
         metrics: Arc<AEQIMetrics>,
-        dispatch_bus: Arc<DispatchBus>,
         scheduler: Arc<Scheduler>,
         agent_registry: Arc<AgentRegistry>,
         event_store: Arc<EventStore>,
     ) -> Self {
         Self {
             metrics,
-            notes: None,
             event_store,
             session_store: None,
             leader_agent_name: String::new(),
-            config_project_names: Vec::new(),
             shared_primer: None,
             project_primer: None,
-            dispatch_bus,
             patrol_interval_secs: 30,
             background_automation_enabled: true,
             trigger_store: None,
@@ -377,10 +367,10 @@ impl Daemon {
                 continue;
             }
 
-            let dispatches = self.dispatch_bus.read(&agent.name).await;
+            let dispatches = self.event_store.read(&agent.name).await;
             if dispatches.is_empty() {
                 // Also check by agent UUID (dispatches may be addressed by ID).
-                let id_dispatches = self.dispatch_bus.read(&agent.id).await;
+                let id_dispatches = self.event_store.read(&agent.id).await;
                 if id_dispatches.is_empty() {
                     continue;
                 }
@@ -409,7 +399,7 @@ impl Daemon {
         agent_id: &str,
         agent_name: &str,
         project: &Option<String>,
-        dispatches: &[crate::message::Dispatch],
+        dispatches: &[crate::event_store::Dispatch],
     ) {
         let _project = match project {
             Some(p) => p.clone(),
@@ -421,7 +411,7 @@ impl Daemon {
 
         for dispatch in dispatches {
             if dispatch.requires_ack {
-                self.dispatch_bus.acknowledge(&dispatch.id).await;
+                self.event_store.acknowledge(&dispatch.id).await;
             }
 
             match &dispatch.kind {
@@ -507,7 +497,7 @@ impl Daemon {
                     let mut rerouted = dispatch.clone();
                     rerouted.to = self.leader_agent_name.clone();
                     rerouted.read = false;
-                    self.dispatch_bus.send(rerouted).await;
+                    self.event_store.send(rerouted).await;
                 }
             }
         }
@@ -677,7 +667,7 @@ impl Daemon {
             let ts = trigger_store.clone();
             let agent_reg = self.agent_registry.clone();
             let scheduler = self.scheduler.clone();
-            let dispatch_bus = self.dispatch_bus.clone();
+            let dispatch_es = self.event_store.clone();
             let mut rx = self.event_broadcaster.subscribe();
             tokio::spawn(async move {
                 let mut cooldowns: std::collections::HashMap<String, chrono::DateTime<Utc>> =
@@ -729,7 +719,7 @@ impl Daemon {
                                     ..
                                 } = event
                                 {
-                                    let dispatches = dispatch_bus.read(to_agent).await;
+                                    let dispatches = dispatch_es.read(to_agent).await;
                                     let prompts: Vec<String> = dispatches
                                         .iter()
                                         .filter_map(|d| {
@@ -845,15 +835,13 @@ impl Daemon {
             Ok(listener) => {
                 let ipc_ctx = Arc::new(IpcContext {
                     metrics: self.metrics.clone(),
-                    notes: self.notes.clone(),
                     event_store: self.event_store.clone(),
                     session_store: self.session_store.clone(),
                     leader_agent_name: self.leader_agent_name.clone(),
-                    config_project_names: self.config_project_names.clone(),
                     daily_budget_usd: self.daily_budget_usd,
                     project_budgets: self.project_budgets.clone(),
                 });
-                let dispatch_bus = self.dispatch_bus.clone();
+                let dispatch_es = self.event_store.clone();
                 let trigger_store = self.trigger_store.clone();
                 let agent_registry = self.agent_registry.clone();
                 let message_router = self.message_router.clone();
@@ -870,7 +858,7 @@ impl Daemon {
                     Self::socket_accept_loop(
                         listener,
                         ipc_ctx,
-                        dispatch_bus,
+                        dispatch_es,
                         trigger_store,
                         agent_registry,
                         message_router,
@@ -899,7 +887,7 @@ impl Daemon {
 
     /// Load persisted state (dispatch bus, cost ledger) from disk.
     async fn load_persisted_state(&self) {
-        match self.dispatch_bus.load().await {
+        match self.event_store.load_dispatches().await {
             Ok(n) if n > 0 => info!(count = n, "loaded persisted dispatches"),
             Ok(_) => {}
             Err(e) => warn!(error = %e, "failed to load dispatch bus"),
@@ -948,12 +936,12 @@ impl Daemon {
 
         // 4. Periodic persistence: save dispatch bus every patrol.
         //    Cost entries are persisted automatically via EventStore (SQLite).
-        if let Err(e) = self.dispatch_bus.save().await {
+        if let Err(e) = self.event_store.save_dispatches().await {
             warn!(error = %e, "failed to save dispatch bus");
         }
 
         // 5. Surface dispatch retries / dead letters for critical dispatches.
-        let retried = self.dispatch_bus.retry_unacked(ACK_RETRY_AGE_SECS).await;
+        let retried = self.event_store.retry_unacked(ACK_RETRY_AGE_SECS).await;
         for dispatch in &retried {
             warn!(
                 to = %dispatch.to,
@@ -963,7 +951,7 @@ impl Daemon {
             );
         }
         self.metrics.dispatch_retries.inc_by(retried.len() as u64);
-        let dead_letters = self.dispatch_bus.dead_letters().await;
+        let dead_letters = self.event_store.dead_letters().await;
         for dispatch in &dead_letters {
             warn!(
                 to = %dispatch.to,
@@ -976,7 +964,7 @@ impl Daemon {
         // 6. Update daily cost gauge and dispatch health metrics.
         let spent = self.event_store.daily_cost().await.unwrap_or(0.0);
         self.metrics.daily_cost_usd.set(spent);
-        let dispatch_health = self.dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
+        let dispatch_health = self.event_store.dispatch_health(ACK_RETRY_AGE_SECS).await;
         self.metrics
             .dispatch_queue_depth
             .set(dispatch_health.unread as f64);
@@ -996,14 +984,7 @@ impl Daemon {
             warn!(error = %e, "failed to prune old cost events");
         }
 
-        // 8. Prune expired blackboard entries.
-        if let Some(ref bb) = self.notes
-            && let Err(e) = bb.prune_expired()
-        {
-            warn!(error = %e, "failed to prune blackboard");
-        }
-
-        // 9. Flush debounced memory writes to project memory stores.
+        // 8. Flush debounced memory writes to project memory stores.
         self.flush_debounced_writes().await;
 
         // 10. Reap dead sessions (agent loops that exited on their own).
@@ -1017,7 +998,7 @@ impl Daemon {
             Ok((new_config, path)) => {
                 self.daily_budget_usd = new_config.security.max_cost_per_day_usd;
 
-                for pcfg in &new_config.companies {
+                for pcfg in &new_config.agent_spawns {
                     if let Some(budget) = pcfg.max_cost_per_day_usd {
                         self.project_budgets.insert(pcfg.name.clone(), budget);
                     }
@@ -1110,7 +1091,7 @@ impl Daemon {
     async fn socket_accept_loop(
         listener: tokio::net::UnixListener,
         ipc_ctx: Arc<IpcContext>,
-        dispatch_bus: Arc<DispatchBus>,
+        dispatch_es: Arc<EventStore>,
         trigger_store: Option<Arc<TriggerStore>>,
         agent_registry: Arc<AgentRegistry>,
         message_router: Option<Arc<MessageRouter>>,
@@ -1130,7 +1111,7 @@ impl Daemon {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let ipc_ctx = ipc_ctx.clone();
-                    let dispatch_bus = dispatch_bus.clone();
+                    let dispatch_es = dispatch_es.clone();
                     let trigger_store = trigger_store.clone();
                     let agent_registry = agent_registry.clone();
                     let message_router = message_router.clone();
@@ -1145,7 +1126,7 @@ impl Daemon {
                         if let Err(e) = Self::handle_socket_connection(
                             stream,
                             ipc_ctx,
-                            dispatch_bus,
+                            dispatch_es,
                             trigger_store,
                             agent_registry,
                             message_router,
@@ -1177,7 +1158,7 @@ impl Daemon {
     async fn handle_socket_connection(
         stream: tokio::net::UnixStream,
         ipc_ctx: Arc<IpcContext>,
-        dispatch_bus: Arc<DispatchBus>,
+        dispatch_es: Arc<EventStore>,
         trigger_store: Option<Arc<TriggerStore>>,
         agent_registry: Arc<AgentRegistry>,
         message_router: Option<Arc<MessageRouter>>,
@@ -1225,7 +1206,7 @@ impl Daemon {
                         .map(|agents| agents.iter().map(|a| a.name.clone()).collect())
                         .unwrap_or_default();
                     let worker_count = scheduler.config.max_workers;
-                    let dispatch_health = dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
+                    let dispatch_health = dispatch_es.dispatch_health(ACK_RETRY_AGE_SECS).await;
                     let mail_count = dispatch_health.unread;
                     let trigger_count = if let Some(ref ts) = trigger_store {
                         ts.count_enabled().await.unwrap_or(0)
@@ -1308,7 +1289,7 @@ impl Daemon {
                                 .collect()
                         })
                         .unwrap_or_default();
-                    let dispatch_health = dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
+                    let dispatch_health = dispatch_es.dispatch_health(ACK_RETRY_AGE_SECS).await;
                     let spent = ipc_ctx.event_store.daily_cost().await.unwrap_or(0.0);
                     let budget = ipc_ctx.daily_budget_usd;
                     let remaining = (budget - spent).max(0.0);
@@ -1387,7 +1368,7 @@ impl Daemon {
                 }
 
                 "mail" => {
-                    let messages = dispatch_bus.drain();
+                    let messages = dispatch_es.drain();
                     let msgs: Vec<serde_json::Value> = messages
                         .iter()
                         .map(|m| {
@@ -1409,7 +1390,7 @@ impl Daemon {
                         request.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
                     let overdue_cutoff =
                         Utc::now() - chrono::Duration::seconds(ACK_RETRY_AGE_SECS as i64);
-                    let mut dispatches = dispatch_bus.all().await;
+                    let mut dispatches = dispatch_es.all().await;
                     if let Some(recipient) = recipient {
                         dispatches.retain(|d| d.to == recipient);
                     }
@@ -1422,7 +1403,7 @@ impl Daemon {
                         .iter()
                         .map(|d| dispatch_summary_json(d, overdue_cutoff))
                         .collect();
-                    let health = dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
+                    let health = dispatch_es.dispatch_health(ACK_RETRY_AGE_SECS).await;
                     serde_json::json!({
                         "ok": true,
                         "count": items.len(),
@@ -1519,86 +1500,58 @@ impl Daemon {
                     }
                 }
 
+                // Notes commands — backed by insight store (post/query/get/delete)
+                // and agent_registry quests (claim/release/check_claim).
                 "notes" => {
-                    let project_filter = request
+                    let project = request
                         .get("project")
                         .and_then(|v| v.as_str())
                         .unwrap_or("*");
-                    let limit = request.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as u32;
-                    let since = request
-                        .get("since")
-                        .and_then(|v| v.as_str())
-                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                        .map(|dt| dt.with_timezone(&Utc));
-                    let tags: Vec<String> = request
-                        .get("tags")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let cross_project = request
-                        .get("cross_project")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    // Optional agent scoping: when agent_id is provided, use
-                    // query_scoped() to enforce department-based visibility.
-                    let scope_agent_id = request
-                        .get("agent_id")
-                        .and_then(|v| v.as_str())
-                        .map(String::from);
-                    let scope_department = request
-                        .get("department")
-                        .and_then(|v| v.as_str())
-                        .map(String::from);
+                    let limit =
+                        request.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
-                    match &ipc_ctx.notes {
-                        Some(bb) => {
-                            let entries = if cross_project {
-                                bb.query_cross_project(&tags, since, limit)
-                                    .unwrap_or_default()
-                            } else if scope_agent_id.is_some() || scope_department.is_some() {
-                                let vis = crate::notes::AgentVisibility {
-                                    agent_id: scope_agent_id,
-                                    project: Some(project_filter.to_string()),
-                                    department: scope_department,
-                                };
-                                bb.query_scoped(project_filter, &vis, &tags, limit as usize)
-                                    .unwrap_or_default()
-                            } else if !tags.is_empty() {
-                                if let Some(since_dt) = since {
-                                    bb.query_since(project_filter, &tags, since_dt, limit)
-                                        .unwrap_or_default()
-                                } else {
-                                    bb.query(project_filter, &tags, limit).unwrap_or_default()
-                                }
-                            } else if let Some(since_dt) = since {
-                                bb.query_since(project_filter, &[], since_dt, limit)
-                                    .unwrap_or_default()
-                            } else {
-                                bb.list_project(project_filter, limit).unwrap_or_default()
-                            };
-                            let items: Vec<serde_json::Value> = entries
-                                .iter()
-                                .map(|e| {
-                                    serde_json::json!({
-                                        "key": e.key,
-                                        "content": e.content,
-                                        "agent": e.agent,
-                                        "project": e.project,
-                                        "tags": e.tags,
-                                        "created_at": e.created_at.to_rfc3339(),
-                                        "expires_at": e.expires_at.to_rfc3339(),
-                                    })
+                    if let Some(ref engine) = message_router {
+                        if let Some(mem) = engine.insight_stores.get(project) {
+                            let query_text = request
+                                .get("tags")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(" ")
                                 })
-                                .collect();
-                            serde_json::json!({"ok": true, "entries": items})
+                                .unwrap_or_default();
+                            let search_text = if query_text.is_empty() {
+                                "*".to_string()
+                            } else {
+                                query_text
+                            };
+                            let q = aeqi_core::traits::InsightQuery::new(&search_text, limit);
+                            match mem.search(&q).await {
+                                Ok(entries) => {
+                                    let items: Vec<serde_json::Value> = entries
+                                        .iter()
+                                        .map(|e| {
+                                            serde_json::json!({
+                                                "key": e.key,
+                                                "content": e.content,
+                                                "agent": e.agent_id.as_deref().unwrap_or("system"),
+                                                "project": project,
+                                                "tags": [],
+                                                "created_at": e.created_at.to_rfc3339(),
+                                            })
+                                        })
+                                        .collect();
+                                    serde_json::json!({"ok": true, "entries": items})
+                                }
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        } else {
+                            serde_json::json!({"ok": true, "entries": []})
                         }
-                        None => {
-                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
-                        }
+                    } else {
+                        serde_json::json!({"ok": true, "entries": []})
                     }
                 }
 
@@ -1608,30 +1561,40 @@ impl Daemon {
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
                     let key = request.get("key").and_then(|v| v.as_str()).unwrap_or("");
-                    match &ipc_ctx.notes {
-                        Some(bb) => match bb.get_by_key(project, key) {
-                            Ok(Some(entry)) => serde_json::json!({
-                                "ok": true,
-                                "entry": {
-                                    "key": entry.key,
-                                    "content": entry.content,
-                                    "agent": entry.agent,
-                                    "project": entry.project,
-                                    "tags": entry.tags,
-                                    "created_at": entry.created_at.to_rfc3339(),
-                                    "expires_at": entry.expires_at.to_rfc3339(),
+
+                    if let Some(ref engine) = message_router {
+                        if let Some(mem) = engine.insight_stores.get(project) {
+                            let q = aeqi_core::traits::InsightQuery::new(key, 1);
+                            match mem.search(&q).await {
+                                Ok(entries) => {
+                                    if let Some(e) = entries.into_iter().find(|e| e.key == key) {
+                                        serde_json::json!({
+                                            "ok": true,
+                                            "entry": {
+                                                "key": e.key,
+                                                "content": e.content,
+                                                "agent": e.agent_id.as_deref().unwrap_or("system"),
+                                                "project": project,
+                                                "tags": [],
+                                                "created_at": e.created_at.to_rfc3339(),
+                                            }
+                                        })
+                                    } else {
+                                        serde_json::json!({"ok": true, "entry": null})
+                                    }
                                 }
-                            }),
-                            Ok(None) => serde_json::json!({"ok": true, "entry": null}),
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        },
-                        None => {
-                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        } else {
+                            serde_json::json!({"ok": true, "entry": null})
                         }
+                    } else {
+                        serde_json::json!({"ok": true, "entry": null})
                     }
                 }
 
                 "claim_notes" => {
+                    // Claims are quests. Create a quest with label "claim:{resource}".
                     let resource = request
                         .get("resource")
                         .and_then(|v| v.as_str())
@@ -1652,54 +1615,96 @@ impl Daemon {
                     if resource.is_empty() || project.is_empty() {
                         serde_json::json!({"ok": false, "error": "resource and project are required"})
                     } else {
-                        match &ipc_ctx.notes {
-                            Some(bb) => match bb.claim(resource, agent, project, content) {
-                                Ok(crate::notes::ClaimResult::Acquired) => {
-                                    serde_json::json!({"ok": true, "result": "acquired", "resource": resource})
-                                }
-                                Ok(crate::notes::ClaimResult::Renewed) => {
+                        let claim_label = format!("claim:{resource}");
+                        // Check for existing in-progress claim quest.
+                        let existing = agent_registry
+                            .list_tasks(Some("in_progress"), None)
+                            .await
+                            .unwrap_or_default()
+                            .into_iter()
+                            .find(|t| t.labels.contains(&claim_label));
+                        match existing {
+                            Some(task) => {
+                                let holder = task.assignee.as_deref().unwrap_or("unknown");
+                                if holder == agent {
+                                    // Same agent — renew (no-op, quest already active).
                                     serde_json::json!({"ok": true, "result": "renewed", "resource": resource})
+                                } else {
+                                    serde_json::json!({"ok": true, "result": "held", "holder": holder, "content": task.description})
                                 }
-                                Ok(crate::notes::ClaimResult::Held { holder, content }) => {
-                                    serde_json::json!({"ok": true, "result": "held", "holder": holder, "content": content})
-                                }
-                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                            },
+                            }
                             None => {
-                                serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                                // Resolve agent_id from name. Try to find the agent.
+                                let agent_id = agent_registry
+                                    .resolve_by_hint(agent)
+                                    .await
+                                    .ok()
+                                    .flatten()
+                                    .map(|a| a.name.clone())
+                                    .unwrap_or_else(|| agent.to_string());
+                                match agent_registry
+                                    .create_task(
+                                        &agent_id,
+                                        &format!("claim: {resource}"),
+                                        content,
+                                        None,
+                                        &[claim_label],
+                                    )
+                                    .await
+                                {
+                                    Ok(task) => {
+                                        // Immediately mark in_progress.
+                                        let _ = agent_registry
+                                            .update_task_status(
+                                                &task.id.0,
+                                                aeqi_quests::QuestStatus::InProgress,
+                                            )
+                                            .await;
+                                        serde_json::json!({"ok": true, "result": "acquired", "resource": resource})
+                                    }
+                                    Err(e) => {
+                                        serde_json::json!({"ok": false, "error": e.to_string()})
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
                 "release_notes" => {
+                    // Release = close the claim quest.
                     let resource = request
                         .get("resource")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let project = request
-                        .get("project")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    let agent = request
+                    let _agent = request
                         .get("agent")
                         .and_then(|v| v.as_str())
                         .unwrap_or("worker");
-                    let force = request
+                    let _force = request
                         .get("force")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
 
-                    match &ipc_ctx.notes {
-                        Some(bb) => match bb.release(resource, agent, project, force) {
-                            Ok(true) => serde_json::json!({"ok": true, "released": true}),
-                            Ok(false) => {
-                                serde_json::json!({"ok": true, "released": false, "reason": "not found or not owned"})
+                    let claim_label = format!("claim:{resource}");
+                    let existing = agent_registry
+                        .list_tasks(Some("in_progress"), None)
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|t| t.labels.contains(&claim_label));
+                    match existing {
+                        Some(task) => {
+                            match agent_registry
+                                .update_task_status(&task.id.0, aeqi_quests::QuestStatus::Done)
+                                .await
+                            {
+                                Ok(()) => serde_json::json!({"ok": true, "released": true}),
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
                             }
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        },
+                        }
                         None => {
-                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                            serde_json::json!({"ok": true, "released": false, "reason": "not found or not owned"})
                         }
                     }
                 }
@@ -1711,15 +1716,28 @@ impl Daemon {
                         .unwrap_or("");
                     let key = request.get("key").and_then(|v| v.as_str()).unwrap_or("");
 
-                    match &ipc_ctx.notes {
-                        Some(bb) => match bb.delete_by_key(project, key) {
-                            Ok(true) => serde_json::json!({"ok": true, "deleted": true}),
-                            Ok(false) => serde_json::json!({"ok": true, "deleted": false}),
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        },
-                        None => {
-                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                    if let Some(ref engine) = message_router {
+                        if let Some(mem) = engine.insight_stores.get(project) {
+                            // Search for the insight by key, then delete by id.
+                            let q = aeqi_core::traits::InsightQuery::new(key, 5);
+                            match mem.search(&q).await {
+                                Ok(entries) => {
+                                    let mut deleted = false;
+                                    for e in &entries {
+                                        if e.key == key {
+                                            let _ = mem.delete(&e.id).await;
+                                            deleted = true;
+                                        }
+                                    }
+                                    serde_json::json!({"ok": true, "deleted": deleted})
+                                }
+                                Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                            }
+                        } else {
+                            serde_json::json!({"ok": true, "deleted": false})
                         }
+                    } else {
+                        serde_json::json!({"ok": true, "deleted": false})
                     }
                 }
 
@@ -1728,22 +1746,19 @@ impl Daemon {
                         .get("resource")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let project = request
-                        .get("project")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-
-                    match &ipc_ctx.notes {
-                        Some(bb) => match bb.check_claim(resource, project) {
-                            Ok(Some((agent, content))) => serde_json::json!({
-                                "ok": true, "claimed": true, "agent": agent, "content": content
-                            }),
-                            Ok(None) => serde_json::json!({"ok": true, "claimed": false}),
-                            Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                        },
-                        None => {
-                            serde_json::json!({"ok": false, "error": "blackboard not initialized"})
+                    let claim_label = format!("claim:{resource}");
+                    let existing = agent_registry
+                        .list_tasks(Some("in_progress"), None)
+                        .await
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|t| t.labels.contains(&claim_label));
+                    match existing {
+                        Some(task) => {
+                            let agent = task.assignee.as_deref().unwrap_or("unknown");
+                            serde_json::json!({"ok": true, "claimed": true, "agent": agent, "content": task.description})
                         }
+                        None => serde_json::json!({"ok": true, "claimed": false}),
                     }
                 }
 
@@ -1926,44 +1941,25 @@ impl Daemon {
                         .get("project")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let agent = request
-                        .get("agent")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("web");
-                    let tags: Vec<String> = request
-                        .get("tags")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let durability = match request.get("durability").and_then(|v| v.as_str()) {
-                        Some("durable") => crate::notes::EntryDurability::Durable,
-                        _ => crate::notes::EntryDurability::Transient,
-                    };
 
                     if key.is_empty() || content.is_empty() {
                         serde_json::json!({"ok": false, "error": "key and content are required"})
-                    } else {
-                        match &ipc_ctx.notes {
-                            Some(bb) => match bb
-                                .post(key, content, agent, project, &tags, durability)
+                    } else if let Some(ref engine) = message_router {
+                        if let Some(mem) = engine.insight_stores.get(project) {
+                            match mem
+                                .store(key, content, aeqi_core::traits::InsightCategory::Fact, None)
+                                .await
                             {
-                                Ok(entry) => serde_json::json!({
-                                    "ok": true,
-                                    "entry": {
-                                        "id": entry.id,
-                                        "key": entry.key,
-                                    }
-                                }),
+                                Ok(id) => {
+                                    serde_json::json!({"ok": true, "entry": {"id": id, "key": key}})
+                                }
                                 Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
-                            },
-                            None => {
-                                serde_json::json!({"ok": false, "error": "blackboard not initialized"})
                             }
+                        } else {
+                            serde_json::json!({"ok": false, "error": format!("no insight store for project: {project}")})
                         }
+                    } else {
+                        serde_json::json!({"ok": false, "error": "insight stores not initialized"})
                     }
                 }
 
@@ -2949,24 +2945,7 @@ impl Daemon {
                             }
                         }
 
-                        // 2. Fetch blackboard entries for this project.
-                        if let Some(ref bb) = ipc_ctx.notes
-                            && let Ok(entries) = bb.list_project(project, limit as u32)
-                        {
-                            for entry in entries {
-                                items.push(serde_json::json!({
-                                    "id": entry.id,
-                                    "key": entry.key,
-                                    "content": entry.content,
-                                    "source": "notes",
-                                    "agent": entry.agent,
-                                    "tags": entry.tags,
-                                    "created_at": entry.created_at.to_rfc3339(),
-                                    "expires_at": entry.expires_at.to_rfc3339(),
-                                    "project": project,
-                                }));
-                            }
-                        }
+                        // 2. Notes are now insights — already included above.
 
                         serde_json::json!({"ok": true, "items": items, "count": items.len()})
                     }
@@ -3880,7 +3859,6 @@ impl Daemon {
                     let vfs = crate::vfs::VfsTree::with_direct_deps(
                         agent_registry.clone(),
                         ipc_ctx.session_store.clone(),
-                        ipc_ctx.notes.clone(),
                     );
                     match vfs.list(path).await {
                         Ok(resp) => serde_json::to_value(resp)
@@ -3897,7 +3875,6 @@ impl Daemon {
                         let vfs = crate::vfs::VfsTree::with_direct_deps(
                             agent_registry.clone(),
                             ipc_ctx.session_store.clone(),
-                            ipc_ctx.notes.clone(),
                         );
                         match vfs.read(path).await {
                             Ok(resp) => serde_json::to_value(resp)
@@ -3915,7 +3892,6 @@ impl Daemon {
                         let vfs = crate::vfs::VfsTree::with_direct_deps(
                             agent_registry.clone(),
                             ipc_ctx.session_store.clone(),
-                            ipc_ctx.notes.clone(),
                         );
                         match vfs.search(query).await {
                             Ok(resp) => serde_json::to_value(resp)

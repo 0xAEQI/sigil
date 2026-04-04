@@ -1,5 +1,6 @@
+use crate::identity::Identity;
 use aeqi_core::traits::{LogObserver, Observer, Tool};
-use aeqi_core::{Agent, AgentConfig, Identity};
+use aeqi_core::{Agent, AgentConfig};
 use aeqi_tools::Skill;
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
@@ -37,7 +38,11 @@ pub(crate) async fn cmd_skill(config_path: &Option<PathBuf>, action: SkillAction
             let projects: Vec<&str> = if let Some(ref name) = company {
                 vec![name.as_str()]
             } else {
-                config.companies.iter().map(|r| r.name.as_str()).collect()
+                config
+                    .agent_spawns
+                    .iter()
+                    .map(|r| r.name.as_str())
+                    .collect()
             };
 
             for name in projects {

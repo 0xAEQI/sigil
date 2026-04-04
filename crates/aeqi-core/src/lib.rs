@@ -2,7 +2,7 @@
 //!
 //! Provides core traits ([`traits::Provider`], [`traits::Tool`], [`traits::Insight`],
 //! [`traits::Observer`], [`traits::Channel`]), configuration loading ([`AEQIConfig`]),
-//! two-source identity assembly ([`Identity`]), the generic agent loop, and secret management.
+//! the generic agent loop, and secret management.
 //!
 //! All other crates depend on `aeqi-core` for trait definitions and shared types.
 
@@ -10,7 +10,6 @@ pub mod agent;
 pub mod chat_stream;
 pub mod checkpoint;
 pub mod config;
-pub mod identity;
 pub mod prompt;
 pub mod sanitize;
 pub mod security;
@@ -24,10 +23,11 @@ pub use agent::{
 };
 pub use chat_stream::{ChatStreamEvent, ChatStreamSender};
 pub use config::{
-    AEQIConfig, AgentPromptConfig, AgentTriggerConfig, CompanyConfig, ContextBudgetConfig,
+    AEQIConfig, AgentPromptConfig, AgentSpawnConfig, AgentTriggerConfig, ContextBudgetConfig,
     ExecutionMode, ModelTierConfig, PeerAgentConfig, ProviderKind, RuntimePresetConfig, TeamConfig,
     discover_agents, load_agent_config,
 };
-pub use identity::Identity;
+/// Compat alias — old callers used `CompanyConfig`.
+pub type CompanyConfig = AgentSpawnConfig;
 pub use prompt::{AssembledPrompt, PromptEntry, PromptPosition, PromptScope, ToolRestrictions};
 pub use security::SecretStore;

@@ -10,7 +10,252 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
+
+// ---------------------------------------------------------------------------
+// Dispatch types (formerly in message.rs)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DispatchKind {
+    /// A delegation request from one agent to another.
+    DelegateRequest {
+        prompt: String,
+        /// How the response should be routed: "origin", "perpetual", "async", "department", "none".
+        response_mode: String,
+        /// Whether to also create a tracked task for this delegation.
+        create_task: bool,
+        /// Optional skill hint for the target agent.
+        skill: Option<String>,
+        /// Dispatch ID this is replying to (for chained delegations).
+        reply_to: Option<String>,
+        /// Session ID of the calling agent, so the child worker can set parent_id.
+        #[serde(default)]
+        parent_session_id: Option<String>,
+    },
+    /// A response to a previous DelegateRequest.
+    DelegateResponse {
+        /// The dispatch ID of the original DelegateRequest.
+        reply_to: String,
+        /// Copied from the request for routing purposes.
+        response_mode: String,
+        /// The response content.
+        content: String,
+    },
+    /// Escalation to human operator when all automated resolution is exhausted.
+    HumanEscalation {
+        project: String,
+        task_id: String,
+        subject: String,
+        summary: String,
+    },
+}
+
+impl DispatchKind {
+    pub fn requires_ack_by_default(&self) -> bool {
+        matches!(self, Self::DelegateRequest { .. })
+    }
+
+    pub fn subject_tag(&self) -> &'static str {
+        match self {
+            Self::DelegateRequest { .. } => "DELEGATE_REQUEST",
+            Self::DelegateResponse { .. } => "DELEGATE_RESPONSE",
+            Self::HumanEscalation { .. } => "HUMAN_ESCALATION",
+        }
+    }
+
+    pub fn body_text(&self) -> String {
+        match self {
+            Self::DelegateRequest {
+                prompt,
+                response_mode,
+                create_task,
+                skill,
+                reply_to,
+                ..
+            } => {
+                let mut text = format!(
+                    "Delegation request (response_mode: {response_mode}, create_task: {create_task})"
+                );
+                if let Some(s) = skill {
+                    text.push_str(&format!(", skill: {s}"));
+                }
+                if let Some(rt) = reply_to {
+                    text.push_str(&format!(", reply_to: {rt}"));
+                }
+                text.push_str(&format!("\n\n{prompt}"));
+                text
+            }
+            Self::DelegateResponse {
+                reply_to,
+                response_mode,
+                content,
+            } => format!(
+                "Delegation response (reply_to: {reply_to}, mode: {response_mode})\n\n{content}"
+            ),
+            Self::HumanEscalation {
+                project,
+                task_id,
+                subject,
+                summary,
+            } => format!(
+                "BLOCKED: {project}/{task_id} — {subject}\n\n{summary}\n\n\
+                     This task has exhausted all automated resolution attempts and requires human input.",
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Dispatch {
+    pub from: String,
+    pub to: String,
+    pub kind: DispatchKind,
+    pub timestamp: DateTime<Utc>,
+    pub read: bool,
+    /// Unique dispatch ID for acknowledgment tracking.
+    #[serde(default = "default_dispatch_id")]
+    pub id: String,
+    /// Whether this dispatch requires explicit acknowledgment.
+    #[serde(default)]
+    pub requires_ack: bool,
+    /// Number of retry attempts so far.
+    #[serde(default)]
+    pub retry_count: u32,
+    /// Maximum retries before dead-lettering.
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+    /// When the dispatch was first sent (for total latency tracking).
+    #[serde(default = "Utc::now")]
+    pub first_sent_at: DateTime<Utc>,
+    /// Optional idempotency key. If set, duplicate dispatches with the same key
+    /// are silently dropped. Prevents duplicate work on retry/reconnect.
+    #[serde(default)]
+    pub idempotency_key: Option<String>,
+}
+
+/// Snapshot of control-plane delivery state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchHealth {
+    /// Messages currently unread by their recipient.
+    pub unread: usize,
+    /// Ack-required messages that were delivered but not yet acknowledged.
+    pub awaiting_ack: usize,
+    /// Ack-required messages that are back in the unread queue after a retry.
+    pub retrying_delivery: usize,
+    /// Awaiting-ack messages older than the patrol retry threshold.
+    pub overdue_ack: usize,
+    /// Messages that exhausted retries and are now in dead-letter state.
+    pub dead_letters: usize,
+}
+
+fn default_dispatch_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+fn default_max_retries() -> u32 {
+    3
+}
+
+impl Dispatch {
+    pub fn new_typed(from: &str, to: &str, kind: DispatchKind) -> Self {
+        let now = Utc::now();
+        let requires_ack = kind.requires_ack_by_default();
+        Self {
+            from: from.to_string(),
+            to: to.to_string(),
+            kind,
+            timestamp: now,
+            read: false,
+            id: default_dispatch_id(),
+            requires_ack,
+            retry_count: 0,
+            max_retries: 3,
+            first_sent_at: now,
+            idempotency_key: None,
+        }
+    }
+
+    /// Mark this dispatch as requiring acknowledgment.
+    pub fn with_ack_required(mut self) -> Self {
+        self.requires_ack = true;
+        self
+    }
+
+    /// Set an idempotency key to prevent duplicate execution.
+    pub fn with_idempotency_key(mut self, key: impl Into<String>) -> Self {
+        self.idempotency_key = Some(key.into());
+        self
+    }
+
+    /// Serialize this dispatch to JSON content for EventStore storage.
+    fn to_event_content(&self) -> serde_json::Value {
+        let kind_json = serde_json::to_value(&self.kind).unwrap_or_default();
+        serde_json::json!({
+            "from": self.from,
+            "to": self.to,
+            "kind": kind_json,
+            "status": if self.read { "read" } else { "pending" },
+            "dispatch_id": self.id,
+            "requires_ack": self.requires_ack,
+            "retry_count": self.retry_count,
+            "max_retries": self.max_retries,
+            "first_sent_at": self.first_sent_at.to_rfc3339(),
+            "idempotency_key": self.idempotency_key,
+        })
+    }
+
+    /// Reconstruct a Dispatch from an Event's content JSON.
+    fn from_event(event: &Event) -> Option<Self> {
+        let c = &event.content;
+        let from = c.get("from")?.as_str()?.to_string();
+        let to = c.get("to")?.as_str()?.to_string();
+        let kind: DispatchKind = serde_json::from_value(c.get("kind")?.clone()).ok()?;
+        let status = c
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pending");
+        let dispatch_id = c
+            .get("dispatch_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let requires_ack = c
+            .get("requires_ack")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let retry_count = c.get("retry_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let max_retries = c.get("max_retries").and_then(|v| v.as_u64()).unwrap_or(3) as u32;
+        let first_sent_at = c
+            .get("first_sent_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&Utc))
+            .unwrap_or(event.created_at);
+        let idempotency_key = c
+            .get("idempotency_key")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+
+        Some(Dispatch {
+            from,
+            to,
+            kind,
+            timestamp: event.created_at,
+            read: status != "pending",
+            id: if dispatch_id.is_empty() {
+                event.id.clone()
+            } else {
+                dispatch_id
+            },
+            requires_ack,
+            retry_count,
+            max_retries,
+            first_sent_at,
+            idempotency_key,
+        })
+    }
+}
 
 /// A single event in the unified store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,12 +284,38 @@ pub struct EventFilter {
 /// The unified event store, backed by a shared SQLite connection.
 pub struct EventStore {
     db: Arc<Mutex<Connection>>,
+    /// TTL for dispatch pruning (seconds).
+    dispatch_ttl_secs: std::sync::atomic::AtomicU64,
+    /// Max queue depth per recipient (soft limit).
+    dispatch_max_queue: usize,
+    /// Optional event broadcaster for emitting DispatchReceived events.
+    event_broadcaster: std::sync::RwLock<Option<Arc<crate::execution_events::EventBroadcaster>>>,
 }
 
 impl EventStore {
     /// Create an EventStore sharing an existing connection (from AgentRegistry).
     pub fn new(db: Arc<Mutex<Connection>>) -> Self {
-        Self { db }
+        Self {
+            db,
+            dispatch_ttl_secs: std::sync::atomic::AtomicU64::new(3600),
+            dispatch_max_queue: 1000,
+            event_broadcaster: std::sync::RwLock::new(None),
+        }
+    }
+
+    /// Set the event broadcaster for emitting DispatchReceived events.
+    pub fn set_event_broadcaster(
+        &self,
+        broadcaster: Arc<crate::execution_events::EventBroadcaster>,
+    ) {
+        if let Ok(mut guard) = self.event_broadcaster.write() {
+            *guard = Some(broadcaster);
+        }
+    }
+
+    pub fn set_dispatch_ttl(&self, secs: u64) {
+        self.dispatch_ttl_secs
+            .store(secs, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Create the events table and indexes. Called during AgentRegistry::open().
@@ -393,22 +664,22 @@ impl EventStore {
     /// max_retries, first_sent_at, idempotency_key.
     pub async fn send_dispatch(&self, content: &serde_json::Value) -> Result<String> {
         // Idempotency check: if idempotency_key is set, reject duplicates.
-        if let Some(key) = content.get("idempotency_key").and_then(|v| v.as_str()) {
-            if !key.is_empty() {
-                let db = self.db.lock().await;
-                let exists: bool = db.query_row(
-                    "SELECT COUNT(*) > 0 FROM events
+        if let Some(key) = content.get("idempotency_key").and_then(|v| v.as_str())
+            && !key.is_empty()
+        {
+            let db = self.db.lock().await;
+            let exists: bool = db.query_row(
+                "SELECT COUNT(*) > 0 FROM events
                      WHERE type = 'dispatch'
                      AND json_extract(content, '$.idempotency_key') = ?1",
-                    params![key],
-                    |row| row.get(0),
-                )?;
-                if exists {
-                    debug!(key = %key, "dispatch dropped (idempotency key already exists)");
-                    anyhow::bail!("idempotency_key_exists");
-                }
-                drop(db);
+                params![key],
+                |row| row.get(0),
+            )?;
+            if exists {
+                debug!(key = %key, "dispatch dropped (idempotency key already exists)");
+                anyhow::bail!("idempotency_key_exists");
             }
+            drop(db);
         }
 
         self.emit("dispatch", None, None, None, content).await
@@ -580,6 +851,190 @@ impl EventStore {
             .collect();
         Ok(events)
     }
+
+    // -----------------------------------------------------------------------
+    // High-level Dispatch API (formerly DispatchBus)
+    // -----------------------------------------------------------------------
+
+    /// Send a dispatch, prune old entries, and emit a DispatchReceived event.
+    pub async fn send(&self, dispatch: Dispatch) {
+        let content = dispatch.to_event_content();
+
+        match self.send_dispatch(&content).await {
+            Ok(_id) => {
+                debug!(to = %dispatch.to, kind = %dispatch.kind.subject_tag(), "dispatch sent via EventStore");
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("idempotency_key_exists") {
+                    debug!(to = %dispatch.to, "dispatch dropped (idempotency key already exists)");
+                    return;
+                }
+                warn!(error = %e, to = %dispatch.to, "failed to send dispatch");
+                return;
+            }
+        }
+
+        // Prune old dispatches and enforce queue depth limits.
+        self.prune_and_limit_dispatches(&dispatch.to).await;
+
+        // Emit DispatchReceived event for trigger system.
+        if let Ok(guard) = self.event_broadcaster.read() {
+            if let Some(ref broadcaster) = *guard {
+                broadcaster.publish(crate::execution_events::ExecutionEvent::DispatchReceived {
+                    from_agent: dispatch.from.clone(),
+                    to_agent: dispatch.to.clone(),
+                    kind: dispatch.kind.subject_tag().to_string(),
+                });
+            }
+        }
+    }
+
+    /// Prune old dispatches and enforce per-recipient queue depth limits.
+    async fn prune_and_limit_dispatches(&self, recipient: &str) {
+        let ttl = self
+            .dispatch_ttl_secs
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let cutoff = Utc::now() - chrono::Duration::seconds(ttl as i64);
+        let _ = self.prune("dispatch", &cutoff).await;
+
+        let count = self.unread_dispatch_count(recipient).await.unwrap_or(0) as usize;
+        if count > self.dispatch_max_queue {
+            warn!(
+                recipient = %recipient,
+                count = count,
+                limit = self.dispatch_max_queue,
+                "dispatch queue depth exceeds limit"
+            );
+        }
+    }
+
+    /// Read unread dispatches for a recipient as typed Dispatch structs.
+    pub async fn read(&self, recipient: &str) -> Vec<Dispatch> {
+        match self.read_dispatches(recipient).await {
+            Ok(events) => events.iter().filter_map(Dispatch::from_event).collect(),
+            Err(e) => {
+                warn!(error = %e, "failed to read dispatches");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Return all dispatches as typed Dispatch structs.
+    pub async fn all(&self) -> Vec<Dispatch> {
+        match self.all_dispatches().await {
+            Ok(events) => events.iter().filter_map(Dispatch::from_event).collect(),
+            Err(e) => {
+                warn!(error = %e, "failed to list all dispatches");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Count unread dispatches for a recipient.
+    pub async fn unread_count(&self, recipient: &str) -> usize {
+        self.unread_dispatch_count(recipient).await.unwrap_or(0) as usize
+    }
+
+    /// Summarize current control-plane delivery health.
+    pub async fn dispatch_health(&self, overdue_age_secs: u64) -> DispatchHealth {
+        let overdue_cutoff = Utc::now() - chrono::Duration::seconds(overdue_age_secs as i64);
+        let dispatches = self.all().await;
+        Self::summarize_health(&dispatches, overdue_cutoff)
+    }
+
+    /// Drain all unread dispatches (mark as read, return them as Dispatch structs).
+    pub fn drain(&self) -> Vec<Dispatch> {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| {
+                handle.block_on(async {
+                    match self.drain_dispatches().await {
+                        Ok(events) => events.iter().filter_map(Dispatch::from_event).collect(),
+                        Err(e) => {
+                            warn!(error = %e, "failed to drain dispatches");
+                            Vec::new()
+                        }
+                    }
+                })
+            }),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Acknowledge a dispatch by ID, preventing future retries.
+    pub async fn acknowledge(&self, dispatch_id: &str) {
+        if let Err(e) = self.acknowledge_dispatch(dispatch_id).await {
+            warn!(error = %e, dispatch_id = %dispatch_id, "failed to acknowledge dispatch");
+        }
+    }
+
+    /// Return unacknowledged dispatches older than `max_age_secs` that haven't
+    /// exceeded their retry limit. Increments retry_count on each returned dispatch.
+    pub async fn retry_unacked(&self, max_age_secs: u64) -> Vec<Dispatch> {
+        match self.retry_unacked_dispatches(max_age_secs).await {
+            Ok(events) => events.iter().filter_map(Dispatch::from_event).collect(),
+            Err(e) => {
+                warn!(error = %e, "failed to retry unacked dispatches");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Return dispatches that have exceeded their max retry count (dead letters) as Dispatch structs.
+    pub async fn dead_letters(&self) -> Vec<Dispatch> {
+        match self.dead_letter_dispatches().await {
+            Ok(events) => events.iter().filter_map(Dispatch::from_event).collect(),
+            Err(e) => {
+                warn!(error = %e, "failed to get dead letter dispatches");
+                Vec::new()
+            }
+        }
+    }
+
+    /// No-op: persistence is handled by SQLite.
+    pub async fn save_dispatches(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// No-op: state is already persisted in SQLite.
+    /// Returns the count of pending dispatches for logging.
+    pub async fn load_dispatches(&self) -> Result<usize> {
+        let count = self.pending_dispatch_count().await.unwrap_or(0) as usize;
+        if count > 0 {
+            debug!(count, "event store has persisted unread dispatches");
+        }
+        Ok(count)
+    }
+
+    fn summarize_health(dispatches: &[Dispatch], overdue_cutoff: DateTime<Utc>) -> DispatchHealth {
+        let mut health = DispatchHealth::default();
+
+        for dispatch in dispatches {
+            if !dispatch.read {
+                health.unread += 1;
+            }
+
+            if !dispatch.requires_ack {
+                continue;
+            }
+
+            if dispatch.retry_count >= dispatch.max_retries {
+                health.dead_letters += 1;
+                continue;
+            }
+
+            if dispatch.read {
+                health.awaiting_ack += 1;
+                if dispatch.timestamp < overdue_cutoff {
+                    health.overdue_ack += 1;
+                }
+            } else if dispatch.retry_count > 0 {
+                health.retrying_delivery += 1;
+            }
+        }
+
+        health
+    }
 }
 
 fn row_to_event(row: &rusqlite::Row) -> Event {
@@ -731,5 +1186,139 @@ mod tests {
 
         assert_eq!(store.count("test", None).await.unwrap(), 2);
         assert_eq!(store.count("other", None).await.unwrap(), 1);
+    }
+
+    fn open_test_store() -> Arc<EventStore> {
+        let db = open_test_db();
+        Arc::new(EventStore::new(db))
+    }
+
+    fn test_delegate_request() -> DispatchKind {
+        DispatchKind::DelegateRequest {
+            prompt: "do something".into(),
+            response_mode: "origin".into(),
+            create_task: false,
+            skill: None,
+            reply_to: None,
+            parent_session_id: None,
+        }
+    }
+
+    fn test_delegate_response() -> DispatchKind {
+        DispatchKind::DelegateResponse {
+            reply_to: "d-123".into(),
+            response_mode: "origin".into(),
+            content: "done".into(),
+        }
+    }
+
+    fn test_human_escalation() -> DispatchKind {
+        DispatchKind::HumanEscalation {
+            project: "demo".into(),
+            task_id: "t1".into(),
+            subject: "blocked".into(),
+            summary: "help".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_send_and_read() {
+        let store = open_test_store();
+        store
+            .send(Dispatch::new_typed("a", "b", test_delegate_request()))
+            .await;
+
+        let msgs = store.read("b").await;
+        assert_eq!(msgs.len(), 1);
+
+        let msgs = store.read("b").await;
+        assert_eq!(msgs.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_indexed_recipient() {
+        let store = open_test_store();
+
+        store
+            .send(Dispatch::new_typed("a", "b", test_delegate_request()))
+            .await;
+        store
+            .send(Dispatch::new_typed("a", "c", test_delegate_response()))
+            .await;
+
+        assert_eq!(store.read("b").await.len(), 1);
+        assert_eq!(store.read("c").await.len(), 1);
+        assert_eq!(store.read("d").await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_ack_required_dispatch() {
+        let store = open_test_store();
+        let dispatch = Dispatch::new_typed("a", "b", test_delegate_request()).with_ack_required();
+        let dispatch_id = dispatch.id.clone();
+        assert!(dispatch.requires_ack);
+        store.send(dispatch).await;
+
+        let delivered = store.read("b").await;
+        assert_eq!(delivered.len(), 1);
+
+        let retries = store.retry_unacked(0).await;
+        assert_eq!(retries.len(), 1);
+        assert_eq!(retries[0].retry_count, 1);
+
+        // After ack: should not be retried.
+        store.acknowledge(&dispatch_id).await;
+        let retries = store.retry_unacked(0).await;
+        assert_eq!(retries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_dead_letter_after_max_retries() {
+        let store = open_test_store();
+        let mut dispatch =
+            Dispatch::new_typed("a", "b", test_delegate_request()).with_ack_required();
+        dispatch.max_retries = 2;
+        store.send(dispatch).await;
+        let delivered = store.read("b").await;
+        assert_eq!(delivered.len(), 1);
+
+        // Retry twice to exhaust max_retries.
+        let _ = store.retry_unacked(0).await; // retry_count -> 1
+        let retried = store.read("b").await;
+        assert_eq!(retried.len(), 1);
+        let _ = store.retry_unacked(0).await; // retry_count -> 2
+
+        // Should now be dead-lettered.
+        let dead = store.dead_letters().await;
+        assert_eq!(dead.len(), 1);
+
+        // Retry should return nothing (exceeded max).
+        let retries = store.retry_unacked(0).await;
+        assert_eq!(retries.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_ack_prevents_retry() {
+        let store = open_test_store();
+        let dispatch = Dispatch::new_typed("a", "b", test_delegate_request()).with_ack_required();
+        let id = dispatch.id.clone();
+        store.send(dispatch).await;
+        let delivered = store.read("b").await;
+        assert_eq!(delivered.len(), 1);
+
+        store.acknowledge(&id).await;
+
+        let retries = store.retry_unacked(0).await;
+        assert!(retries.is_empty());
+
+        let dead = store.dead_letters().await;
+        assert!(dead.is_empty());
+    }
+
+    #[test]
+    fn test_critical_dispatches_require_ack_by_default() {
+        assert!(Dispatch::new_typed("a", "leader", test_delegate_request(),).requires_ack);
+        assert!(!Dispatch::new_typed("a", "leader", test_delegate_response(),).requires_ack);
+        assert!(!Dispatch::new_typed("a", "leader", test_human_escalation(),).requires_ack);
     }
 }

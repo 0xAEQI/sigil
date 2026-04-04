@@ -4,8 +4,7 @@ use aeqi_core::traits::{Channel, Insight};
 use aeqi_gates::TelegramChannel;
 use aeqi_orchestrator::tools::build_orchestration_tools;
 use aeqi_orchestrator::{
-    AEQIMetrics, AgentRouter, Daemon, DispatchBus, EventStore, Notes, Scheduler, SchedulerConfig,
-    SessionStore,
+    AEQIMetrics, AgentRouter, Daemon, EventStore, Scheduler, SchedulerConfig, SessionStore,
 };
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -36,43 +35,13 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 );
             }
 
-            let data_dir = config.data_dir();
+            let _data_dir = config.data_dir();
             let event_broadcaster = Arc::new(aeqi_orchestrator::EventBroadcaster::new());
             let daily_budget_usd = config.security.max_cost_per_day_usd;
             let leader_name = config
                 .leader_agent()
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| "leader".to_string());
-
-            // Initialize v3 subsystems (SQLite-backed).
-            let notes: Option<Arc<Notes>> = match Notes::open(
-                &data_dir.join("notes.db"),
-                config.orchestrator.notes_transient_ttl_hours,
-                config.orchestrator.notes_durable_ttl_days,
-                config.orchestrator.notes_claim_ttl_hours,
-            ) {
-                Ok(bb) => {
-                    let bb = Arc::new(bb);
-                    info!("notes initialized");
-                    Some(bb)
-                }
-                Err(e) => {
-                    warn!(error = %e, "failed to initialize notes");
-                    None
-                }
-            };
-            let session_store: Option<Arc<SessionStore>> =
-                match SessionStore::open(&data_dir.join("sessions.db")) {
-                    Ok(cs) => {
-                        let cs = Arc::new(cs);
-                        info!("session store initialized");
-                        Some(cs)
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "failed to initialize session store");
-                        None
-                    }
-                };
 
             let background_automation_enabled = config.orchestrator.background_automation_enabled;
             let advisor_agents = config.advisor_agents();
@@ -81,7 +50,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
             // Collect per-project budget ceilings from config.
             let mut project_budgets = std::collections::HashMap::new();
-            for project_cfg in &config.companies {
+            for project_cfg in &config.agent_spawns {
                 if let Some(budget) = project_cfg.max_cost_per_day_usd {
                     project_budgets.insert(project_cfg.name.clone(), budget);
                 }
@@ -104,7 +73,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             // Build per-project memory stores for knowledge-aware chat.
             let mut chat_insight_stores: HashMap<String, Arc<dyn aeqi_core::traits::Insight>> =
                 HashMap::new();
-            for project_cfg in &config.companies {
+            for project_cfg in &config.agent_spawns {
                 if let Ok(mem) = open_insights(&config, Some(&project_cfg.name)) {
                     chat_insight_stores.insert(project_cfg.name.clone(), Arc::new(mem));
                 }
@@ -117,7 +86,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             // Build UUID-keyed memory stores from the same project memory stores.
             let mut insight_stores_by_id: HashMap<String, Arc<dyn aeqi_core::traits::Insight>> =
                 HashMap::new();
-            for project_cfg in &config.companies {
+            for project_cfg in &config.agent_spawns {
                 if let (Some(id), Some(mem)) =
                     (&project_cfg.id, chat_insight_stores.get(&project_cfg.name))
                 {
@@ -129,7 +98,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             let sm_insight_stores = chat_insight_stores.clone();
             let sm_insight_stores_by_id = insight_stores_by_id.clone();
             let sm_default_project = config
-                .companies
+                .agent_spawns
                 .first()
                 .map(|c| c.name.clone())
                 .unwrap_or_default();
@@ -145,12 +114,16 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
             // Create the unified EventStore sharing the AgentRegistry DB.
             let event_store = Arc::new(EventStore::new(agent_reg.db()));
+            event_store.set_event_broadcaster(event_broadcaster.clone());
             info!("event store initialized (unified)");
 
-            // Create the DispatchBus backed by EventStore.
-            let mut dispatch_bus = DispatchBus::new(event_store.clone());
-            dispatch_bus.set_event_broadcaster(event_broadcaster.clone());
-            let dispatch_bus = Arc::new(dispatch_bus);
+            // Create the SessionStore sharing the AgentRegistry DB (tables
+            // already created by AgentRegistry::open -> SessionStore::create_tables).
+            let session_store: Option<Arc<SessionStore>> = {
+                let ss = Arc::new(SessionStore::new(agent_reg.db()));
+                info!("session store initialized (unified)");
+                Some(ss)
+            };
 
             // Pre-create the scheduler wake signal so both MessageRouter and
             // Scheduler share the same Notify instance.
@@ -165,9 +138,6 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             let council_advisors: Arc<Vec<aeqi_core::config::PeerAgentConfig>> =
                 Arc::new(config.advisor_agents().into_iter().cloned().collect());
             let auto_council_enabled = config.team.max_background_cost_usd > 0.0;
-            // Intent classifier (legacy — no longer used for routing).
-            let intent_classifier: Option<Arc<aeqi_orchestrator::intent::IntentClassifier>> = None;
-
             let message_router = session_store.as_ref().map(|cs| {
                 Arc::new(aeqi_orchestrator::MessageRouter {
                     conversations: cs.clone(),
@@ -182,7 +152,6 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     task_notify: fa_task_notify.clone(),
                     insight_stores: chat_insight_stores,
                     insight_stores_by_id,
-                    intent_classifier,
                 })
             });
 
@@ -323,20 +292,19 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                         }
                     };
                 let default_project = config
-                    .companies
+                    .agent_spawns
                     .first()
                     .map(|c| c.name.clone())
                     .unwrap_or_default();
-                let project_name = config.companies.first().map(|c| c.name.clone());
+                let project_name = config.agent_spawns.first().map(|c| c.name.clone());
                 let orch_tools = build_orchestration_tools(
                     leader_name.clone(),
                     default_project.clone(),
                     project_name,
-                    dispatch_bus.clone(),
+                    event_store.clone(),
                     channels.clone(),
                     get_api_key(&config).ok(),
                     fa_memory,
-                    notes.clone(),
                     Some(event_broadcaster.clone()),
                     None,          // graph DB resolved per-session, not at daemon init
                     None,          // session_id resolved per-session, not at daemon init
@@ -374,9 +342,9 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             // Spawn companies as agents in the registry and build the
             // global Scheduler.
             // -----------------------------------------------------------
-            let total_max_workers: u32 = config.companies.iter().map(|c| c.max_workers).sum();
+            let total_max_workers: u32 = config.agent_spawns.iter().map(|c| c.max_workers).sum();
 
-            for project_cfg in &config.companies {
+            for project_cfg in &config.agent_spawns {
                 let repo_path = config.resolve_repo(&project_cfg.repo);
                 // Upsert: reuse existing active agent or spawn a new one.
                 let agent = match agent_reg.get_active_by_name(&project_cfg.name).await {
@@ -488,7 +456,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             if let Some(ref primer) = config.shared_primer {
                 // Find or create the root agent and inject shared primer.
                 // For now, inject on all company agents as descendants-scoped.
-                for project_cfg in &config.companies {
+                for project_cfg in &config.agent_spawns {
                     if let Ok(Some(agent)) = agent_reg.get_active_by_name(&project_cfg.name).await {
                         let mut prompts = agent.prompts.clone();
                         // Only add if not already present.
@@ -500,21 +468,21 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     }
                 }
             }
-            for project_cfg in &config.companies {
-                if let Some(ref primer) = project_cfg.primer {
-                    if let Ok(Some(agent)) = agent_reg.get_active_by_name(&project_cfg.name).await {
-                        let mut prompts = agent.prompts.clone();
-                        if !prompts.iter().any(|p| p.content == *primer) {
-                            prompts.insert(
-                                prompts
-                                    .iter()
-                                    .position(|p| p.scope == aeqi_core::PromptScope::SelfOnly)
-                                    .unwrap_or(prompts.len()),
-                                aeqi_core::PromptEntry::primer(primer.clone()),
-                            );
-                            let prompts_json = serde_json::to_string(&prompts).unwrap_or_default();
-                            let _ = agent_reg.update_prompts(&agent.id, &prompts_json).await;
-                        }
+            for project_cfg in &config.agent_spawns {
+                if let Some(ref primer) = project_cfg.primer
+                    && let Ok(Some(agent)) = agent_reg.get_active_by_name(&project_cfg.name).await
+                {
+                    let mut prompts = agent.prompts.clone();
+                    if !prompts.iter().any(|p| p.content == *primer) {
+                        prompts.insert(
+                            prompts
+                                .iter()
+                                .position(|p| p.scope == aeqi_core::PromptScope::SelfOnly)
+                                .unwrap_or(prompts.len()),
+                            aeqi_core::PromptEntry::primer(primer.clone()),
+                        );
+                        let prompts_json = serde_json::to_string(&prompts).unwrap_or_default();
+                        let _ = agent_reg.update_prompts(&agent.id, &prompts_json).await;
                     }
                 }
             }
@@ -524,13 +492,13 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 max_workers: total_max_workers.max(4),
                 default_timeout_secs: 3600,
                 worker_max_budget_usd: config
-                    .companies
+                    .agent_spawns
                     .first()
                     .and_then(|c| c.max_budget_usd)
                     .unwrap_or(5.0),
                 skills_dirs: {
                     let mut dirs = Vec::new();
-                    for project_cfg in &config.companies {
+                    for project_cfg in &config.agent_spawns {
                         if let Ok(d) = find_project_dir(&project_cfg.name) {
                             dirs.push(d.join("skills"));
                             if let Some(parent) = d.parent() {
@@ -545,14 +513,13 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     .default_model_for_provider(aeqi_core::config::ProviderKind::OpenRouter),
                 adaptive_retry: config.orchestrator.adaptive_retry,
                 failure_analysis_model: config.orchestrator.failure_analysis_model.clone(),
-                verification_enabled: true,
                 max_task_retries: config.orchestrator.max_task_retries,
                 daily_budget_usd,
             };
 
             // Build a default provider for the scheduler (uses first project's provider).
             let default_provider: Option<Arc<dyn aeqi_core::traits::Provider>> =
-                if let Some(first) = config.companies.first() {
+                if let Some(first) = config.agent_spawns.first() {
                     match build_provider_for_project(&config, &first.name) {
                         Ok(p) => Some(p),
                         Err(e) => {
@@ -564,13 +531,13 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     None
                 };
             let default_model = config
-                .companies
+                .agent_spawns
                 .first()
                 .map(|c| config.model_for_company(&c.name))
                 .unwrap_or_default();
 
             let scheduler_provider: Arc<dyn aeqi_core::traits::Provider> =
-                if let Some(first) = config.companies.first() {
+                if let Some(first) = config.agent_spawns.first() {
                     match build_provider_for_project(&config, &first.name) {
                         Ok(p) => p,
                         Err(e) => {
@@ -588,7 +555,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
             // Collect base tools for the scheduler (union of project tools).
             let scheduler_tools: Vec<Arc<dyn aeqi_core::traits::Tool>> =
-                if let Some(first) = config.companies.first() {
+                if let Some(first) = config.agent_spawns.first() {
                     let workdir = config.resolve_repo(&first.repo);
                     build_tools(&workdir)
                 } else {
@@ -600,7 +567,6 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             let scheduler = Scheduler::new(
                 scheduler_config,
                 agent_reg.clone(),
-                dispatch_bus.clone(),
                 scheduler_provider,
                 scheduler_tools,
                 metrics.clone(),
@@ -613,7 +579,6 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 let mut s = scheduler;
                 // Use the pre-allocated wake signal shared with MessageRouter.
                 s.wake = scheduler_wake.clone();
-                s.notes = notes.clone();
                 s.session_store = session_store.clone();
                 let trigger_store = Arc::new(agent_reg.trigger_store());
                 s.trigger_store = Some(trigger_store.clone());
@@ -625,19 +590,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             };
 
             // Construct the daemon.
-            let mut daemon = Daemon::new(
-                metrics,
-                dispatch_bus.clone(),
-                scheduler.clone(),
-                agent_reg.clone(),
-                event_store,
-            );
-            daemon.notes = notes;
+            let mut daemon =
+                Daemon::new(metrics, scheduler.clone(), agent_reg.clone(), event_store);
             daemon.session_store = session_store.clone();
             daemon.leader_agent_name = leader_name.clone();
-            daemon.config_project_names = config.companies.iter().map(|p| p.name.clone()).collect();
             daemon.shared_primer = config.shared_primer.clone();
-            daemon.project_primer = config.companies.first().and_then(|c| c.primer.clone());
+            daemon.project_primer = config.agent_spawns.first().and_then(|c| c.primer.clone());
             daemon.event_broadcaster = event_broadcaster;
             daemon.message_router = message_router;
             daemon.default_provider = default_provider;
@@ -652,7 +610,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             daemon.set_trigger_store(trigger_store.clone());
 
             daemon.set_readiness_context(
-                config.companies.len(),
+                config.agent_spawns.len(),
                 advisor_agents.len(),
                 skipped_projects,
                 skipped_advisors,
@@ -678,13 +636,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     ss.clone(),
                     daemon.default_model.clone(),
                     Some(daemon.event_broadcaster.clone()),
-                    daemon.dispatch_bus.clone(),
-                    daemon.notes.clone(),
+                    daemon.event_store.clone(),
                     sm_insight_stores,
                     sm_insight_stores_by_id,
                     sm_default_project,
                     config.shared_primer.clone(),
-                    config.companies.first().and_then(|c| c.primer.clone()),
+                    config.agent_spawns.first().and_then(|c| c.primer.clone()),
                 );
                 info!("session manager configured for spawn_session");
             }

@@ -59,7 +59,6 @@ pub struct VfsSearchResponse {
 pub struct VfsTree {
     agent_registry: Arc<crate::agent_registry::AgentRegistry>,
     session_store: Option<Arc<crate::session_store::SessionStore>>,
-    notes: Option<Arc<crate::notes::Notes>>,
 }
 
 impl VfsTree {
@@ -67,7 +66,6 @@ impl VfsTree {
         Self {
             agent_registry,
             session_store: None,
-            notes: None,
         }
     }
 
@@ -75,12 +73,10 @@ impl VfsTree {
     pub fn with_direct_deps(
         agent_registry: Arc<crate::agent_registry::AgentRegistry>,
         session_store: Option<Arc<crate::session_store::SessionStore>>,
-        notes: Option<Arc<crate::notes::Notes>>,
     ) -> Self {
         Self {
             agent_registry,
             session_store,
-            notes,
         }
     }
 
@@ -106,7 +102,6 @@ impl VfsTree {
             ["skills"] => self.list_skills().await?,
             ["sessions"] => self.list_sessions().await?,
             ["sessions", id] => self.list_session_detail(id).await?,
-            ["notes"] => self.list_notes().await?,
             ["config"] => self.list_config().await?,
             ["departments"] => self.list_departments().await?,
             ["memory"] => self.list_memory().await?,
@@ -129,7 +124,6 @@ impl VfsTree {
             ["companies", name, "info.json"] => self.read_company_info(name).await,
             ["sessions", id, "transcript.json"] => self.read_session_transcript(id).await,
             ["sessions", id, "messages.json"] => self.read_session_messages(id).await,
-            ["notes", ..] => self.read_note(&segments[1..]).await,
             ["config", "aeqi.toml"] => self.read_config().await,
             _ => anyhow::bail!("not a readable file: {path}"),
         }
@@ -168,23 +162,6 @@ impl VfsTree {
             }
         }
 
-        // Search notes
-        if let Some(ref notes) = self.notes {
-            let entries = notes.query("", &[], 100).unwrap_or_default();
-            for entry in &entries {
-                if entry.key.to_lowercase().contains(&q)
-                    || entry.content.to_lowercase().contains(&q)
-                {
-                    results.push(VfsSearchResult {
-                        path: format!("/notes/{}", entry.key.replace(':', "/")),
-                        name: entry.key.clone(),
-                        snippet: Some(entry.content.chars().take(80).collect()),
-                        node_type: VfsNodeType::File,
-                    });
-                }
-            }
-        }
-
         Ok(VfsSearchResponse {
             query: query.to_string(),
             results,
@@ -199,7 +176,6 @@ impl VfsTree {
             dir_node("companies", "/companies", Some("🏢"), None),
             dir_node("skills", "/skills", Some("⚡"), None),
             dir_node("sessions", "/sessions", Some("💬"), None),
-            dir_node("notes", "/notes", Some("📝"), None),
             dir_node("departments", "/departments", Some("🏛️"), None),
             dir_node("memory", "/memory", Some("🧠"), None),
             dir_node("triggers", "/triggers", Some("⏰"), None),
@@ -281,21 +257,21 @@ impl VfsTree {
 
     async fn list_agent_sessions(&self, name: &str) -> anyhow::Result<Vec<VfsNode>> {
         let mut nodes = Vec::new();
-        if let Some(ref sm) = self.resolve_session_store() {
-            if let Ok(sessions) = sm.list_sessions(Some(name), 50).await {
-                for s in &sessions {
-                    let badge = if s.status == "active" {
-                        Some("active".to_string())
-                    } else {
-                        Some("closed".to_string())
-                    };
-                    nodes.push(dir_node(
-                        &s.id,
-                        &format!("/sessions/{}", s.id),
-                        Some("💬"),
-                        badge,
-                    ));
-                }
+        if let Some(sm) = self.resolve_session_store()
+            && let Ok(sessions) = sm.list_sessions(Some(name), 50).await
+        {
+            for s in &sessions {
+                let badge = if s.status == "active" {
+                    Some("active".to_string())
+                } else {
+                    Some("closed".to_string())
+                };
+                nodes.push(dir_node(
+                    &s.id,
+                    &format!("/sessions/{}", s.id),
+                    Some("💬"),
+                    badge,
+                ));
             }
         }
         Ok(nodes)
@@ -343,21 +319,9 @@ impl VfsTree {
         ])
     }
 
-    async fn list_company_knowledge(&self, name: &str) -> anyhow::Result<Vec<VfsNode>> {
-        let mut nodes = Vec::new();
-        if let Some(ref notes) = self.notes {
-            let entries = notes.list_project(name, 50).unwrap_or_default();
-            for entry in &entries {
-                let safe_key = entry.key.replace(':', "/");
-                nodes.push(file_node(
-                    &entry.key,
-                    &format!("/companies/{name}/knowledge/{safe_key}"),
-                    "text/plain",
-                    Some("📄"),
-                ));
-            }
-        }
-        Ok(nodes)
+    async fn list_company_knowledge(&self, _name: &str) -> anyhow::Result<Vec<VfsNode>> {
+        // Company knowledge now lives in the insight store, not notes.
+        Ok(vec![])
     }
 
     async fn list_company_tasks(&self, _name: &str) -> anyhow::Result<Vec<VfsNode>> {
@@ -392,21 +356,21 @@ impl VfsTree {
 
     async fn list_sessions(&self) -> anyhow::Result<Vec<VfsNode>> {
         let mut nodes = Vec::new();
-        if let Some(ref sm) = self.resolve_session_store() {
-            if let Ok(sessions) = sm.list_sessions(None, 100).await {
-                for s in &sessions {
-                    let badge = if s.status == "active" {
-                        Some("active".to_string())
-                    } else {
-                        Some("closed".to_string())
-                    };
-                    nodes.push(dir_node(
-                        &format!("{} ({})", s.id, s.agent_id.as_deref().unwrap_or("?")),
-                        &format!("/sessions/{}", s.id),
-                        Some("💬"),
-                        badge,
-                    ));
-                }
+        if let Some(sm) = self.resolve_session_store()
+            && let Ok(sessions) = sm.list_sessions(None, 100).await
+        {
+            for s in &sessions {
+                let badge = if s.status == "active" {
+                    Some("active".to_string())
+                } else {
+                    Some("closed".to_string())
+                };
+                nodes.push(dir_node(
+                    &format!("{} ({})", s.id, s.agent_id.as_deref().unwrap_or("?")),
+                    &format!("/sessions/{}", s.id),
+                    Some("💬"),
+                    badge,
+                ));
             }
         }
         Ok(nodes)
@@ -429,39 +393,20 @@ impl VfsTree {
         ])
     }
 
-    // --- Notes ---
-
-    async fn list_notes(&self) -> anyhow::Result<Vec<VfsNode>> {
-        let mut nodes = Vec::new();
-        if let Some(ref notes) = self.notes {
-            let entries = notes.query("", &[], 100).unwrap_or_default();
-            for entry in &entries {
-                let safe_key = entry.key.replace(':', "/");
-                nodes.push(file_node(
-                    &entry.key,
-                    &format!("/notes/{safe_key}"),
-                    "text/plain",
-                    Some("📝"),
-                ));
-            }
-        }
-        Ok(nodes)
-    }
-
     // --- Departments ---
 
     async fn list_departments(&self) -> anyhow::Result<Vec<VfsNode>> {
         let mut nodes = Vec::new();
-        if let Ok(Some(root)) = self.agent_registry.get_root().await {
-            if let Ok(children) = self.agent_registry.get_children(&root.id).await {
-                for child in &children {
-                    nodes.push(dir_node(
-                        &child.name,
-                        &format!("/departments/{}", child.id),
-                        Some("🏛️"),
-                        None,
-                    ));
-                }
+        if let Ok(Some(root)) = self.agent_registry.get_root().await
+            && let Ok(children) = self.agent_registry.get_children(&root.id).await
+        {
+            for child in &children {
+                nodes.push(dir_node(
+                    &child.name,
+                    &format!("/departments/{}", child.id),
+                    Some("🏛️"),
+                    None,
+                ));
             }
         }
         Ok(nodes)
@@ -470,21 +415,8 @@ impl VfsTree {
     // --- Memory ---
 
     async fn list_memory(&self) -> anyhow::Result<Vec<VfsNode>> {
-        // Memory is stored as notes with specific tags
-        let mut nodes = Vec::new();
-        if let Some(ref notes) = self.notes {
-            let entries = notes
-                .query("", &["memory".to_string()], 50)
-                .unwrap_or_default();
-            for entry in &entries {
-                nodes.push(file_node(
-                    &entry.key,
-                    &format!("/memory/{}", entry.key),
-                    "text/plain",
-                    Some("🧠"),
-                ));
-            }
-        }
+        // Memory now lives in the insight store.
+        let nodes = Vec::new();
         Ok(nodes)
     }
 
@@ -545,18 +477,18 @@ impl VfsTree {
 
     async fn read_agent_identity(&self, name: &str) -> anyhow::Result<VfsReadResponse> {
         let mut content = format!("# {name}\n\n");
-        if let Ok(agents) = self.agent_registry.list(None, None).await {
-            if let Some(agent) = agents.iter().find(|a| a.name == *name) {
-                content.push_str(&format!("**Status:** {}\n", agent.status));
-                content.push_str(&format!("**Template:** {}\n", agent.template));
-                if let Some(ref model) = agent.model {
-                    content.push_str(&format!("**Model:** {model}\n"));
-                }
-                if !agent.capabilities.is_empty() {
-                    content.push_str("\n**Capabilities:**\n");
-                    for cap in &agent.capabilities {
-                        content.push_str(&format!("- {cap}\n"));
-                    }
+        if let Ok(agents) = self.agent_registry.list(None, None).await
+            && let Some(agent) = agents.iter().find(|a| a.name == *name)
+        {
+            content.push_str(&format!("**Status:** {}\n", agent.status));
+            content.push_str(&format!("**Template:** {}\n", agent.template));
+            if let Some(ref model) = agent.model {
+                content.push_str(&format!("**Model:** {model}\n"));
+            }
+            if !agent.capabilities.is_empty() {
+                content.push_str("\n**Capabilities:**\n");
+                for cap in &agent.capabilities {
+                    content.push_str(&format!("- {cap}\n"));
                 }
             }
         }
@@ -579,16 +511,16 @@ impl VfsTree {
 
     async fn read_agent_stats(&self, name: &str) -> anyhow::Result<VfsReadResponse> {
         let mut stats = serde_json::json!({});
-        if let Ok(agents) = self.agent_registry.list(None, None).await {
-            if let Some(agent) = agents.iter().find(|a| a.name == *name) {
-                stats = serde_json::json!({
-                    "status": agent.status.to_string(),
-                    "template": agent.template,
-                    "model": agent.model,
-                    "capabilities": agent.capabilities,
-                    "created_at": agent.created_at,
-                });
-            }
+        if let Ok(agents) = self.agent_registry.list(None, None).await
+            && let Some(agent) = agents.iter().find(|a| a.name == *name)
+        {
+            stats = serde_json::json!({
+                "status": agent.status.to_string(),
+                "template": agent.template,
+                "model": agent.model,
+                "capabilities": agent.capabilities,
+                "created_at": agent.created_at,
+            });
         }
         Ok(VfsReadResponse {
             path: format!("/agents/{name}/stats.json"),
@@ -626,29 +558,29 @@ impl VfsTree {
     }
 
     async fn read_session_transcript(&self, id: &str) -> anyhow::Result<VfsReadResponse> {
-        if let Some(ref sm) = self.resolve_session_store() {
-            if let Ok(Some(session)) = sm.get_session(id).await {
-                let messages = sm.history_by_session(id, 200).await.unwrap_or_default();
-                let data = serde_json::json!({
-                    "session": {
-                        "id": session.id,
-                        "agent_id": session.agent_id,
-                        "status": session.status,
-                        "created_at": session.created_at,
-                    },
-                    "messages": messages.iter().map(|m| serde_json::json!({
-                        "role": m.role,
-                        "content": m.content,
-                        "timestamp": m.timestamp.to_rfc3339(),
-                    })).collect::<Vec<_>>(),
-                });
-                return Ok(VfsReadResponse {
-                    path: format!("/sessions/{id}/transcript.json"),
-                    content: serde_json::to_string_pretty(&data)?,
-                    mime: "application/json".to_string(),
-                    editable: false,
-                });
-            }
+        if let Some(sm) = self.resolve_session_store()
+            && let Ok(Some(session)) = sm.get_session(id).await
+        {
+            let messages = sm.history_by_session(id, 200).await.unwrap_or_default();
+            let data = serde_json::json!({
+                "session": {
+                    "id": session.id,
+                    "agent_id": session.agent_id,
+                    "status": session.status,
+                    "created_at": session.created_at,
+                },
+                "messages": messages.iter().map(|m| serde_json::json!({
+                    "role": m.role,
+                    "content": m.content,
+                    "timestamp": m.timestamp.to_rfc3339(),
+                })).collect::<Vec<_>>(),
+            });
+            return Ok(VfsReadResponse {
+                path: format!("/sessions/{id}/transcript.json"),
+                content: serde_json::to_string_pretty(&data)?,
+                mime: "application/json".to_string(),
+                editable: false,
+            });
         }
         Ok(VfsReadResponse {
             path: format!("/sessions/{id}/transcript.json"),
@@ -659,46 +591,26 @@ impl VfsTree {
     }
 
     async fn read_session_messages(&self, id: &str) -> anyhow::Result<VfsReadResponse> {
-        if let Some(ref sm) = self.resolve_session_store() {
-            if let Ok(messages) = sm.history_by_session(id, 100).await {
-                let mut content = String::new();
-                for msg in &messages {
-                    content.push_str(&format!("[{}] {}\n\n", msg.role, msg.content));
-                }
-                if content.is_empty() {
-                    content = "No messages in this session.\n".to_string();
-                }
-                return Ok(VfsReadResponse {
-                    path: format!("/sessions/{id}/messages.json"),
-                    content,
-                    mime: "text/plain".to_string(),
-                    editable: false,
-                });
+        if let Some(sm) = self.resolve_session_store()
+            && let Ok(messages) = sm.history_by_session(id, 100).await
+        {
+            let mut content = String::new();
+            for msg in &messages {
+                content.push_str(&format!("[{}] {}\n\n", msg.role, msg.content));
             }
+            if content.is_empty() {
+                content = "No messages in this session.\n".to_string();
+            }
+            return Ok(VfsReadResponse {
+                path: format!("/sessions/{id}/messages.json"),
+                content,
+                mime: "text/plain".to_string(),
+                editable: false,
+            });
         }
         Ok(VfsReadResponse {
             path: format!("/sessions/{id}/messages.json"),
             content: "Session not found".to_string(),
-            mime: "text/plain".to_string(),
-            editable: false,
-        })
-    }
-
-    async fn read_note(&self, segments: &[&str]) -> anyhow::Result<VfsReadResponse> {
-        let key = segments.join(":");
-        if let Some(ref notes) = self.notes {
-            if let Ok(Some(entry)) = notes.get_by_key("", &key) {
-                return Ok(VfsReadResponse {
-                    path: format!("/notes/{}", key.replace(':', "/")),
-                    content: entry.content,
-                    mime: "text/plain".to_string(),
-                    editable: true,
-                });
-            }
-        }
-        Ok(VfsReadResponse {
-            path: format!("/notes/{}", key.replace(':', "/")),
-            content: "Note not found".to_string(),
             mime: "text/plain".to_string(),
             editable: false,
         })

@@ -11,13 +11,12 @@ use tracing::{debug, info, warn};
 
 use crate::checkpoint::AgentCheckpoint;
 use crate::event_store::EventStore;
+use crate::event_store::{Dispatch, DispatchKind};
 use crate::execution_events::{EventBroadcaster, ExecutionEvent};
-use crate::executor::TaskOutcome;
+use crate::executor::QuestOutcome;
 use crate::failure_analysis::{FailureAnalysis, FailureMode};
 use crate::hook::Hook;
-use crate::message::{Dispatch, DispatchBus, DispatchKind};
 use crate::middleware::{MiddlewareAction, MiddlewareChain, Outcome, OutcomeStatus, WorkerContext};
-use crate::notes::Notes;
 use crate::runtime::{
     Artifact, ArtifactKind, RuntimeExecution, RuntimeOutcome, RuntimePhase, RuntimeSession,
 };
@@ -57,10 +56,11 @@ pub struct AgentWorker {
     pub execution: WorkerExecution,
     pub system_prompt: String,
     pub assembled_prompt: Option<AssembledPrompt>,
-    pub dispatch_bus: Arc<DispatchBus>,
+    pub event_store: Arc<EventStore>,
     /// Snapshot of the assigned task, populated at assign() time.
     pub task_snapshot: Option<aeqi_quests::Quest>,
     /// Called once at the end of execute() with the final status and optional outcome record.
+    #[allow(clippy::type_complexity)]
     pub on_complete: Option<Box<dyn FnOnce(QuestStatus, Option<QuestOutcomeRecord>) + Send + Sync>>,
     pub insight_store: Option<Arc<dyn Insight>>,
     pub reflect_provider: Option<Arc<dyn Provider>>,
@@ -69,10 +69,6 @@ pub struct AgentWorker {
     pub project_dir: Option<PathBuf>,
     /// Max task retries (handoff/failure) before auto-cancel.
     pub max_task_retries: u32,
-    /// Optional shared blackboard for adaptive retry strategies.
-    pub notes: Option<Arc<Notes>>,
-    /// Optional event store for recording decisions (replaces audit log).
-    pub event_store: Option<Arc<EventStore>>,
     /// Whether adaptive retry is enabled for this worker.
     pub adaptive_retry: bool,
     /// Model used for failure analysis when adaptive retry is enabled.
@@ -100,7 +96,7 @@ impl AgentWorker {
         tools: Vec<Arc<dyn Tool>>,
         system_prompt: String,
         model: String,
-        dispatch_bus: Arc<DispatchBus>,
+        event_store: Arc<EventStore>,
     ) -> Self {
         let reflect_model = model.clone();
         Self {
@@ -116,7 +112,7 @@ impl AgentWorker {
             },
             system_prompt,
             assembled_prompt: None,
-            dispatch_bus,
+            event_store,
             task_snapshot: None,
             on_complete: None,
             insight_store: None,
@@ -124,8 +120,7 @@ impl AgentWorker {
             reflect_model,
             project_dir: None,
             max_task_retries: 3,
-            notes: None,
-            event_store: None,
+
             adaptive_retry: false,
             failure_analysis_model: String::new(),
             middleware_chain: None,
@@ -143,7 +138,7 @@ impl AgentWorker {
         cwd: PathBuf,
         max_budget_usd: f64,
         system_prompt: String,
-        dispatch_bus: Arc<DispatchBus>,
+        event_store: Arc<EventStore>,
     ) -> Self {
         Self {
             agent_name,
@@ -157,7 +152,7 @@ impl AgentWorker {
             },
             system_prompt,
             assembled_prompt: None,
-            dispatch_bus,
+            event_store,
             task_snapshot: None,
             on_complete: None,
             insight_store: None,
@@ -165,8 +160,7 @@ impl AgentWorker {
             reflect_model: String::new(),
             project_dir: None,
             max_task_retries: 3,
-            notes: None,
-            event_store: None,
+
             adaptive_retry: false,
             failure_analysis_model: String::new(),
             middleware_chain: None,
@@ -305,64 +299,43 @@ impl AgentWorker {
     async fn build_resume_brief(&self, quest: &Quest) -> String {
         let mut sections = Vec::new();
 
-        if let Some(ref es) = self.event_store {
+        {
             let filter = crate::event_store::EventFilter {
                 event_type: Some("decision".to_string()),
                 quest_id: Some(quest.id.0.clone()),
                 ..Default::default()
             };
-            if let Ok(events) = es.query(&filter, 6, 0).await {
-                if !events.is_empty() {
-                    let lines = events
-                        .iter()
-                        .map(|event| {
-                            let decision_type = event
-                                .content
-                                .get("decision_type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown");
-                            let reasoning = event
-                                .content
-                                .get("reasoning")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("");
-                            format!(
-                                "- {} [{}] {}",
-                                event.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
-                                decision_type,
-                                truncate_for_prompt(reasoning, 220),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    sections.push(format!("### Audit trail\n{lines}"));
-                }
-            }
-        }
-
-        if let Some(ref blackboard) = self.notes {
-            let entries = blackboard
-                .query(&self.project_name, &quest.labels, 5)
-                .unwrap_or_default();
-            if !entries.is_empty() {
-                let lines = entries
+            if let Ok(events) = self.event_store.query(&filter, 6, 0).await
+                && !events.is_empty()
+            {
+                let lines = events
                     .iter()
-                    .map(|entry| {
+                    .map(|event| {
+                        let decision_type = event
+                            .content
+                            .get("decision_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let reasoning = event
+                            .content
+                            .get("reasoning")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         format!(
-                            "- [{}] {}: {}",
-                            entry.agent,
-                            entry.key,
-                            truncate_for_prompt(&entry.content, 220),
+                            "- {} [{}] {}",
+                            event.created_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                            decision_type,
+                            truncate_for_prompt(reasoning, 220),
                         )
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                sections.push(format!("### Blackboard\n{lines}"));
+                sections.push(format!("### Audit trail\n{lines}"));
             }
         }
 
         let mut dispatches = self
-            .dispatch_bus
+            .event_store
             .all()
             .await
             .into_iter()
@@ -392,13 +365,13 @@ impl AgentWorker {
 
     /// Execute the hooked work through the native AEQI agent runtime.
     /// Returns (outcome, cost_usd, turns_used) for the Scheduler to record.
-    pub async fn execute(&mut self) -> Result<(TaskOutcome, RuntimeExecution, f64, u32)> {
+    pub async fn execute(&mut self) -> Result<(QuestOutcome, RuntimeExecution, f64, u32)> {
         let hook = match &self.hook {
             Some(h) => h.clone(),
             None => {
                 warn!(worker = %self.name, "no hook assigned, nothing to do");
                 let runtime_outcome = RuntimeOutcome::done("no work assigned", Vec::new());
-                let outcome = TaskOutcome::from_runtime_outcome(&runtime_outcome);
+                let outcome = QuestOutcome::from_runtime_outcome(&runtime_outcome);
                 let mut session = RuntimeSession::new(
                     "unassigned",
                     self.name.clone(),
@@ -488,7 +461,7 @@ impl AgentWorker {
                     );
                     let runtime_outcome =
                         RuntimeOutcome::failed(format!("Middleware halted: {reason}"), Vec::new());
-                    let outcome = TaskOutcome::from_runtime_outcome(&runtime_outcome);
+                    let outcome = QuestOutcome::from_runtime_outcome(&runtime_outcome);
                     runtime_session.finish(&runtime_outcome);
                     let runtime_execution = RuntimeExecution {
                         session: runtime_session,
@@ -782,7 +755,7 @@ impl AgentWorker {
             Ok((result_text, cost, turns)) => {
                 let runtime_outcome =
                     RuntimeOutcome::from_agent_response(&result_text, runtime_artifacts);
-                let outcome = TaskOutcome::from_runtime_outcome(&runtime_outcome);
+                let outcome = QuestOutcome::from_runtime_outcome(&runtime_outcome);
                 (outcome, runtime_outcome, cost, turns)
             }
             Err(e) => {
@@ -792,7 +765,7 @@ impl AgentWorker {
                     chain.run_on_error(&mut worker_ctx, &error_str).await;
                 }
                 let runtime_outcome = RuntimeOutcome::failed(e.to_string(), runtime_artifacts);
-                let outcome = TaskOutcome::from_runtime_outcome(&runtime_outcome);
+                let outcome = QuestOutcome::from_runtime_outcome(&runtime_outcome);
                 (outcome, runtime_outcome, 0.0, 0)
             }
         };
@@ -806,7 +779,7 @@ impl AgentWorker {
         let duration_ms = execution_start.elapsed().as_millis() as u64;
         if let Some(ref chain) = self.middleware_chain {
             let mw_outcome = match &outcome {
-                TaskOutcome::Done(_) => Outcome {
+                QuestOutcome::Done(_) => Outcome {
                     status: OutcomeStatus::Done,
                     confidence: 1.0,
                     artifacts: runtime_artifact_refs.clone(),
@@ -816,7 +789,7 @@ impl AgentWorker {
                     reason: None,
                     runtime: Some(runtime_outcome.clone()),
                 },
-                TaskOutcome::Blocked { question, .. } => Outcome {
+                QuestOutcome::Blocked { question, .. } => Outcome {
                     status: OutcomeStatus::Blocked,
                     confidence: 0.5,
                     artifacts: runtime_artifact_refs.clone(),
@@ -826,7 +799,7 @@ impl AgentWorker {
                     reason: Some(question.clone()),
                     runtime: Some(runtime_outcome.clone()),
                 },
-                TaskOutcome::Handoff { checkpoint } => Outcome {
+                QuestOutcome::Handoff { checkpoint } => Outcome {
                     status: OutcomeStatus::NeedsContext,
                     confidence: 0.3,
                     artifacts: runtime_artifact_refs.clone(),
@@ -836,7 +809,7 @@ impl AgentWorker {
                     reason: Some(checkpoint.clone()),
                     runtime: Some(runtime_outcome.clone()),
                 },
-                TaskOutcome::Failed(error) => Outcome {
+                QuestOutcome::Failed(error) => Outcome {
                     status: OutcomeStatus::Failed,
                     confidence: 0.0,
                     artifacts: runtime_artifact_refs.clone(),
@@ -853,9 +826,9 @@ impl AgentWorker {
 
         // Process outcome: save checkpoint, determine final task status.
         // `final_task_status` is used by the on_complete callback below.
-        let mut final_task_status = QuestStatus::Pending;
+        let final_task_status;
         match &outcome {
-            TaskOutcome::Done(result_text) => {
+            QuestOutcome::Done(result_text) => {
                 info!(worker = %self.name, task = %hook.task_id, "work completed");
                 // Capture external checkpoint from git state before recording completion.
                 self.capture_and_save_checkpoint(
@@ -873,7 +846,7 @@ impl AgentWorker {
                 self.state = WorkerState::Done;
             }
 
-            TaskOutcome::Blocked {
+            QuestOutcome::Blocked {
                 question,
                 full_text,
             } => {
@@ -905,7 +878,7 @@ impl AgentWorker {
                 self.state = WorkerState::Done; // Worker is done; task is blocked.
             }
 
-            TaskOutcome::Handoff { checkpoint } => {
+            QuestOutcome::Handoff { checkpoint } => {
                 info!(worker = %self.name, task = %hook.task_id, "worker handing off — context exhaustion");
                 // Capture external checkpoint from git state before recording handoff.
                 self.capture_and_save_checkpoint(
@@ -939,7 +912,7 @@ impl AgentWorker {
                 self.state = WorkerState::Done;
             }
 
-            TaskOutcome::Failed(error_text) => {
+            QuestOutcome::Failed(error_text) => {
                 warn!(worker = %self.name, task = %hook.task_id, "work failed");
                 // Capture external checkpoint from git state before recording failure.
                 self.capture_and_save_checkpoint(
@@ -964,7 +937,7 @@ impl AgentWorker {
                         self.failure_analysis_model.clone()
                     };
                     if !fa_model.is_empty() {
-                        let (task_desc, task_labels) = self
+                        let (task_desc, _task_labels) = self
                             .task_snapshot
                             .as_ref()
                             .map(|t| (t.description.clone(), t.labels.clone()))
@@ -993,46 +966,25 @@ impl AgentWorker {
                                 );
 
                                 // Record decision event.
-                                if let Some(ref es) = self.event_store {
-                                    let _ = es
-                                        .emit(
-                                            "decision",
-                                            None,
-                                            None,
-                                            Some(&hook.task_id.0),
-                                            &serde_json::json!({
-                                                "decision_type": "FailureAnalyzed",
-                                                "agent": self.agent_name,
-                                                "reasoning": format!(
-                                                    "Mode: {:?}, Reasoning: {}",
-                                                    analysis.mode, analysis.reasoning
-                                                ),
-                                            }),
-                                        )
-                                        .await;
-                                }
+                                let _ = self
+                                    .event_store
+                                    .emit(
+                                        "decision",
+                                        None,
+                                        None,
+                                        Some(&hook.task_id.0),
+                                        &serde_json::json!({
+                                            "decision_type": "FailureAnalyzed",
+                                            "agent": self.agent_name,
+                                            "reasoning": format!(
+                                                "Mode: {:?}, Reasoning: {}",
+                                                analysis.mode, analysis.reasoning
+                                            ),
+                                        }),
+                                    )
+                                    .await;
 
-                                // Mode-specific: query blackboard for MissingContext.
-                                let mut enrichment = analysis.enrich_description();
-                                if analysis.mode == FailureMode::MissingContext
-                                    && let Some(ref bb) = self.notes
-                                {
-                                    let bb_entries = bb
-                                        .query(&self.project_name, &task_labels, 5)
-                                        .unwrap_or_default();
-                                    if !bb_entries.is_empty() {
-                                        let bb_ctx = bb_entries
-                                            .iter()
-                                            .map(|e| {
-                                                format!("- [{}] {}: {}", e.agent, e.key, e.content)
-                                            })
-                                            .collect::<Vec<_>>()
-                                            .join("\n");
-                                        enrichment.push_str(&format!(
-                                            "\n### Blackboard context\n{bb_ctx}\n"
-                                        ));
-                                    }
-                                }
+                                let enrichment = analysis.enrich_description();
 
                                 let mode = analysis.mode;
                                 Some((enrichment, mode))
@@ -1068,19 +1020,17 @@ impl AgentWorker {
                         retries = current_retry + 1,
                         "task auto-cancelled after max retries"
                     );
-                    if let Some(ref es) = self.event_store {
-                        let _ = es.emit(
-                            "decision",
-                            None,
-                            None,
-                            Some(&hook.task_id.0),
-                            &serde_json::json!({
-                                "decision_type": "TaskCancelled",
-                                "agent": self.agent_name,
-                                "reasoning": format!("Auto-cancelled after max retries: {}", error_text),
-                            }),
-                        ).await;
-                    }
+                    let _ = self.event_store.emit(
+                        "decision",
+                        None,
+                        None,
+                        Some(&hook.task_id.0),
+                        &serde_json::json!({
+                            "decision_type": "TaskCancelled",
+                            "agent": self.agent_name,
+                            "reasoning": format!("Auto-cancelled after max retries: {}", error_text),
+                        }),
+                    ).await;
                 } else if is_blocker {
                     final_task_status = QuestStatus::Blocked;
                     warn!(
@@ -1123,7 +1073,7 @@ impl AgentWorker {
         // Publish outcome-specific execution events with the finalized runtime state.
         if let Some(ref broadcaster) = self.event_broadcaster {
             match &outcome {
-                TaskOutcome::Done(summary) => {
+                QuestOutcome::Done(summary) => {
                     broadcaster.publish(ExecutionEvent::TaskCompleted {
                         task_id: hook.task_id.0.clone(),
                         outcome: summary.chars().take(500).collect(),
@@ -1134,7 +1084,7 @@ impl AgentWorker {
                         runtime: Some(runtime_execution.clone()),
                     });
                 }
-                TaskOutcome::Blocked { question, .. } => {
+                QuestOutcome::Blocked { question, .. } => {
                     broadcaster.publish(ExecutionEvent::ClarificationNeeded {
                         task_id: hook.task_id.0.clone(),
                         question: question.clone(),
@@ -1142,7 +1092,7 @@ impl AgentWorker {
                         runtime: Some(runtime_execution.clone()),
                     });
                 }
-                TaskOutcome::Handoff { checkpoint } => {
+                QuestOutcome::Handoff { checkpoint } => {
                     broadcaster.publish(ExecutionEvent::CheckpointCreated {
                         task_id: hook.task_id.0.clone(),
                         message: format!(
@@ -1152,7 +1102,7 @@ impl AgentWorker {
                         runtime: Some(runtime_execution.clone()),
                     });
                 }
-                TaskOutcome::Failed(reason) => {
+                QuestOutcome::Failed(reason) => {
                     broadcaster.publish(ExecutionEvent::TaskFailed {
                         task_id: hook.task_id.0.clone(),
                         reason: reason.chars().take(500).collect(),

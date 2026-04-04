@@ -360,7 +360,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                     // ── Discovery ──
                     "aeqi_projects" => {
                         let projects: Vec<serde_json::Value> = config
-                            .companies
+                            .agent_spawns
                             .iter()
                             .map(|p| {
                                 serde_json::json!({
@@ -382,7 +382,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                             config.shared_primer.clone().unwrap_or_default()
                         } else {
                             config
-                                .companies
+                                .agent_spawns
                                 .iter()
                                 .find(|p| p.name == project)
                                 .and_then(|p| p.primer.clone())
@@ -865,7 +865,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         // Find project repo path from config
                         let repo_path =
                             config
-                                .companies
+                                .agent_spawns
                                 .iter()
                                 .find(|p| p.name == project)
                                 .map(|p| {

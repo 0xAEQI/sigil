@@ -248,9 +248,6 @@ background_automation_enabled = true\n\
 expertise_routing = true\n\
 adaptive_retry = true\n\
 failure_analysis_model = \"{default_model}\"\n\
-preflight_enabled = true\n\
-preflight_model = \"{default_model}\"\n\
-preflight_max_cost_usd = 0.02\n\
 infer_deps_threshold = 0.85\n\
 dispatch_ttl_secs = 3600\n\
 \n\

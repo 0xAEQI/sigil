@@ -47,7 +47,7 @@ pub(crate) async fn cmd_status(config_path: &Option<PathBuf>) -> Result<()> {
     }
 
     println!("Projects:");
-    for project_cfg in &config.companies {
+    for project_cfg in &config.agent_spawns {
         let repo_ok = PathBuf::from(&project_cfg.repo).exists();
         print!(
             "  {} [{}] prefix={} runtime={} model={} workers={}",

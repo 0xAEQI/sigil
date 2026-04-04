@@ -122,7 +122,7 @@ pub(crate) async fn cmd_doctor(
                 issues_found += 1;
             }
 
-            for pcfg in &config.companies {
+            for pcfg in &config.agent_spawns {
                 let runtime = config.runtime_for_company(&pcfg.name);
                 let mode = config.execution_mode_for_project(&pcfg.name);
                 let repo_ok = PathBuf::from(&pcfg.repo).exists();

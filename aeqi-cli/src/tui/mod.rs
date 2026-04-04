@@ -707,8 +707,9 @@ fn spawn_direct_agent(
     tokio::task::JoinHandle<()>,
 )> {
     use crate::helpers::{build_provider_for_runtime, build_tools};
+    use crate::identity::Identity;
     use aeqi_core::traits::LogObserver;
-    use aeqi_core::{Agent, AgentConfig, Identity, ProviderKind, SessionType};
+    use aeqi_core::{Agent, AgentConfig, ProviderKind, SessionType};
 
     // Build provider from config.
     let model_override = agent_record.and_then(|a| a.model.as_deref());

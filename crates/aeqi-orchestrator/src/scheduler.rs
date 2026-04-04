@@ -28,14 +28,12 @@ use crate::agent_worker::AgentWorker;
 use crate::escalation::{EscalationPolicy, EscalationTracker};
 use crate::event_store::EventStore;
 use crate::execution_events::{EventBroadcaster, ExecutionEvent};
-use crate::message::DispatchBus;
 use crate::metrics::AEQIMetrics;
 use crate::middleware::{
     ClarificationMiddleware, ContextBudgetMiddleware, ContextCompressionMiddleware,
     CostTrackingMiddleware, GraphGuardrailsMiddleware, GuardrailsMiddleware,
     LoopDetectionMiddleware, MemoryRefreshMiddleware, MiddlewareChain, SafetyNetMiddleware,
 };
-use crate::notes::Notes;
 use crate::session_store::SessionStore;
 use crate::trigger::TriggerStore;
 use aeqi_core::traits::{Channel, Insight, Provider, Tool};
@@ -70,8 +68,6 @@ pub struct SchedulerConfig {
     pub adaptive_retry: bool,
     /// Model for failure analysis.
     pub failure_analysis_model: String,
-    /// Enable post-task verification pipeline.
-    pub verification_enabled: bool,
     /// Max task retries before auto-cancel.
     pub max_task_retries: u32,
 }
@@ -88,7 +84,6 @@ impl Default for SchedulerConfig {
             reflect_model: String::new(),
             adaptive_retry: false,
             failure_analysis_model: String::new(),
-            verification_enabled: true,
             max_task_retries: 3,
         }
     }
@@ -100,7 +95,6 @@ pub struct Scheduler {
 
     // Core services
     pub agent_registry: Arc<AgentRegistry>,
-    pub dispatch_bus: Arc<DispatchBus>,
     pub provider: Arc<dyn Provider>,
     pub tools: Vec<Arc<dyn Tool>>,
     pub metrics: Arc<AEQIMetrics>,
@@ -109,7 +103,6 @@ pub struct Scheduler {
     // Optional services
     pub insight_store: Option<Arc<dyn Insight>>,
     pub reflect_provider: Option<Arc<dyn Provider>>,
-    pub notes: Option<Arc<Notes>>,
     pub event_store: Arc<EventStore>,
     pub session_store: Option<Arc<SessionStore>>,
     pub trigger_store: Option<Arc<TriggerStore>>,
@@ -117,6 +110,7 @@ pub struct Scheduler {
 
     // Runtime state
     running: Mutex<Vec<TrackedWorker>>,
+    #[allow(dead_code)]
     escalation_tracker: Mutex<EscalationTracker>,
 
     /// Wake signal — coalesces multiple notifications into one schedule() call.
@@ -127,7 +121,6 @@ impl Scheduler {
     pub fn new(
         config: SchedulerConfig,
         agent_registry: Arc<AgentRegistry>,
-        dispatch_bus: Arc<DispatchBus>,
         provider: Arc<dyn Provider>,
         tools: Vec<Arc<dyn Tool>>,
         metrics: Arc<AEQIMetrics>,
@@ -137,14 +130,12 @@ impl Scheduler {
         Self {
             config,
             agent_registry,
-            dispatch_bus,
             provider,
             tools,
             metrics,
             event_broadcaster,
             insight_store: None,
             reflect_provider: None,
-            notes: None,
             event_store,
             session_store: None,
             trigger_store: None,
@@ -257,66 +248,64 @@ impl Scheduler {
 
             // Phase 5: Expertise routing — check if a sibling agent has a better track record.
             // Only reroute if the assigned agent has siblings and expertise data exists.
-            if let Ok(expertise) = self.event_store.query_expertise().await {
-                if let Ok(Some(assigned)) = self.agent_registry.get(&agent_id).await {
-                    // Find sibling agents (same parent) that could handle this task.
-                    if let Some(ref parent_id) = assigned.parent_id {
-                        if let Ok(siblings) = self.agent_registry.get_children(parent_id).await {
-                            let mut best_agent: Option<(String, f64)> = None;
-                            for sibling in &siblings {
-                                if sibling.id == agent_id {
-                                    continue;
-                                }
-                                // Check if sibling is under concurrency limit.
-                                let sib_max = self
-                                    .agent_registry
-                                    .get_max_concurrent(&sibling.id)
-                                    .await
-                                    .unwrap_or(1);
-                                let sib_current =
-                                    agent_counts.get(&sibling.id).copied().unwrap_or(0);
-                                if sib_current >= sib_max {
-                                    continue;
-                                }
-                                // Check expertise score.
-                                if let Some(score) = expertise.iter().find(|s| {
-                                    s.get("agent").and_then(|a| a.as_str()) == Some(&sibling.name)
-                                }) {
-                                    let rate = score
-                                        .get("success_rate")
-                                        .and_then(|r| r.as_f64())
-                                        .unwrap_or(0.0);
-                                    if best_agent
-                                        .as_ref()
-                                        .map_or(true, |(_, best_rate)| rate > *best_rate)
-                                    {
-                                        best_agent = Some((sibling.id.clone(), rate));
-                                    }
-                                }
+            if let Ok(expertise) = self.event_store.query_expertise().await
+                && let Ok(Some(assigned)) = self.agent_registry.get(&agent_id).await
+            {
+                // Find sibling agents (same parent) that could handle this task.
+                if let Some(ref parent_id) = assigned.parent_id
+                    && let Ok(siblings) = self.agent_registry.get_children(parent_id).await
+                {
+                    let mut best_agent: Option<(String, f64)> = None;
+                    for sibling in &siblings {
+                        if sibling.id == agent_id {
+                            continue;
+                        }
+                        // Check if sibling is under concurrency limit.
+                        let sib_max = self
+                            .agent_registry
+                            .get_max_concurrent(&sibling.id)
+                            .await
+                            .unwrap_or(1);
+                        let sib_current = agent_counts.get(&sibling.id).copied().unwrap_or(0);
+                        if sib_current >= sib_max {
+                            continue;
+                        }
+                        // Check expertise score.
+                        if let Some(score) = expertise.iter().find(|s| {
+                            s.get("agent").and_then(|a| a.as_str()) == Some(&sibling.name)
+                        }) {
+                            let rate = score
+                                .get("success_rate")
+                                .and_then(|r| r.as_f64())
+                                .unwrap_or(0.0);
+                            if best_agent
+                                .as_ref()
+                                .is_none_or(|(_, best_rate)| rate > *best_rate)
+                            {
+                                best_agent = Some((sibling.id.clone(), rate));
                             }
-                            // Reassign if a sibling has a significantly better track record.
-                            if let Some((better_id, better_rate)) = best_agent {
-                                let own_rate = expertise
-                                    .iter()
-                                    .find(|s| {
-                                        s.get("agent").and_then(|a| a.as_str())
-                                            == Some(&assigned.name)
-                                    })
-                                    .and_then(|s| s.get("success_rate").and_then(|r| r.as_f64()))
-                                    .unwrap_or(0.0);
-                                if better_rate > own_rate + 0.2 {
-                                    debug!(
-                                        task = %task.id,
-                                        from = %agent_id,
-                                        to = %better_id,
-                                        own_rate,
-                                        better_rate,
-                                        "expertise routing: reassigning to better agent"
-                                    );
-                                    // TODO: Update task.agent_id in AgentRegistry to the better agent.
-                                    // For now just log — full reassignment needs agent_registry.update_task().
-                                }
-                            }
+                        }
+                    }
+                    // Reassign if a sibling has a significantly better track record.
+                    if let Some((better_id, better_rate)) = best_agent {
+                        let own_rate = expertise
+                            .iter()
+                            .find(|s| {
+                                s.get("agent").and_then(|a| a.as_str()) == Some(&assigned.name)
+                            })
+                            .and_then(|s| s.get("success_rate").and_then(|r| r.as_f64()))
+                            .unwrap_or(0.0);
+                        if better_rate > own_rate + 0.2 {
+                            debug!(
+                                task = %task.id,
+                                from = %agent_id,
+                                to = %better_id,
+                                own_rate,
+                                better_rate,
+                                "expertise routing: reassigning to better agent"
+                            );
+                            // TODO: Update task.agent_id in AgentRegistry to the better agent.
+                            // For now just log — full reassignment needs agent_registry.update_task().
                         }
                     }
                 }
@@ -486,7 +475,7 @@ impl Scheduler {
                     cwd,
                     budget,
                     system_prompt.clone(),
-                    self.dispatch_bus.clone(),
+                    self.event_store.clone(),
                 )
             }
             _ => {
@@ -502,7 +491,7 @@ impl Scheduler {
                     self.tools.clone(),
                     system_prompt,
                     model,
-                    self.dispatch_bus.clone(),
+                    self.event_store.clone(),
                 )
             }
         };
@@ -531,13 +520,13 @@ impl Scheduler {
         if let crate::agent_worker::WorkerExecution::Agent { ref mut tools, .. } = worker.execution
         {
             // Trigger management tool.
-            if agent.capabilities.iter().any(|c| c == "manage_triggers") {
-                if let Some(ref ts) = self.trigger_store {
-                    tools.push(Arc::new(crate::tools::TriggerManageTool::new(
-                        ts.clone(),
-                        agent_id.clone(),
-                    )));
-                }
+            if agent.capabilities.iter().any(|c| c == "manage_triggers")
+                && let Some(ref ts) = self.trigger_store
+            {
+                tools.push(Arc::new(crate::tools::TriggerManageTool::new(
+                    ts.clone(),
+                    agent_id.clone(),
+                )));
             }
 
             // Transcript search tool.
@@ -575,9 +564,7 @@ impl Scheduler {
             worker.session_store = Some(ss.clone());
         }
 
-        // Inject blackboard + event store.
-        worker.notes = self.notes.clone();
-        worker.event_store = Some(self.event_store.clone());
+        // Inject blackboard.
         worker = worker.with_max_task_retries(self.config.max_task_retries);
 
         // Build completion callback — updates AgentRegistry task status.
@@ -778,56 +765,52 @@ impl Scheduler {
 fn load_skill_prompt(skill_name: &str, skills_dirs: &[PathBuf]) -> Option<String> {
     for dir in skills_dirs {
         let path = dir.join(format!("{skill_name}.toml"));
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(value) = content.parse::<toml::Value>() {
-                    if let Some(system) = value
-                        .get("prompt")
-                        .and_then(|p| p.get("system"))
-                        .and_then(|s| s.as_str())
-                    {
-                        let mut prompt = system.to_string();
+        if path.exists()
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(value) = content.parse::<toml::Value>()
+            && let Some(system) = value
+                .get("prompt")
+                .and_then(|p| p.get("system"))
+                .and_then(|s| s.as_str())
+        {
+            let mut prompt = system.to_string();
 
-                        // Extract tool restrictions.
-                        let allow: Vec<String> = value
-                            .get("tools")
-                            .and_then(|t| t.get("allow"))
-                            .and_then(|a| a.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let deny: Vec<String> = value
-                            .get("tools")
-                            .and_then(|t| t.get("deny"))
-                            .and_then(|a| a.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(String::from))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+            // Extract tool restrictions.
+            let allow: Vec<String> = value
+                .get("tools")
+                .and_then(|t| t.get("allow"))
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let deny: Vec<String> = value
+                .get("tools")
+                .and_then(|t| t.get("deny"))
+                .and_then(|a| a.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
 
-                        if !allow.is_empty() || !deny.is_empty() {
-                            prompt.push_str("\n\n## Tool Restrictions");
-                            if !allow.is_empty() {
-                                prompt.push_str(&format!(
-                                    "\nYou may ONLY use these tools: {}",
-                                    allow.join(", ")
-                                ));
-                            }
-                            if !deny.is_empty() {
-                                prompt
-                                    .push_str(&format!("\nYou must NOT use: {}", deny.join(", ")));
-                            }
-                        }
-
-                        return Some(prompt);
-                    }
+            if !allow.is_empty() || !deny.is_empty() {
+                prompt.push_str("\n\n## Tool Restrictions");
+                if !allow.is_empty() {
+                    prompt.push_str(&format!(
+                        "\nYou may ONLY use these tools: {}",
+                        allow.join(", ")
+                    ));
+                }
+                if !deny.is_empty() {
+                    prompt.push_str(&format!("\nYou must NOT use: {}", deny.join(", ")));
                 }
             }
+
+            return Some(prompt);
         }
     }
     None

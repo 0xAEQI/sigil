@@ -193,7 +193,7 @@ impl ExecutionEvent {
                 )
             }
             Self::DispatchReceived {
-                from_agent,
+                from_agent: _,
                 to_agent,
                 ..
             } => (

@@ -112,7 +112,11 @@ pub(crate) async fn cmd_pipeline(
             let projects: Vec<&str> = if let Some(ref name) = company {
                 vec![name.as_str()]
             } else {
-                config.companies.iter().map(|r| r.name.as_str()).collect()
+                config
+                    .agent_spawns
+                    .iter()
+                    .map(|r| r.name.as_str())
+                    .collect()
             };
 
             for name in projects {
