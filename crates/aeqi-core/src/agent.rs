@@ -1304,6 +1304,28 @@ impl Agent {
                             duration_ms,
                         });
 
+                        // Emit DelegateComplete for aeqi_delegate so the frontend
+                        // can show the subagent outcome and duration.
+                        if name == "aeqi_delegate" {
+                            let worker = input_args
+                                .get("to")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("subagent")
+                                .to_string();
+                            let outcome = if tr.is_error {
+                                format!(
+                                    "error: {}",
+                                    tr.output.chars().take(300).collect::<String>()
+                                )
+                            } else {
+                                tr.output.chars().take(300).collect::<String>()
+                            };
+                            self.emit(crate::chat_stream::ChatStreamEvent::DelegateComplete {
+                                worker_name: worker,
+                                outcome,
+                            });
+                        }
+
                         // Empty result injection — prevents model confusion on turn boundaries.
                         let output = if tr.output.trim().is_empty() && !tr.is_error {
                             format!("({name} completed with no output)")
@@ -1768,6 +1790,24 @@ impl Agent {
                                 halt_reason = Some((reason, parts));
                             }
                             LoopAction::Inject(_) | LoopAction::Continue => {
+                                // Emit DelegateStart for aeqi_delegate calls so the
+                                // frontend can track subagent activity.
+                                if name == "aeqi_delegate" {
+                                    let worker = arguments
+                                        .get("to")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("subagent")
+                                        .to_string();
+                                    let subject = arguments
+                                        .get("prompt")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.chars().take(120).collect::<String>())
+                                        .unwrap_or_else(|| "delegated task".to_string());
+                                    self.emit(crate::chat_stream::ChatStreamEvent::DelegateStart {
+                                        worker_name: worker,
+                                        task_subject: subject,
+                                    });
+                                }
                                 executor.add_tool(id, name, arguments).await;
                                 tools_started += 1;
                             }

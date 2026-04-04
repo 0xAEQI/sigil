@@ -992,6 +992,24 @@
   padding: 1px 0;
 }
 
+/* Subagent sidebar items */
+.subagent-item .subagent-dot {
+  font-size: 0.75rem;
+}
+.subagent-item.running .subagent-dot {
+  color: var(--warning, #f59e0b);
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+.subagent-item.completed .subagent-dot {
+  color: var(--success, #22c55e);
+  font-size: 0.65rem;
+}
+.subagent-item.failed .subagent-dot {
+  color: var(--error, #ef4444);
+  font-size: 0.65rem;
+}
+
 /* Turn separator in tool panel */
 .session-turn-separator {
   font-family: var(--font-mono);

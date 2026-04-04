@@ -162,6 +162,15 @@ interface Message {
   taskId?: string;
 }
 
+interface SubagentInfo {
+  workerName: string;
+  subject: string;
+  startTime: number;
+  status: "running" | "completed" | "failed";
+  outcome?: string;
+  duration?: string;
+}
+
 interface SessionInfo {
   id: string;
   name: string;
@@ -202,6 +211,7 @@ export default function SessionsPage() {
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [liveToolEvents, setLiveToolEvents] = useState<ToolEvent[]>([]);
+  const [liveSubagents, setLiveSubagents] = useState<SubagentInfo[]>([]);
   // collapsedTools removed — tool panels are always expanded now
   const [thinkingStart, setThinkingStart] = useState<number | null>(null);
   const messagesEnd = useRef<HTMLDivElement>(null);
@@ -354,6 +364,7 @@ export default function SessionsPage() {
     setStreaming(true);
     setStreamText("");
     setLiveToolEvents([]);
+    setLiveSubagents([]);
     setThinkingStart(startTime);
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -457,16 +468,33 @@ export default function SessionsPage() {
             break;
           }
           case "DelegateStart": {
-            toolEvents.push({ type: "start", name: `delegate: ${event.worker_name}`, timestamp: Date.now() });
+            const workerName = event.worker_name || "subagent";
+            const subject = event.task_subject || "delegated task";
+            toolEvents.push({ type: "start", name: `delegate: ${workerName}`, timestamp: Date.now() });
+            segments.push({ kind: "status", text: `Delegating to ${workerName}: ${subject}` });
             setLiveToolEvents([...toolEvents]);
+            setLiveSubagents(prev => [...prev, {
+              workerName,
+              subject,
+              startTime: Date.now(),
+              status: "running",
+            }]);
             break;
           }
           case "DelegateComplete": {
-            const delegateStartIdx = toolEvents.findIndex(e => e.type === "start" && e.name === `delegate: ${event.worker_name}`);
+            const doneWorker = event.worker_name || "subagent";
+            const delegateStartIdx = toolEvents.findIndex(e => e.type === "start" && e.name === `delegate: ${doneWorker}`);
             if (delegateStartIdx >= 0) {
-              toolEvents[delegateStartIdx] = { type: "complete", name: `delegate: ${event.worker_name}`, success: true, output_preview: event.outcome, timestamp: Date.now() };
+              toolEvents[delegateStartIdx] = { type: "complete", name: `delegate: ${doneWorker}`, success: true, output_preview: event.outcome, timestamp: Date.now() };
             }
+            const outcomePreview = (event.outcome || "").slice(0, 200);
+            segments.push({ kind: "status", text: `${doneWorker} completed: ${outcomePreview}` });
             setLiveToolEvents([...toolEvents]);
+            setLiveSubagents(prev => prev.map(s =>
+              s.workerName === doneWorker && s.status === "running"
+                ? { ...s, status: "completed" as const, outcome: event.outcome, duration: formatDuration(s.startTime, Date.now()) }
+                : s
+            ));
             break;
           }
           case "Complete":
@@ -578,6 +606,24 @@ export default function SessionsPage() {
             <span className="session-list-name">{agentName || "Agent"}</span>
           </div>
         </div>
+
+        {liveSubagents.length > 0 && (
+          <div className="sessions-list-section">
+            <div className="sessions-list-header">active work</div>
+            {liveSubagents.map((s, i) => (
+              <div key={i} className={`session-list-item subagent-item ${s.status}`} title={s.subject}>
+                <span className="session-list-dot subagent-dot">
+                  {s.status === "running" ? "\u27F3" : s.status === "completed" ? "\u2713" : "\u2717"}
+                </span>
+                <span className="session-list-name">{s.workerName}</span>
+                {s.status === "running" && (
+                  <span className="session-list-time"><SubagentTimer start={s.startTime} /></span>
+                )}
+                {s.duration && <span className="session-list-time">{s.duration}</span>}
+              </div>
+            ))}
+          </div>
+        )}
 
         {activeSessions.length > 0 && (
           <div className="sessions-list-section">
@@ -830,4 +876,15 @@ function ThinkingTimer({ start }: { start: number }) {
   }, [start]);
 
   return <span className="session-msg-duration">{formatDuration(start, start + elapsed)}</span>;
+}
+
+function SubagentTimer({ start }: { start: number }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [start]);
+
+  return <>{formatDuration(start, Date.now())}</>;
 }
