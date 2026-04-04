@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import { api } from "@/lib/api";
@@ -784,6 +784,7 @@ export default function SessionsPage() {
             </div>
           );
         })()}
+        <SpawnedSessionsBar liveSubagents={liveSubagents} childSessions={childSessions} />
         <div className="session-messages">
           {messages.map((msg, i) => {
             if (msg.role === "task_event") {
@@ -945,6 +946,113 @@ export default function SessionsPage() {
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function SpawnedSessionsBar({
+  liveSubagents,
+  childSessions,
+}: {
+  liveSubagents: SubagentInfo[];
+  childSessions: SessionInfo[];
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  const allSessions = useMemo(() => {
+    const merged = new Map<
+      string,
+      {
+        name: string;
+        status: string;
+        duration?: string;
+        startTime?: number;
+        sessionId?: string;
+      }
+    >();
+
+    // Persisted children first
+    for (const c of childSessions) {
+      merged.set(c.name, {
+        name: c.name,
+        status: c.status === "active" ? "running" : "completed",
+        sessionId: c.sessionId,
+      });
+    }
+
+    // Live subagents override (more current)
+    for (const s of liveSubagents) {
+      merged.set(s.workerName, {
+        name: s.workerName,
+        status: s.status,
+        duration: s.duration,
+        startTime: s.status === "running" ? s.startTime : undefined,
+      });
+    }
+
+    return Array.from(merged.values());
+  }, [liveSubagents, childSessions]);
+
+  if (allSessions.length === 0) return null;
+
+  const running = allSessions.filter((s) => s.status === "running").length;
+  const completed = allSessions.filter((s) => s.status === "completed").length;
+  const failed = allSessions.filter((s) => s.status === "failed").length;
+
+  return (
+    <div className="spawned-sessions-bar">
+      <div
+        className="spawned-sessions-header"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="spawned-sessions-count">
+          {allSessions.length} spawned{" "}
+          {allSessions.length === 1 ? "session" : "sessions"}
+        </span>
+        <span className="spawned-sessions-summary">
+          {running > 0 && (
+            <span className="spawned-running">● {running} running</span>
+          )}
+          {completed > 0 && (
+            <span className="spawned-completed">✓ {completed} completed</span>
+          )}
+          {failed > 0 && (
+            <span className="spawned-failed">✗ {failed} failed</span>
+          )}
+        </span>
+        <span className="spawned-sessions-chevron">
+          {expanded ? "▾" : "▸"}
+        </span>
+      </div>
+      {expanded && (
+        <div className="spawned-sessions-list">
+          {allSessions.map((s, i) => (
+            <div key={i} className={`spawned-session-item ${s.status}`}>
+              <span className="spawned-session-icon">
+                {s.status === "running"
+                  ? "⟳"
+                  : s.status === "completed"
+                    ? "✓"
+                    : "✗"}
+              </span>
+              <span className="spawned-session-name">{s.name}</span>
+              {s.status === "running" && s.startTime && (
+                <span className="spawned-session-time">
+                  <SubagentTimer start={s.startTime} />
+                </span>
+              )}
+              {s.duration && (
+                <span className="spawned-session-time">{s.duration}</span>
+              )}
+            </div>
+          ))}
+          {running > 0 && (
+            <div className="spawned-sessions-waiting">
+              waiting for {running} {running === 1 ? "result" : "results"}...
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
