@@ -26,8 +26,8 @@ pub struct DebouncedWrite {
     pub category: String,
     /// Memory scope (e.g. "domain", "system").
     pub scope: String,
-    /// Company this write belongs to.
-    pub company: String,
+    /// Project this write belongs to.
+    pub project: String,
     /// When this write was queued (or last replaced).
     pub queued_at: DateTime<Utc>,
 }
@@ -70,7 +70,7 @@ impl WriteQueue {
     /// replaced — the newer content wins and the `queued_at` timestamp
     /// is updated.
     pub fn push(&mut self, write: DebouncedWrite) {
-        let composite_key = format!("{}:{}", write.company, write.key);
+        let composite_key = format!("{}:{}", write.project, write.key);
         debug!(
             key = %composite_key,
             "debounce queue: push (replace if exists)"
@@ -140,7 +140,7 @@ mod tests {
             content: content.to_string(),
             category: "fact".to_string(),
             scope: "domain".to_string(),
-            company: project.to_string(),
+            project: project.to_string(),
             queued_at,
         }
     }

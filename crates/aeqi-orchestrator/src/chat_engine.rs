@@ -152,12 +152,12 @@ impl ChatResponse {
 pub struct ChatTaskHandle {
     pub task_id: String,
     pub chat_id: i64,
-    pub company: String,
+    pub project: String,
 }
 
 /// A pending task that's being processed asynchronously.
 pub struct PendingChatTask {
-    pub company: String,
+    pub project: String,
     pub chat_id: i64,
     pub message_id: i64,
     pub source: ChatSource,
@@ -198,7 +198,7 @@ pub struct ChatEngine {
     pub auto_council_enabled: bool,
     pub leader_name: String,
     /// Default company to route messages to when no project_hint is given.
-    pub default_company: String,
+    pub default_project: String,
     pub pending_tasks: Arc<Mutex<HashMap<String, PendingChatTask>>>,
     pub task_notify: Arc<tokio::sync::Notify>,
     /// Per-project memory stores for knowledge-aware chat (keyed by project name).
@@ -354,7 +354,7 @@ impl ChatEngine {
     ) -> Result<aeqi_tasks::Task> {
         let project = self
             .registry
-            .get_company(project_name)
+            .get_project(project_name)
             .await
             .ok_or_else(|| anyhow::anyhow!("project not found: {project_name}"))?;
 
@@ -445,7 +445,7 @@ impl ChatEngine {
                 "task_id": task_id,
                 "status": format!("{status:?}"),
                 "reply_text": text.clone(),
-                "project": pending.company.clone(),
+                "project": pending.project.clone(),
             })),
         )
         .await;
@@ -507,7 +507,7 @@ impl ChatEngine {
         let scoped_project = msg
             .project_hint
             .clone()
-            .unwrap_or_else(|| self.default_company.clone());
+            .unwrap_or_else(|| self.default_project.clone());
 
         // Register channel.
         self.ensure_channel_registered(msg).await;
@@ -668,7 +668,7 @@ impl ChatEngine {
         self.pending_tasks.lock().await.insert(
             task_id.clone(),
             PendingChatTask {
-                company: scoped_project.clone(),
+                project: scoped_project.clone(),
                 chat_id: msg.chat_id,
                 message_id: msg.source.message_id(),
                 source: msg.source.clone(),
@@ -716,7 +716,7 @@ impl ChatEngine {
         Ok(ChatTaskHandle {
             task_id,
             chat_id: msg.chat_id,
-            company: scoped_project,
+            project: scoped_project,
         })
     }
 
@@ -728,12 +728,12 @@ impl ChatEngine {
             .lock()
             .await
             .iter()
-            .map(|(task_id, pending)| (task_id.clone(), pending.company.clone()))
+            .map(|(task_id, pending)| (task_id.clone(), pending.project.clone()))
             .collect();
 
         for (qid, project) in pending {
             let status = {
-                if let Some(project) = self.registry.get_company(&project).await {
+                if let Some(project) = self.registry.get_project(&project).await {
                     let store = project.tasks.lock().await;
                     store
                         .get(&qid)
@@ -805,7 +805,7 @@ impl ChatEngine {
                     "Still working.",
                     Some(serde_json::json!({
                         "task_id": qid,
-                        "project": pq.company,
+                        "project": pq.project,
                         "elapsed_secs": elapsed.as_secs(),
                     })),
                 )
@@ -820,10 +820,10 @@ impl ChatEngine {
     pub async fn poll_completion(&self, task_id: &str) -> Option<ChatCompletion> {
         let project = {
             let pending = self.pending_tasks.lock().await;
-            pending.get(task_id).map(|task| task.company.clone())?
+            pending.get(task_id).map(|task| task.project.clone())?
         };
         let status = {
-            if let Some(project) = self.registry.get_company(&project).await {
+            if let Some(project) = self.registry.get_project(&project).await {
                 let store = project.tasks.lock().await;
                 store
                     .get(task_id)
@@ -908,7 +908,7 @@ impl ChatEngine {
             None
         };
 
-        let summaries = self.registry.list_company_summaries().await;
+        let summaries = self.registry.list_project_summaries().await;
         let (spent, budget, remaining) = self.registry.cost_ledger.budget_status();
         let worker_count = self.registry.total_max_workers().await;
 
@@ -964,7 +964,7 @@ impl ChatEngine {
             for e in &recent_audit {
                 context.push_str(&format!(
                     "  [{}] {} — {}\n",
-                    e.company,
+                    e.project,
                     e.decision_type,
                     e.reasoning.chars().take(80).collect::<String>()
                 ));
@@ -1044,7 +1044,7 @@ impl ChatEngine {
             p.clone()
         } else {
             let mut found = String::new();
-            for s in self.registry.list_company_summaries().await {
+            for s in self.registry.list_project_summaries().await {
                 if msg_lower.contains(&s.name.to_lowercase()) {
                     found = s.name.clone();
                     break;
@@ -1052,7 +1052,7 @@ impl ChatEngine {
             }
             if found.is_empty() {
                 self.registry
-                    .list_company_summaries()
+                    .list_project_summaries()
                     .await
                     .first()
                     .map(|s| s.name.clone())
@@ -1120,7 +1120,7 @@ impl ChatEngine {
             return ChatResponse::error("I need a task ID to close (e.g., 'close task as-001').");
         }
 
-        for name in self.registry.company_names().await {
+        for name in self.registry.project_names().await {
             if let Some(board) = self.registry.get_task_board(&name).await {
                 let mut board = board.lock().await;
                 if board.get(&task_id).is_some() && board.close(&task_id, "closed via chat").is_ok()
@@ -1212,7 +1212,7 @@ impl ChatEngine {
         department_hint: Option<&str>,
     ) -> Option<HashSet<String>> {
         let project_name = project_hint?;
-        let summaries = registry.list_company_summaries().await;
+        let summaries = registry.list_project_summaries().await;
         let summary = summaries.into_iter().find(|s| s.name == project_name)?;
 
         let department_name = department_hint?;
@@ -1284,7 +1284,7 @@ impl ChatEngine {
                 };
 
                 let notify = reg
-                    .get_company(&project_name)
+                    .get_project(&project_name)
                     .await
                     .map(|d| d.task_notify.clone());
                 let timeout = tokio::time::sleep(std::time::Duration::from_secs(60));
@@ -1303,7 +1303,7 @@ impl ChatEngine {
                         }
                     }
                     let done = {
-                        if let Some(project) = reg.get_company(&project_name).await {
+                        if let Some(project) = reg.get_project(&project_name).await {
                             let store = project.tasks.lock().await;
                             store.get(&task_id).map(|b| {
                                 (
@@ -1411,7 +1411,7 @@ impl ChatEngine {
             .await
         };
 
-        let Some(project) = registry.get_company(&project_name).await else {
+        let Some(project) = registry.get_project(&project_name).await else {
             warn!(
                 project = %project_name,
                 task = %task_id,
@@ -1528,7 +1528,7 @@ mod tests {
             "leader".to_string(),
         ));
         let (project, project_dir) = temp_project("leader", "ld").unwrap();
-        registry.register_company_only(project.clone()).await;
+        registry.register_project_only(project.clone()).await;
 
         let conv_dir = TempDir::new().unwrap();
         let conv_path = conv_dir.path().join("conv.db");
@@ -1546,7 +1546,7 @@ mod tests {
             memory_stores: HashMap::new(),
             memory_stores_by_id: HashMap::new(),
             intent_classifier: None,
-            default_company: "leader".to_string(),
+            default_project: "leader".to_string(),
         };
 
         (engine, project, registry, project_dir, conv_dir, conv_path)
@@ -1747,8 +1747,8 @@ mod tests {
         let registry = Arc::new(CompanyRegistry::new(dispatch_bus, "leader".to_string()));
         let (leader_project, _leader_dir) = temp_project("leader", "ld").unwrap();
         let (app_project, _app_dir) = temp_project("app", "ap").unwrap();
-        registry.register_company_only(leader_project.clone()).await;
-        registry.register_company_only(app_project.clone()).await;
+        registry.register_project_only(leader_project.clone()).await;
+        registry.register_project_only(app_project.clone()).await;
 
         let conv_dir = TempDir::new().unwrap();
         let conv_path = conv_dir.path().join("conv.db");
@@ -1766,7 +1766,7 @@ mod tests {
             memory_stores: HashMap::new(),
             memory_stores_by_id: HashMap::new(),
             intent_classifier: None,
-            default_company: "leader".to_string(),
+            default_project: "leader".to_string(),
         };
 
         let msg = ChatMessage {
@@ -1781,7 +1781,7 @@ mod tests {
         };
 
         let handle = engine.handle_message_full(&msg, None).await.unwrap();
-        assert_eq!(handle.company, "app");
+        assert_eq!(handle.project, "app");
         assert!(
             app_project
                 .tasks
@@ -1879,7 +1879,7 @@ mod tests {
         let mut pool = WorkerPool::new(&project, provider, Vec::new(), dispatch_bus.clone());
         pool.execution_mode = aeqi_core::ExecutionMode::Agent;
         pool.set_escalation_targets("leader", "leader");
-        registry.register_company(project, pool).await;
+        registry.register_project(project, pool).await;
 
         let conv_dir = TempDir::new().unwrap();
         let conv_path = conv_dir.path().join("conv.db");
@@ -1967,7 +1967,7 @@ mod tests {
             memory_stores: HashMap::new(),
             memory_stores_by_id: HashMap::new(),
             intent_classifier: None,
-            default_company: "leader".to_string(),
+            default_project: "leader".to_string(),
         };
 
         // Without a department hint, project-only scope returns None (no restriction).

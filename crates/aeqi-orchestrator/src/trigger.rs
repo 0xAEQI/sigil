@@ -525,10 +525,16 @@ impl TriggerStore {
             total_cost_usd: 0.0,
         };
 
+        // Extract public_id for webhook triggers so it lives in a dedicated column.
+        let public_id_col: Option<String> = match &trigger.trigger_type {
+            TriggerType::Webhook { public_id, .. } => Some(public_id.clone()),
+            _ => None,
+        };
+
         let db = self.db.lock().await;
         db.execute(
-            "INSERT INTO triggers (id, agent_id, name, trigger_type, config, skill, enabled, max_budget_usd, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
+            "INSERT INTO triggers (id, agent_id, name, trigger_type, config, skill, enabled, max_budget_usd, created_at, public_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9)",
             params![
                 trigger.id,
                 trigger.agent_id,
@@ -538,6 +544,7 @@ impl TriggerStore {
                 trigger.skill,
                 trigger.max_budget_usd,
                 trigger.created_at.to_rfc3339(),
+                public_id_col,
             ],
         )?;
 
@@ -557,17 +564,19 @@ impl TriggerStore {
     }
 
     /// Find a webhook trigger by its public_id.
+    ///
+    /// Uses the indexed `public_id` column for O(1) lookup instead of
+    /// loading all triggers and filtering in Rust.
     pub async fn find_by_public_id(&self, public_id: &str) -> Result<Option<Trigger>> {
         let db = self.db.lock().await;
-        let mut stmt =
-            db.prepare("SELECT * FROM triggers WHERE trigger_type = 'webhook' AND enabled = 1")?;
-        let triggers = stmt
-            .query_map([], |row| Ok(row_to_trigger(row)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        // Filter in Rust since public_id is stored in the JSON config column.
-        Ok(triggers.into_iter().find(|t| {
-            matches!(&t.trigger_type, TriggerType::Webhook { public_id: pid, .. } if pid == public_id)
-        }))
+        let trigger = db
+            .query_row(
+                "SELECT * FROM triggers WHERE public_id = ?1 AND enabled = 1",
+                params![public_id],
+                |row| Ok(row_to_trigger(row)),
+            )
+            .optional()?;
+        Ok(trigger)
     }
 
     /// List all triggers for a specific agent.
@@ -779,8 +788,10 @@ mod tests {
                  last_fired TEXT,
                  fire_count INTEGER NOT NULL DEFAULT 0,
                  total_cost_usd REAL NOT NULL DEFAULT 0.0,
+                 public_id TEXT,
                  UNIQUE(agent_id, name)
-             );",
+             );
+             CREATE INDEX IF NOT EXISTS idx_triggers_public_id ON triggers(public_id);",
         )
         .unwrap();
 

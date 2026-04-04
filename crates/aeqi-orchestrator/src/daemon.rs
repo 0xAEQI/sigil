@@ -14,7 +14,7 @@ use crate::progress_tracker::ProgressTracker;
 use crate::registry::CompanyRegistry;
 use crate::session_manager::{RunningSession, SessionManager};
 use crate::session_store::{
-    agency_chat_id, company_chat_id, department_chat_id, named_channel_chat_id,
+    agency_chat_id, department_chat_id, named_channel_chat_id, project_chat_id,
 };
 use crate::trigger::TriggerStore;
 
@@ -112,7 +112,7 @@ fn resolve_web_chat_id(
         if let Some(department) = department_hint {
             return department_chat_id(project, department);
         }
-        return company_chat_id(project);
+        return project_chat_id(project);
     }
 
     if department_hint.is_some() {
@@ -176,7 +176,7 @@ async fn find_task_snapshot(
         return Some(task_snapshot(task));
     }
 
-    for project_name in registry.company_names().await {
+    for project_name in registry.project_names().await {
         if let Some(board) = registry.get_task_board(&project_name).await
             && let Ok(board) = board.try_lock()
             && let Some(task) = board.get(task_id)
@@ -1002,7 +1002,7 @@ impl Daemon {
                     if let Some(budget) = pcfg.max_cost_per_day_usd {
                         self.registry
                             .cost_ledger
-                            .set_company_budget(&pcfg.name, budget);
+                            .set_project_budget(&pcfg.name, budget);
                     }
 
                     if let Some(pool) = self.registry.get_worker_pool(&pcfg.name).await {
@@ -1014,13 +1014,13 @@ impl Daemon {
                         s.max_description_chars = proj_orch.max_description_chars;
                         s.max_task_retries = proj_orch.max_task_retries;
 
-                        s.expertise_routing = orch.expertise_routing;
-                        s.preflight_enabled = orch.preflight_enabled;
-                        s.preflight_model = orch.preflight_model.clone();
-                        s.preflight_max_cost_usd = orch.preflight_max_cost_usd;
-                        s.adaptive_retry = orch.adaptive_retry;
-                        s.failure_analysis_model = orch.failure_analysis_model.clone();
-                        s.infer_deps_threshold = orch.infer_deps_threshold;
+                        s.expertise_routing = proj_orch.expertise_routing;
+                        s.preflight_enabled = proj_orch.preflight_enabled;
+                        s.preflight_model = proj_orch.preflight_model.clone();
+                        s.preflight_max_cost_usd = proj_orch.preflight_max_cost_usd;
+                        s.adaptive_retry = proj_orch.adaptive_retry;
+                        s.failure_analysis_model = proj_orch.failure_analysis_model.clone();
+                        s.infer_deps_threshold = proj_orch.infer_deps_threshold;
 
                         debug!(
                             project = %pcfg.name,
@@ -1061,7 +1061,7 @@ impl Daemon {
             return;
         };
         for w in &ready {
-            if let Some(mem) = engine.memory_stores.get(&w.company) {
+            if let Some(mem) = engine.memory_stores.get(&w.project) {
                 let category = match w.category.as_str() {
                     "fact" => aeqi_core::traits::MemoryCategory::Fact,
                     "procedure" => aeqi_core::traits::MemoryCategory::Procedure,
@@ -1077,20 +1077,20 @@ impl Daemon {
                 };
                 match mem.store(&w.key, &w.content, category, scope, None).await {
                     Ok(id) => debug!(
-                        project = %w.company,
+                        project = %w.project,
                         id = %id,
                         key = %w.key,
                         "debounced write persisted"
                     ),
                     Err(e) => warn!(
-                        project = %w.company,
+                        project = %w.project,
                         key = %w.key,
                         "debounced write failed: {e}"
                     ),
                 }
             } else {
                 debug!(
-                    project = %w.company,
+                    project = %w.project,
                     key = %w.key,
                     "no memory store for project — write dropped"
                 );
@@ -1231,7 +1231,7 @@ impl Daemon {
                 "ping" => serde_json::json!({"ok": true, "pong": true}),
 
                 "status" => {
-                    let project_names: Vec<String> = registry.company_names().await;
+                    let project_names: Vec<String> = registry.project_names().await;
                     let worker_count = registry.total_max_workers().await;
                     let dispatch_health = dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
                     let mail_count = dispatch_health.unread;
@@ -1242,7 +1242,7 @@ impl Daemon {
                     };
 
                     let (spent, budget, remaining) = registry.cost_ledger.budget_status();
-                    let project_budgets = registry.cost_ledger.all_company_budget_statuses();
+                    let project_budgets = registry.cost_ledger.all_project_budget_statuses();
                     let project_budget_info: serde_json::Map<String, serde_json::Value> =
                         project_budgets
                             .into_iter()
@@ -1280,7 +1280,7 @@ impl Daemon {
                 }
 
                 "readiness" => {
-                    let worker_limits = registry.company_worker_limits().await;
+                    let worker_limits = registry.project_worker_limits().await;
                     let dispatch_health = dispatch_bus.health(ACK_RETRY_AGE_SECS).await;
                     let (spent, budget, remaining) = registry.cost_ledger.budget_status();
                     readiness_response(
@@ -1313,7 +1313,7 @@ impl Daemon {
                 }
 
                 "companies" => {
-                    let summaries = registry.list_company_summaries().await;
+                    let summaries = registry.list_project_summaries().await;
                     let projects: Vec<serde_json::Value> = summaries
                         .iter()
                         .map(|s| {
@@ -1397,7 +1397,7 @@ impl Daemon {
                 "cost" => {
                     let (spent, budget, remaining) = registry.cost_ledger.budget_status();
                     let report = registry.cost_ledger.daily_report();
-                    let project_budgets = registry.cost_ledger.all_company_budget_statuses();
+                    let project_budgets = registry.cost_ledger.all_project_budget_statuses();
                     let project_budget_info: serde_json::Map<String, serde_json::Value> =
                         project_budgets
                             .into_iter()
@@ -1437,7 +1437,7 @@ impl Daemon {
                                 .map(|e| {
                                     serde_json::json!({
                                         "timestamp": e.timestamp.to_rfc3339(),
-                                        "project": e.company,
+                                        "project": e.project,
                                         "decision_type": e.decision_type.to_string(),
                                         "task_id": e.task_id,
                                         "agent": e.agent,
@@ -1496,7 +1496,7 @@ impl Daemon {
                             } else if scope_agent_id.is_some() || scope_department.is_some() {
                                 let vis = crate::notes::AgentVisibility {
                                     agent_id: scope_agent_id,
-                                    company: Some(project_filter.to_string()),
+                                    project: Some(project_filter.to_string()),
                                     department: scope_department,
                                 };
                                 bb.query_scoped(project_filter, &vis, &tags, limit as usize)
@@ -1521,7 +1521,7 @@ impl Daemon {
                                         "key": e.key,
                                         "content": e.content,
                                         "agent": e.agent,
-                                        "project": e.company,
+                                        "project": e.project,
                                         "tags": e.tags,
                                         "created_at": e.created_at.to_rfc3339(),
                                         "expires_at": e.expires_at.to_rfc3339(),
@@ -1550,7 +1550,7 @@ impl Daemon {
                                     "key": entry.key,
                                     "content": entry.content,
                                     "agent": entry.agent,
-                                    "project": entry.company,
+                                    "project": entry.project,
                                     "tags": entry.tags,
                                     "created_at": entry.created_at.to_rfc3339(),
                                     "expires_at": entry.expires_at.to_rfc3339(),
@@ -1716,7 +1716,7 @@ impl Daemon {
                     let project_names: Vec<String> = if let Some(name) = project_filter {
                         vec![name.to_string()]
                     } else {
-                        registry.company_names().await
+                        registry.project_names().await
                     };
 
                     let mut all_tasks = Vec::new();
@@ -1831,7 +1831,7 @@ impl Daemon {
                         } else {
                             let _prefix = task_id.split('-').next().unwrap_or("");
                             let mut found = None;
-                            for name in registry.company_names().await {
+                            for name in registry.project_names().await {
                                 if let Some(board) = registry.get_task_board(&name).await {
                                     let board = board.lock().await;
                                     if board.get(task_id).is_some() {
@@ -3697,7 +3697,7 @@ impl Daemon {
                                         );
                                         let _ = registry.cost_ledger.record(
                                             crate::cost_ledger::CostEntry {
-                                                company: "session".to_string(),
+                                                project: "session".to_string(),
                                                 task_id: resolved_session_id.clone(),
                                                 worker: agent_hint.clone(),
                                                 cost_usd,
@@ -3800,14 +3800,14 @@ impl Daemon {
                             // Resolve workdir from agent's company repo.
                             // Falls back to default company, then daemon cwd (root workspace).
                             let workdir = {
-                                let company_name = agent_company.as_deref().or_else(|| {
+                                let project_name = agent_company.as_deref().or_else(|| {
                                     chat_engine
                                         .as_ref()
-                                        .map(|e| e.default_company.as_str())
+                                        .map(|e| e.default_project.as_str())
                                         .filter(|s| !s.is_empty())
                                 });
-                                if let Some(name) = company_name {
-                                    if let Some(company) = registry.get_company(name).await {
+                                if let Some(name) = project_name {
+                                    if let Some(company) = registry.get_project(name).await {
                                         company.repo.clone()
                                     } else {
                                         std::env::current_dir()
@@ -3856,8 +3856,8 @@ impl Daemon {
                                     .or_else(|| e.memory_stores.get(&agent_hint))
                                     // Fallback: use the default company's memory (root workspace).
                                     .or_else(|| {
-                                        if !e.default_company.is_empty() {
-                                            e.memory_stores.get(&e.default_company)
+                                        if !e.default_project.is_empty() {
+                                            e.memory_stores.get(&e.default_project)
                                         } else {
                                             e.memory_stores.values().next()
                                         }
@@ -3869,7 +3869,7 @@ impl Daemon {
                             let graph_company = agent_company.as_deref().or_else(|| {
                                 chat_engine
                                     .as_ref()
-                                    .map(|e| e.default_company.as_str())
+                                    .map(|e| e.default_project.as_str())
                                     .filter(|s| !s.is_empty())
                             });
                             let graph_db_path = graph_company.and_then(|c| {
@@ -4052,7 +4052,7 @@ impl Daemon {
                                 completion_tokens,
                             );
                             let _ = registry.cost_ledger.record(crate::cost_ledger::CostEntry {
-                                company: agent_company
+                                project: agent_company
                                     .clone()
                                     .unwrap_or_else(|| "session".to_string()),
                                 task_id: session_id.clone(),
@@ -4271,7 +4271,7 @@ mod tests {
         resolve_web_chat_id,
     };
     use crate::session_store::{
-        agency_chat_id, company_chat_id, department_chat_id, named_channel_chat_id,
+        agency_chat_id, department_chat_id, named_channel_chat_id, project_chat_id,
     };
 
     #[test]
@@ -4422,7 +4422,7 @@ mod tests {
         );
         assert_eq!(
             resolve_web_chat_id(None, Some("alpha"), None, Some("alpha"),),
-            company_chat_id("alpha")
+            project_chat_id("alpha")
         );
         assert_eq!(
             resolve_web_chat_id(None, None, None, Some("ops")),

@@ -950,9 +950,15 @@ impl AEQIConfig {
         // Resolve environment variables in API keys.
         if let Some(ref mut or) = config.providers.openrouter {
             or.api_key = resolve_env(&or.api_key);
+            if or.api_key.is_empty() {
+                warn!("OpenRouter API key is empty — check environment variable");
+            }
         }
         if let Some(ref mut a) = config.providers.anthropic {
             a.api_key = resolve_env(&a.api_key);
+            if a.api_key.is_empty() {
+                warn!("Anthropic API key is empty — check environment variable");
+            }
         }
 
         // Expand ~ in paths.

@@ -369,6 +369,52 @@ impl AgentRegistry {
              );
              CREATE INDEX IF NOT EXISTS idx_triggers_agent ON triggers(agent_id);
              CREATE INDEX IF NOT EXISTS idx_triggers_enabled ON triggers(enabled);
+
+             -- Idempotent migration: add public_id column for webhook triggers.
+             -- ALTER TABLE … ADD COLUMN is a no-op if the column already exists
+             -- in SQLite 3.35+, but we guard with a pragma check for older versions.
+             ",
+        )?;
+
+        // Idempotent migration: add public_id column + index for O(1) webhook lookups.
+        let has_public_id: bool = conn
+            .prepare("PRAGMA table_info(triggers)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .any(|col| col == "public_id");
+        if !has_public_id {
+            conn.execute_batch(
+                "ALTER TABLE triggers ADD COLUMN public_id TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_triggers_public_id ON triggers(public_id);",
+            )?;
+            // Backfill public_id from JSON config for existing webhook triggers.
+            let mut stmt =
+                conn.prepare("SELECT id, config FROM triggers WHERE trigger_type = 'webhook'")?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            for (id, config_json) in rows {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&config_json)
+                    && let Some(pid) = v.get("public_id").and_then(|p| p.as_str())
+                {
+                    conn.execute(
+                        "UPDATE triggers SET public_id = ?1 WHERE id = ?2",
+                        rusqlite::params![pid, id],
+                    )?;
+                }
+            }
+        } else {
+            // Ensure index exists even if column was added by a previous version.
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_triggers_public_id ON triggers(public_id);",
+            )?;
+        }
+
+        conn.execute_batch(
+            "
              CREATE TABLE IF NOT EXISTS departments (
                  id TEXT PRIMARY KEY,
                  name TEXT NOT NULL,

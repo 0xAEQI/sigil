@@ -125,13 +125,13 @@ impl Middleware for GraphGuardrailsMiddleware {
 
         // Derive relative path from the file path
         let rel_path = file_path
-            .rsplit_once(&format!("{}/", ctx.company_name))
+            .rsplit_once(&format!("{}/", ctx.project_name))
             .map(|(_, rel)| rel.to_string())
             .unwrap_or(file_path.clone());
 
-        if let Some(warning) = self.check_edit_impact(&ctx.company_name, &rel_path, &call.input) {
+        if let Some(warning) = self.check_edit_impact(&ctx.project_name, &rel_path, &call.input) {
             debug!(
-                project = %ctx.company_name,
+                project = %ctx.project_name,
                 file = %rel_path,
                 "graph guardrails: injecting impact warning"
             );

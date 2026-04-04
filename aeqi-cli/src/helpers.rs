@@ -400,7 +400,7 @@ pub(crate) async fn handle_fast_lane(text: &str, reg: &Arc<CompanyRegistry>) -> 
     let cmd = text.split_whitespace().next().unwrap_or("");
     match cmd {
         "/status" => {
-            let projects = reg.company_names().await;
+            let projects = reg.project_names().await;
             if projects.is_empty() {
                 return "No projects registered.".to_string();
             }

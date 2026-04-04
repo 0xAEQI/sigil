@@ -48,7 +48,7 @@ pub struct NoteEntry {
     pub key: String,
     pub content: String,
     pub agent: String,
-    pub company: String,
+    pub project: String,
     pub tags: Vec<String>,
     pub durability: EntryDurability,
     pub created_at: DateTime<Utc>,
@@ -60,8 +60,8 @@ pub struct NoteEntry {
 pub struct AgentVisibility {
     /// The agent's own UUID — grants access to `agent:{uuid}:*` entries.
     pub agent_id: Option<String>,
-    /// The company the agent belongs to — grants access to `project:{name}:*` entries.
-    pub company: Option<String>,
+    /// The project the agent belongs to — grants access to `project:{name}:*` entries.
+    pub project: Option<String>,
     /// The department the agent belongs to — grants access to `dept:{name}:*` entries.
     pub department: Option<String>,
 }
@@ -157,7 +157,7 @@ impl Notes {
             key: key.to_string(),
             content: content.to_string(),
             agent: agent.to_string(),
-            company: project.to_string(),
+            project: project.to_string(),
             tags: tags.to_vec(),
             durability,
             created_at: now,
@@ -178,7 +178,7 @@ impl Notes {
             "INSERT OR REPLACE INTO aeqi_notes (id, key, content, agent, project, tags_json, durability, created_at, expires_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
-                entry.id, entry.key, entry.content, entry.agent, entry.company,
+                entry.id, entry.key, entry.content, entry.agent, entry.project,
                 tags_json, dur_str, entry.created_at.to_rfc3339(), entry.expires_at.to_rfc3339(),
             ],
         )?;
@@ -558,7 +558,7 @@ impl Notes {
             key,
             content,
             agent,
-            company: project,
+            project,
             tags,
             durability,
             created_at,
@@ -573,7 +573,7 @@ fn entry_visible(key: &str, vis: &AgentVisibility) -> bool {
         return true;
     }
     if let Some(rest) = key.strip_prefix("project:") {
-        return match vis.company.as_deref() {
+        return match vis.project.as_deref() {
             Some(p) => rest.starts_with(&format!("{p}:")),
             None => false,
         };
@@ -899,7 +899,7 @@ mod tests {
             .query_cross_project(&["signal".to_string()], None, 10)
             .unwrap();
         assert_eq!(signals.len(), 1);
-        assert_eq!(signals[0].company, "backend");
+        assert_eq!(signals[0].project, "backend");
     }
 
     #[test]
@@ -951,7 +951,7 @@ mod tests {
     fn test_entry_visible_helper() {
         let vis = AgentVisibility {
             agent_id: Some("a-123".into()),
-            company: Some("alpha".into()),
+            project: Some("alpha".into()),
             department: Some("eng".into()),
         };
 
@@ -1081,7 +1081,7 @@ mod tests {
         // Agent in project "proj", dept "eng", id "a1"
         let vis = AgentVisibility {
             agent_id: Some("a1".into()),
-            company: Some("proj".into()),
+            project: Some("proj".into()),
             department: Some("eng".into()),
         };
 

@@ -134,7 +134,7 @@ pub struct WorkerContext {
     /// Agent name executing this task.
     pub agent_name: String,
     /// Project name the task belongs to.
-    pub company_name: String,
+    pub project_name: String,
     /// Messages buffer — system prompt fragments, injected messages, etc.
     pub messages: Vec<String>,
     /// History of tool calls made during this execution.
@@ -155,13 +155,13 @@ impl WorkerContext {
         task_id: impl Into<String>,
         task_description: impl Into<String>,
         agent_name: impl Into<String>,
-        company_name: impl Into<String>,
+        project_name: impl Into<String>,
     ) -> Self {
         Self {
             task_id: task_id.into(),
             task_description: task_description.into(),
             agent_name: agent_name.into(),
-            company_name: company_name.into(),
+            project_name: project_name.into(),
             messages: Vec::new(),
             tool_call_history: Vec::new(),
             cost_usd: 0.0,

@@ -64,7 +64,7 @@ pub(crate) async fn cmd_operation(
                     let icon = if task_entry.closed { "[x]" } else { "[ ]" };
                     println!(
                         "  {} {} (project: {})",
-                        icon, task_entry.task_id, task_entry.company
+                        icon, task_entry.task_id, task_entry.project
                     );
                 }
             } else {

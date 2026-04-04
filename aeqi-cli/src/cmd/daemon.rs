@@ -108,7 +108,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
             // Set per-project budget ceilings from config.
             for project_cfg in &config.companies {
                 if let Some(budget) = project_cfg.max_cost_per_day_usd {
-                    cost_ledger.set_company_budget(&project_cfg.name, budget);
+                    cost_ledger.set_project_budget(&project_cfg.name, budget);
                 }
             }
 
@@ -179,6 +179,9 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 pool.adaptive_retry = project_orch.adaptive_retry;
                 pool.failure_analysis_model = project_orch.failure_analysis_model.clone();
                 pool.infer_deps_threshold = project_orch.infer_deps_threshold;
+                pool.max_resolution_attempts = project_orch.max_resolution_attempts;
+                pool.max_description_chars = project_orch.max_description_chars;
+                pool.max_task_retries = project_orch.max_task_retries;
 
                 // Wire skill discovery directories (project-specific + shared).
                 let project_skills_dir = project_dir.join("skills");
@@ -194,7 +197,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                 pool.project_primer = project_cfg.primer.clone();
                 pool.shared_primer = config.shared_primer.clone();
 
-                registry.register_company(project.clone(), pool).await;
+                registry.register_project(project.clone(), pool).await;
             }
 
             // Build channels map for the leader agent.
@@ -267,7 +270,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     }
                 }
 
-                registry.register_company(agent_project, agent_scout).await;
+                registry.register_project(agent_project, agent_scout).await;
                 info!(
                     agent = %agent_cfg.name,
                     model = %agent_model,
@@ -324,7 +327,7 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                     council_advisors: council_advisors.clone(),
                     auto_council_enabled,
                     leader_name: leader_name.clone(),
-                    default_company: config
+                    default_project: config
                         .companies
                         .first()
                         .map(|c| c.name.clone())
@@ -528,12 +531,12 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
 
                 fa_witness.worker_max_budget_usd = leader_cfg.max_budget_usd;
 
-                registry.register_company(fa_rig, fa_witness).await;
+                registry.register_project(fa_rig, fa_witness).await;
             } else {
                 warn!("no leader agent configured — daemon will run without one");
             }
 
-            let project_count = registry.company_count().await;
+            let project_count = registry.project_count().await;
             println!("AEQI daemon starting...");
             println!("Registered {} projects + agents", project_count);
 

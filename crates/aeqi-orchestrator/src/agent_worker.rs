@@ -53,7 +53,7 @@ pub struct AgentWorker {
     pub agent_name: String,
     /// Ephemeral worker-run identifier used for execution tracing.
     pub name: String,
-    pub company_name: String,
+    pub project_name: String,
     pub state: WorkerState,
     pub hook: Option<Hook>,
     pub execution: WorkerExecution,
@@ -97,7 +97,7 @@ impl AgentWorker {
     pub fn new(
         agent_name: String,
         name: String,
-        company_name: String,
+        project_name: String,
         provider: Arc<dyn aeqi_core::traits::Provider>,
         tools: Vec<Arc<dyn Tool>>,
         identity: Identity,
@@ -110,7 +110,7 @@ impl AgentWorker {
         Self {
             agent_name,
             name,
-            company_name,
+            project_name,
             state: WorkerState::Idle,
             hook: None,
             execution: WorkerExecution::Agent {
@@ -143,7 +143,7 @@ impl AgentWorker {
     pub fn new_claude_code(
         agent_name: String,
         name: String,
-        company_name: String,
+        project_name: String,
         cwd: PathBuf,
         max_budget_usd: f64,
         identity: Identity,
@@ -154,7 +154,7 @@ impl AgentWorker {
         Self {
             agent_name,
             name,
-            company_name,
+            project_name,
             state: WorkerState::Idle,
             hook: None,
             execution: WorkerExecution::ClaudeCode {
@@ -349,7 +349,7 @@ impl AgentWorker {
 
         if let Some(ref blackboard) = self.notes {
             let entries = blackboard
-                .query(&self.company_name, &task.labels, 5)
+                .query(&self.project_name, &task.labels, 5)
                 .unwrap_or_default();
             if !entries.is_empty() {
                 let lines = entries
@@ -373,7 +373,7 @@ impl AgentWorker {
             .all()
             .await
             .into_iter()
-            .filter(|dispatch| is_relevant_dispatch(dispatch, &self.company_name, &task.id.0))
+            .filter(|dispatch| is_relevant_dispatch(dispatch, &self.project_name, &task.id.0))
             .collect::<Vec<_>>();
         if !dispatches.is_empty() {
             if dispatches.len() > 6 {
@@ -409,7 +409,7 @@ impl AgentWorker {
                 let mut session = RuntimeSession::new(
                     "unassigned",
                     self.name.clone(),
-                    self.company_name.clone(),
+                    self.project_name.clone(),
                     self.execution_model(),
                 );
                 session.mark_phase(RuntimePhase::Prime, "Worker had no hook assigned");
@@ -430,7 +430,7 @@ impl AgentWorker {
         let mut runtime_session = RuntimeSession::new(
             hook.task_id.0.clone(),
             self.name.clone(),
-            self.company_name.clone(),
+            self.project_name.clone(),
             self.execution_model(),
         );
         runtime_session.mark_phase(RuntimePhase::Prime, "Loaded task hook and worker identity");
@@ -447,7 +447,7 @@ impl AgentWorker {
             &hook.task_id.0,
             &task_description_for_ctx,
             &self.agent_name,
-            &self.company_name,
+            &self.project_name,
         );
 
         // Run middleware on_start — check for Halt before proceeding.
@@ -497,7 +497,7 @@ impl AgentWorker {
             broadcaster.publish(ExecutionEvent::TaskStarted {
                 task_id: hook.task_id.0.clone(),
                 agent: self.agent_name.clone(),
-                project: self.company_name.clone(),
+                project: self.project_name.clone(),
                 runtime_session: Some(runtime_session.clone()),
             });
         }
@@ -599,7 +599,7 @@ impl AgentWorker {
             let entries = match std::panic::catch_unwind(|| {
                 aeqi_memory::query_planner::QueryPlanner::plan(
                     &task_context,
-                    Some(&self.company_name),
+                    Some(&self.project_name),
                 )
             }) {
                 Ok(plan) => {
@@ -1011,7 +1011,7 @@ impl AgentWorker {
                                 if let Some(ref audit) = self.audit_log {
                                     let _ = audit.record(
                                         &AuditEvent::new(
-                                            &self.company_name,
+                                            &self.project_name,
                                             DecisionType::FailureAnalyzed,
                                             format!(
                                                 "Mode: {:?}, Reasoning: {}",
@@ -1029,7 +1029,7 @@ impl AgentWorker {
                                     && let Some(ref bb) = self.notes
                                 {
                                     let bb_entries = bb
-                                        .query(&self.company_name, &task_labels, 5)
+                                        .query(&self.project_name, &task_labels, 5)
                                         .unwrap_or_default();
                                     if !bb_entries.is_empty() {
                                         let bb_ctx = bb_entries
@@ -1119,7 +1119,7 @@ impl AgentWorker {
                     if let Some(ref audit) = self.audit_log {
                         let _ = audit.record(
                             &AuditEvent::new(
-                                &self.company_name,
+                                &self.project_name,
                                 DecisionType::TaskCancelled,
                                 format!("Auto-cancelled after max retries: {}", error_text),
                             )
@@ -1333,7 +1333,7 @@ impl AgentWorker {
                     .unwrap_or("unknown"),
                 task_context.chars().take(500).collect::<String>(),
                 &self.agent_name,
-                &self.company_name,
+                &self.project_name,
             );
             // Signal to ContextCompressionMiddleware that the agent loop handles compaction.
             worker_ctx.agent_compaction_active = true;

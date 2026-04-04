@@ -76,14 +76,14 @@ async fn projects(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize, Default)]
 struct TasksQuery {
-    company: Option<String>,
+    project: Option<String>,
     status: Option<String>,
 }
 
 async fn tasks(State(state): State<AppState>, Query(q): Query<TasksQuery>) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
     }
     if let Some(status) = &q.status {
         params["status"] = serde_json::Value::String(status.clone());
@@ -138,7 +138,7 @@ async fn agents(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize, Default)]
 struct RegistryQuery {
-    company: Option<String>,
+    project: Option<String>,
     status: Option<String>,
 }
 
@@ -147,8 +147,8 @@ async fn agents_registry(
     Query(q): Query<RegistryQuery>,
 ) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
     }
     if let Some(status) = &q.status {
         params["status"] = serde_json::Value::String(status.clone());
@@ -197,14 +197,14 @@ async fn triggers(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize, Default)]
 struct AuditQuery {
-    company: Option<String>,
+    project: Option<String>,
     last: Option<u32>,
 }
 
 async fn audit(State(state): State<AppState>, Query(q): Query<AuditQuery>) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
     }
     if let Some(last) = q.last {
         params["last"] = serde_json::json!(last);
@@ -216,14 +216,14 @@ async fn audit(State(state): State<AppState>, Query(q): Query<AuditQuery>) -> Re
 
 #[derive(Deserialize, Default)]
 struct NotesQuery {
-    company: Option<String>,
+    project: Option<String>,
     limit: Option<u32>,
 }
 
 async fn notes(State(state): State<AppState>, Query(q): Query<NotesQuery>) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
     }
     if let Some(limit) = q.limit {
         params["limit"] = serde_json::json!(limit);
@@ -294,15 +294,15 @@ async fn worker_events(
 
 #[derive(Deserialize, Default)]
 struct MemoriesQuery {
-    company: Option<String>,
+    project: Option<String>,
     query: Option<String>,
     limit: Option<u64>,
 }
 
 async fn memories(State(state): State<AppState>, Query(q): Query<MemoriesQuery>) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::json!(company);
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
     }
     if let Some(query) = &q.query {
         params["query"] = serde_json::json!(query);
@@ -317,7 +317,7 @@ async fn memories(State(state): State<AppState>, Query(q): Query<MemoriesQuery>)
 
 #[derive(Deserialize, Default)]
 struct MemoryProfileQuery {
-    company: Option<String>,
+    project: Option<String>,
 }
 
 async fn memory_profile(
@@ -325,8 +325,8 @@ async fn memory_profile(
     Query(q): Query<MemoryProfileQuery>,
 ) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::json!(company);
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
     }
     ipc_proxy(state, "memory_profile", params).await
 }
@@ -335,7 +335,7 @@ async fn memory_profile(
 
 #[derive(Deserialize, Default)]
 struct MemoryGraphQuery {
-    company: Option<String>,
+    project: Option<String>,
     limit: Option<u64>,
 }
 
@@ -344,8 +344,8 @@ async fn memory_graph(
     Query(q): Query<MemoryGraphQuery>,
 ) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::json!(company);
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
     }
     if let Some(limit) = q.limit {
         params["limit"] = serde_json::json!(limit);
@@ -383,7 +383,7 @@ async fn project_knowledge(
 
 #[derive(Deserialize, Default)]
 struct ChannelKnowledgeQuery {
-    company: Option<String>,
+    project: Option<String>,
     query: Option<String>,
     limit: Option<u64>,
 }
@@ -393,8 +393,8 @@ async fn channel_knowledge(
     Query(q): Query<ChannelKnowledgeQuery>,
 ) -> Response {
     let mut params = serde_json::json!({});
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::json!(company);
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::json!(project);
     }
     if let Some(query) = &q.query {
         params["query"] = serde_json::json!(query);
@@ -473,7 +473,7 @@ async fn chat_poll(
 #[derive(Deserialize, Default)]
 struct ChatHistoryQuery {
     chat_id: Option<i64>,
-    company: Option<String>,
+    project: Option<String>,
     department: Option<String>,
     channel_name: Option<String>,
     agent_id: Option<String>,
@@ -489,8 +489,8 @@ async fn chat_history(
     if let Some(chat_id) = q.chat_id {
         params["chat_id"] = serde_json::json!(chat_id);
     }
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
     }
     if let Some(department) = &q.department {
         params["department"] = serde_json::Value::String(department.clone());
@@ -518,8 +518,8 @@ async fn chat_timeline(
     if let Some(chat_id) = q.chat_id {
         params["chat_id"] = serde_json::json!(chat_id);
     }
-    if let Some(company) = &q.company {
-        params["project"] = serde_json::Value::String(company.clone());
+    if let Some(project) = &q.project {
+        params["project"] = serde_json::Value::String(project.clone());
     }
     if let Some(department) = &q.department {
         params["department"] = serde_json::Value::String(department.clone());

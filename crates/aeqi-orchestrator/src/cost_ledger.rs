@@ -15,7 +15,7 @@ use tracing::{info, warn};
 /// A single cost entry from a worker execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CostEntry {
-    pub company: String,
+    pub project: String,
     pub task_id: String,
     pub worker: String,
     pub cost_usd: f64,
@@ -52,7 +52,7 @@ impl CostEntry {
     /// Create a cost entry with defaults for source and tokens.
     pub fn new(project: &str, task_id: &str, worker: &str, cost_usd: f64, turns: u32) -> Self {
         Self {
-            company: project.to_string(),
+            project: project.to_string(),
             task_id: task_id.to_string(),
             worker: worker.to_string(),
             cost_usd,
@@ -135,7 +135,7 @@ impl CostLedger {
         for e in entries {
             if e.timestamp > since {
                 global_sum += e.cost_usd;
-                *project_sums.entry(e.company.clone()).or_default() += e.cost_usd;
+                *project_sums.entry(e.project.clone()).or_default() += e.cost_usd;
             }
         }
         DailyCache {
@@ -164,7 +164,7 @@ impl CostLedger {
 
     /// Record a cost entry. Warns if daily budget or project budget exceeded.
     pub fn record(&self, entry: CostEntry) -> Result<()> {
-        let project_name = entry.company.clone();
+        let project_name = entry.project.clone();
         let cost = entry.cost_usd;
         let mut entries = self
             .entries
@@ -172,7 +172,7 @@ impl CostLedger {
             .map_err(|e| anyhow::anyhow!("lock: {e}"))?;
 
         info!(
-            project = %entry.company,
+            project = %entry.project,
             task = %entry.task_id,
             worker = %entry.worker,
             cost = entry.cost_usd,
@@ -231,7 +231,7 @@ impl CostLedger {
     }
 
     /// Total spend for a project in the last 24 hours. O(1) when cache is warm.
-    pub fn company_spend(&self, project: &str, hours: u32) -> f64 {
+    pub fn project_spend(&self, project: &str, hours: u32) -> f64 {
         if hours == 24 {
             let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
             let (_, project_sums) = self.cached_sums(&entries);
@@ -242,7 +242,7 @@ impl CostLedger {
         let since = Utc::now() - Duration::hours(hours as i64);
         entries
             .iter()
-            .filter(|e| e.company == project && e.timestamp > since)
+            .filter(|e| e.project == project && e.timestamp > since)
             .map(|e| e.cost_usd)
             .sum()
     }
@@ -271,7 +271,7 @@ impl CostLedger {
     }
 
     /// Set the daily budget cap for a specific project.
-    pub fn set_company_budget(&self, project: &str, budget_usd: f64) {
+    pub fn set_project_budget(&self, project: &str, budget_usd: f64) {
         let mut budgets = self
             .project_budgets
             .lock()
@@ -283,7 +283,7 @@ impl CostLedger {
     /// Check if a project can afford a new execution.
     /// Returns false if EITHER the global daily budget OR the project-specific cap is exceeded.
     /// If no project budget is set, falls back to the global budget check only.
-    pub fn can_afford_company(&self, project: &str) -> bool {
+    pub fn can_afford_project(&self, project: &str) -> bool {
         // Global check first.
         if !self.can_afford() {
             return false;
@@ -301,7 +301,7 @@ impl CostLedger {
             budgets.get(project).copied()
         };
         if let Some(budget) = project_budget {
-            let spent = self.company_spend(project, 24);
+            let spent = self.project_spend(project, 24);
             if spent >= budget {
                 return false;
             }
@@ -312,8 +312,8 @@ impl CostLedger {
 
     /// Get per-project budget status: (spent_today, budget, remaining).
     /// If no project budget is set, returns (spent_today, global_budget, global_remaining).
-    pub fn company_budget_status(&self, project: &str) -> (f64, f64, f64) {
-        let spent = self.company_spend(project, 24);
+    pub fn project_budget_status(&self, project: &str) -> (f64, f64, f64) {
+        let spent = self.project_spend(project, 24);
         let budgets = self
             .project_budgets
             .lock()
@@ -324,7 +324,7 @@ impl CostLedger {
     }
 
     /// Get all per-project budget statuses as a map. O(1) when cache is warm.
-    pub fn all_company_budget_statuses(&self) -> HashMap<String, (f64, f64, f64)> {
+    pub fn all_project_budget_statuses(&self) -> HashMap<String, (f64, f64, f64)> {
         let budgets = self
             .project_budgets
             .lock()
@@ -472,7 +472,7 @@ mod tests {
         assert!((budget - 100.0).abs() < 0.01);
         assert!(remaining > 99.0);
 
-        assert!((ledger.company_spend("test-project", 24) - 0.50).abs() < 0.01);
+        assert!((ledger.project_spend("test-project", 24) - 0.50).abs() < 0.01);
         assert!((ledger.task_spend("as-001") - 0.50).abs() < 0.01);
         assert!(ledger.can_afford());
     }
@@ -539,21 +539,21 @@ mod tests {
     #[test]
     fn test_project_budget_blocks_overspend() {
         let ledger = CostLedger::new(100.0); // Global: $100/day
-        ledger.set_company_budget("test-project", 2.0); // Project: $2/day
+        ledger.set_project_budget("test-project", 2.0); // Project: $2/day
 
         // Spend $1.50 in test-project — should still be under project cap.
         ledger
             .record(CostEntry::new("test-project", "as-001", "w1", 1.50, 5))
             .unwrap();
 
-        assert!(ledger.can_afford_company("test-project"));
+        assert!(ledger.can_afford_project("test-project"));
 
         // Spend another $1.00 — now over the $2 project cap.
         ledger
             .record(CostEntry::new("test-project", "as-002", "w2", 1.00, 3))
             .unwrap();
 
-        assert!(!ledger.can_afford_company("test-project"));
+        assert!(!ledger.can_afford_project("test-project"));
         // Global budget is still fine.
         assert!(ledger.can_afford());
     }
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn test_project_budget_does_not_affect_other_projects() {
         let ledger = CostLedger::new(100.0);
-        ledger.set_company_budget("test-project", 1.0);
+        ledger.set_project_budget("test-project", 1.0);
 
         // Exhaust test-project's budget.
         ledger
@@ -569,9 +569,9 @@ mod tests {
             .unwrap();
 
         // test-project is blocked.
-        assert!(!ledger.can_afford_company("test-project"));
+        assert!(!ledger.can_afford_project("test-project"));
         // project-b (no project budget) is still fine.
-        assert!(ledger.can_afford_company("project-b"));
+        assert!(ledger.can_afford_project("project-b"));
     }
 
     #[test]
@@ -584,7 +584,7 @@ mod tests {
             .unwrap();
 
         // Under global budget — still affordable.
-        assert!(ledger.can_afford_company("project-b"));
+        assert!(ledger.can_afford_project("project-b"));
 
         // Exceed global budget.
         ledger
@@ -592,26 +592,26 @@ mod tests {
             .unwrap();
 
         // Global budget exceeded — no project can afford.
-        assert!(!ledger.can_afford_company("project-b"));
-        assert!(!ledger.can_afford_company("test-project"));
+        assert!(!ledger.can_afford_project("project-b"));
+        assert!(!ledger.can_afford_project("test-project"));
     }
 
     #[test]
     fn test_project_budget_status() {
         let ledger = CostLedger::new(100.0);
-        ledger.set_company_budget("test-project", 10.0);
+        ledger.set_project_budget("test-project", 10.0);
 
         ledger
             .record(CostEntry::new("test-project", "as-001", "w1", 3.50, 5))
             .unwrap();
 
-        let (spent, budget, remaining) = ledger.company_budget_status("test-project");
+        let (spent, budget, remaining) = ledger.project_budget_status("test-project");
         assert!((spent - 3.50).abs() < 0.01);
         assert!((budget - 10.0).abs() < 0.01);
         assert!((remaining - 6.50).abs() < 0.01);
 
         // Project without a budget returns global budget.
-        let (spent, budget, _remaining) = ledger.company_budget_status("project-b");
+        let (spent, budget, _remaining) = ledger.project_budget_status("project-b");
         assert!((spent).abs() < 0.01);
         assert!((budget - 100.0).abs() < 0.01);
     }
@@ -619,8 +619,8 @@ mod tests {
     #[test]
     fn test_all_project_budget_statuses() {
         let ledger = CostLedger::new(100.0);
-        ledger.set_company_budget("test-project", 10.0);
-        ledger.set_company_budget("project-b", 5.0);
+        ledger.set_project_budget("test-project", 10.0);
+        ledger.set_project_budget("project-b", 5.0);
 
         ledger
             .record(CostEntry::new("test-project", "as-001", "w1", 2.0, 5))
@@ -630,7 +630,7 @@ mod tests {
             .record(CostEntry::new("aeqi", "sg-001", "w1", 1.0, 3))
             .unwrap();
 
-        let statuses = ledger.all_company_budget_statuses();
+        let statuses = ledger.all_project_budget_statuses();
 
         // test-project: has budget + spending.
         let (spent, budget, remaining) = statuses["test-project"];
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn test_global_budget_blocks_even_with_project_headroom() {
         let ledger = CostLedger::new(5.0); // Tight global budget
-        ledger.set_company_budget("test-project", 50.0); // Generous project budget
+        ledger.set_project_budget("test-project", 50.0); // Generous project budget
 
         // Spend enough to exhaust global but not project.
         ledger
@@ -661,7 +661,7 @@ mod tests {
             .unwrap();
 
         // Project has headroom ($6 of $50) but global is exceeded ($6 of $5).
-        assert!(!ledger.can_afford_company("test-project"));
+        assert!(!ledger.can_afford_project("test-project"));
         assert!(!ledger.can_afford());
     }
 }

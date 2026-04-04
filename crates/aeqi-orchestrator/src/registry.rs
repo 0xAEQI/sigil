@@ -81,10 +81,10 @@ impl CompanyRegistry {
     /// Register a project without creating a WorkerPool.
     /// Used for dynamically registered projects
     /// but don't run daemon-driven execution.
-    pub async fn register_company_only(&self, project: Arc<Company>) {
+    pub async fn register_project_only(&self, project: Arc<Company>) {
         let name = project.name.clone();
         let id = project.id.clone();
-        self.metrics.ensure_company(&name);
+        self.metrics.ensure_project(&name);
         self.projects.write().await.insert(name, project.clone());
         if !id.is_empty() {
             self.projects_by_id.write().await.insert(id, project);
@@ -92,11 +92,11 @@ impl CompanyRegistry {
     }
 
     /// Remove a project from the registry (in-memory only).
-    pub async fn remove_company(&self, name: &str) -> bool {
+    pub async fn remove_project(&self, name: &str) -> bool {
         self.projects.write().await.remove(name).is_some()
     }
 
-    pub async fn register_company(&self, project: Arc<Company>, mut pool: WorkerPool) {
+    pub async fn register_project(&self, project: Arc<Company>, mut pool: WorkerPool) {
         let name = project.name.clone();
         let id = project.id.clone();
         // Inject cost ledger + metrics + v3 components into the worker pool.
@@ -105,7 +105,7 @@ impl CompanyRegistry {
         pool.audit_log = self.audit_log.clone();
         pool.expertise_ledger = self.expertise_ledger.clone();
         pool.notes = self.notes.clone();
-        self.metrics.ensure_company(&name);
+        self.metrics.ensure_project(&name);
         self.projects
             .write()
             .await
@@ -412,19 +412,19 @@ impl CompanyRegistry {
         all
     }
 
-    pub async fn company_names(&self) -> Vec<String> {
+    pub async fn project_names(&self) -> Vec<String> {
         self.projects.read().await.keys().cloned().collect()
     }
 
-    pub async fn get_company(&self, name: &str) -> Option<Arc<Company>> {
+    pub async fn get_project(&self, name: &str) -> Option<Arc<Company>> {
         self.projects.read().await.get(name).cloned()
     }
 
-    pub async fn get_company_by_id(&self, id: &str) -> Option<Arc<Company>> {
+    pub async fn get_project_by_id(&self, id: &str) -> Option<Arc<Company>> {
         self.projects_by_id.read().await.get(id).cloned()
     }
 
-    pub async fn company_count(&self) -> usize {
+    pub async fn project_count(&self) -> usize {
         self.projects.read().await.len()
     }
 
@@ -437,7 +437,7 @@ impl CompanyRegistry {
             .sum()
     }
 
-    pub async fn company_worker_limits(&self) -> Vec<(String, u32)> {
+    pub async fn project_worker_limits(&self) -> Vec<(String, u32)> {
         self.projects
             .read()
             .await
@@ -500,7 +500,7 @@ impl CompanyRegistry {
     /// List all projects with summary stats (task counts, team info).
     /// Designed to minimize lock hold times — snapshot project list first, then read each
     /// project's task board independently without holding the registry-level RwLocks.
-    pub async fn list_company_summaries(&self) -> Vec<CompanySummary> {
+    pub async fn list_project_summaries(&self) -> Vec<ProjectSummary> {
         // Step 1: Snapshot project list + worker pool refs, then release RwLocks immediately.
         let project_list: Vec<(String, Arc<Company>)> = {
             let projects = self.projects.read().await;
@@ -552,7 +552,7 @@ impl CompanyRegistry {
                 (0, 0, 0, 0, 0, 0)
             };
 
-            summaries.push(CompanySummary {
+            summaries.push(ProjectSummary {
                 name: name.clone(),
                 prefix: project.prefix.clone(),
                 open_tasks,
@@ -598,7 +598,7 @@ pub struct CompanyStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct CompanySummary {
+pub struct ProjectSummary {
     pub name: String,
     pub prefix: String,
     pub open_tasks: u32,

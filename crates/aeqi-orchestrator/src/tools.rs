@@ -340,9 +340,9 @@ impl Tool for QuestDetailTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing task_id"))?;
 
-        let projects = self.registry.company_names().await;
+        let projects = self.registry.project_names().await;
         for project_name in &projects {
-            if let Some(project) = self.registry.get_company(project_name).await {
+            if let Some(project) = self.registry.get_project(project_name).await {
                 let store = project.tasks.lock().await;
                 if let Some(task) = store.get(task_id) {
                     let mut out = format!(
@@ -421,9 +421,9 @@ impl Tool for QuestCancelTool {
             .and_then(|v| v.as_str())
             .unwrap_or("Cancelled by leader agent");
 
-        let projects = self.registry.company_names().await;
+        let projects = self.registry.project_names().await;
         for project_name in &projects {
-            if let Some(project) = self.registry.get_company(project_name).await {
+            if let Some(project) = self.registry.get_project(project_name).await {
                 let mut store = project.tasks.lock().await;
                 if store.get(task_id).is_some() {
                     match store.update(task_id, |q| {
@@ -502,9 +502,9 @@ impl Tool for QuestReprioritizeTool {
             }
         };
 
-        let projects = self.registry.company_names().await;
+        let projects = self.registry.project_names().await;
         for project_name in &projects {
-            if let Some(project) = self.registry.get_company(project_name).await {
+            if let Some(project) = self.registry.get_project(project_name).await {
                 let mut store = project.tasks.lock().await;
                 if store.get(task_id).is_some() {
                     match store.update(task_id, |q| {

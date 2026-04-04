@@ -66,7 +66,7 @@ pub use notes::{AgentVisibility, Notes};
 pub use operation::{Operation, OperationStore};
 pub use pipeline::{Pipeline, PipelineStep};
 pub use progress_tracker::ProgressTracker;
-pub use registry::{CompanyRegistry, CompanySummary};
+pub use registry::{CompanyRegistry, ProjectSummary};
 pub use runtime::{
     Artifact, ArtifactKind, RuntimeExecution, RuntimeOutcome, RuntimeOutcomeStatus, RuntimePhase,
     RuntimeSession, RuntimeSessionStatus, VerificationReport,

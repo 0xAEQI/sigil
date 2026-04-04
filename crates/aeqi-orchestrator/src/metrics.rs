@@ -154,17 +154,17 @@ pub struct AEQIMetrics {
     pub task_cost_usd: Histogram,
     pub patrol_cycle_seconds: Histogram,
 
-    project_counters: Mutex<HashMap<String, CompanyMetrics>>,
+    project_counters: Mutex<HashMap<String, ProjectMetrics>>,
 }
 
-pub struct CompanyMetrics {
+pub struct ProjectMetrics {
     pub tasks_completed: Counter,
     pub tasks_failed: Counter,
     pub workers_active: Gauge,
     pub cost_usd_total: Gauge,
 }
 
-impl CompanyMetrics {
+impl ProjectMetrics {
     fn new(project: &str) -> Self {
         let pl = vec![("project".to_string(), project.to_string())];
         Self {
@@ -249,10 +249,10 @@ impl AEQIMetrics {
     }
 
     /// Ensure per-project metrics exist and return mutable access.
-    pub fn ensure_company(&self, name: &str) {
+    pub fn ensure_project(&self, name: &str) {
         let mut map = self.project_counters.lock().unwrap();
         if !map.contains_key(name) {
-            map.insert(name.to_string(), CompanyMetrics::new(name));
+            map.insert(name.to_string(), ProjectMetrics::new(name));
         }
     }
 
