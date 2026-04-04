@@ -169,31 +169,17 @@ export default function AgentSessionView() {
       .catch(() => setSessions([]));
   }, [agentId, agentName]);
 
-  // Create a new session
-  const handleNewSession = useCallback(() => {
-    const id = agentId || agentName || "";
-    if (!id) return;
-    api.createSession(id)
-      .then((d: any) => {
-        if (d.session_id) {
-          const newSession: SessionInfo = {
-            id: d.session_id,
-            agent_id: agentId || undefined,
-            agent_name: agentName || undefined,
-            status: "active",
-            created_at: new Date().toISOString(),
-          };
-          setSessions((prev) => [newSession, ...prev]);
-          setActiveSessionId(d.session_id);
-          setMessages([]);
-          setStreamText("");
-          setShowSessionList(false);
-        }
-      })
-      .catch(() => {});
-  }, [agentId, agentName]);
+  // Start a new conversation: deselect current session, show empty composer.
+  // The session is only created when the first message is sent.
+  const handleNewConversation = useCallback(() => {
+    setActiveSessionId(null);
+    setMessages([]);
+    setStreamText("");
+    setLiveToolEvents([]);
+    setShowSessionList(false);
+  }, []);
 
-  // Switch sessions
+  // Switch to an existing session
   const handleSelectSession = useCallback((sessionId: string) => {
     setActiveSessionId(sessionId);
     setMessages([]);
@@ -276,18 +262,44 @@ export default function AgentSessionView() {
     inputRef.current?.focus();
   }, [agentId]);
 
-  // Send message via WebSocket streaming
-  const handleSend = useCallback(() => {
+  // Send message via WebSocket streaming.
+  // If no active session, creates one first, then sends.
+  const handleSend = useCallback(async () => {
     if (!input.trim() || streaming || !token) return;
 
+    const messageText = input;
     const startTime = Date.now();
-    const userMsg: Message = { role: "user", content: input, timestamp: startTime };
+    const userMsg: Message = { role: "user", content: messageText, timestamp: startTime };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setStreaming(true);
     setStreamText("");
     setLiveToolEvents([]);
     setThinkingStart(startTime);
+
+    // If no active session, create one with the first message.
+    let sessionId = activeSessionId;
+    if (!sessionId) {
+      try {
+        const id = agentId || agentName || "";
+        const d = await api.createSession(id);
+        if (d.session_id) {
+          sessionId = d.session_id;
+          setActiveSessionId(sessionId);
+          // Add to session list
+          setSessions((prev) => [{
+            id: d.session_id,
+            agent_id: agentId || undefined,
+            agent_name: agentName || undefined,
+            status: "active",
+            created_at: new Date().toISOString(),
+            first_message: messageText.slice(0, 60),
+          }, ...prev]);
+        }
+      } catch {
+        // If session creation fails, still try to send
+      }
+    }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(
@@ -297,9 +309,9 @@ export default function AgentSessionView() {
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
-        message: userMsg.content,
+        message: messageText,
         agent_id: agentId || undefined,
-        session_id: activeSessionId || undefined,
+        session_id: sessionId || undefined,
       }));
     };
 
@@ -499,7 +511,7 @@ export default function AgentSessionView() {
               <path d={showSessionList ? "M3 7.5L6 4.5L9 7.5" : "M3 4.5L6 7.5L9 4.5"} />
             </svg>
           </button>
-          <button className="asv-new-session" onClick={handleNewSession} title="New conversation">
+          <button className="asv-new-session" onClick={handleNewConversation} title="New conversation">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M7 3v8M3 7h8" />
             </svg>
@@ -552,7 +564,7 @@ export default function AgentSessionView() {
               </svg>
             </div>
             <div className="asv-empty-title">Message {displayName}</div>
-            <div className="asv-empty-hint">Start a conversation with this agent.</div>
+            <div className="asv-empty-hint">{activeSessionId ? "Continue this conversation." : "Your message starts a new session."}</div>
           </div>
         )}
 
