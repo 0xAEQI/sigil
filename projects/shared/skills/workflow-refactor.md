@@ -1,7 +1,7 @@
 ---
 name: "workflow-refactor"
 description: "Use when restructuring, renaming, extracting, or reorganizing existing code. Not for new features or bug fixes."
-phase: workflow
+tags: [workflow]
 ---
 
 # Refactor Workflow

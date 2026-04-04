@@ -1,7 +1,7 @@
 ---
 name: "workflow-release"
 description: "Use when shipping a release, deploying to production, or cutting a release branch. Triggers: deploy, ship, release, merge to main, go live."
-phase: workflow
+tags: [workflow]
 ---
 
 # Release Workflow

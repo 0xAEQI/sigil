@@ -1,7 +1,7 @@
 ---
 name: "agent-builder-discover"
 description: "Template for building discover-phase agents that investigate and diagnose"
-phase: plan
+tags: [plan]
 ---
 
 # Agent Builder: Discover Phase

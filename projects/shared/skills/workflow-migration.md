@@ -1,7 +1,7 @@
 ---
 name: "workflow-migration"
 description: "Use when upgrading frameworks, migrating databases, changing APIs, or moving between systems. Triggers: migration, upgrade, version bump, breaking change, deprecation."
-phase: workflow
+tags: [workflow]
 ---
 
 # Migration Workflow

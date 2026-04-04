@@ -417,17 +417,16 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         }
                     }
 
-                    // ── Skills (knowledge, procedures, checklists) ──
+                    // ── Skills (prompts — knowledge, procedures, checklists) ──
                     "aeqi_skills" => {
                         let action = args
                             .get("action")
                             .and_then(|v| v.as_str())
                             .unwrap_or("list");
-                        let project_filter = args.get("project").and_then(|v| v.as_str());
-                        let phase_filter = args.get("phase").and_then(|v| v.as_str());
+                        let tag_filter = args.get("tags").and_then(|v| v.as_str());
                         let name_filter = args.get("name").and_then(|v| v.as_str());
 
-                        // Discover all .md skills via the canonical Skill parser.
+                        // Discover all .md prompts.
                         let mut all_skills: Vec<(Skill, String)> = Vec::new();
                         all_skills.extend(discover_skills(
                             &base_dir.join("projects/shared/skills"),
@@ -452,8 +451,7 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                                     "name": s.name,
                                     "source": source,
                                     "description": s.description,
-                                    "phase": s.phase,
-                                    "model": s.model,
+                                    "tags": s.tags,
                                     "prompt": s.body,
                                     "tools": { "allow": s.tools, "deny": s.deny },
                                 })),
@@ -464,18 +462,16 @@ pub fn cmd_mcp(config_path: &Option<PathBuf>) -> Result<()> {
                         } else {
                             let filtered: Vec<serde_json::Value> = all_skills
                                 .into_iter()
-                                .filter(|(s, source)| {
-                                    let project_ok = project_filter
-                                        .is_none_or(|pf| source == pf || source == "shared");
-                                    let phase_ok =
-                                        phase_filter.is_none_or(|pf| s.phase == pf);
-                                    project_ok && phase_ok
+                                .filter(|(s, _source)| {
+                                    let tag_ok =
+                                        tag_filter.is_none_or(|tf| s.tags.iter().any(|t| t == tf));
+                                    tag_ok
                                 })
                                 .map(|(s, source)| {
                                     serde_json::json!({
                                         "name": s.name,
                                         "source": source,
-                                        "phase": s.phase,
+                                        "tags": s.tags,
                                         "description": s.description,
                                     })
                                 })

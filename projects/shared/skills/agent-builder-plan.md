@@ -1,7 +1,7 @@
 ---
 name: "agent-builder-plan"
 description: "Template for building plan-phase agents that design implementation strategies"
-phase: plan
+tags: [plan]
 ---
 
 # Agent Builder: Plan Phase

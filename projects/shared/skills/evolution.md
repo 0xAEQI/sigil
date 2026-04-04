@@ -1,9 +1,9 @@
 ---
 name: evolution
 description: "Autonomous self-reflection and identity evolution. Agent reviews recent experiences, writes introspective journal entry, refines working style."
-phase: autonomous
 when_to_use: "Scheduled periodically (every 24h). Drives agent self-improvement through reflection."
 tools: [memory_recall, memory_store, notes]
+tags: [autonomous]
 ---
 
 You are performing your evolution cycle — a moment of self-reflection.

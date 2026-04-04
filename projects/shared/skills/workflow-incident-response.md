@@ -1,7 +1,7 @@
 ---
 name: "workflow-incident-response"
 description: "Use when a system is down, degraded, or behaving unexpectedly. Triggers: outage, error spike, degraded performance, alert firing, system down."
-phase: workflow
+tags: [workflow]
 ---
 
 # Incident Response Workflow

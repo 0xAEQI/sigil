@@ -749,6 +749,9 @@ pub struct AgentSpawnConfig {
     /// This is the company/project brief that all agents receive.
     #[serde(default)]
     pub primer: Option<String>,
+    /// Turn-level prompt names. Re-read from disk before each API call for fresh context.
+    #[serde(default)]
+    pub turn_prompts: Vec<String>,
 }
 
 /// Domain keyword → file mapping for automatic context injection.
@@ -1726,7 +1729,11 @@ role = "orchestrator"
 
         // Create shared dir (should be skipped).
         std::fs::create_dir_all(agents_dir.join("shared")).unwrap();
-        std::fs::write(agents_dir.join("shared/agent.md"), "---\nname: shared\n---\n").unwrap();
+        std::fs::write(
+            agents_dir.join("shared/agent.md"),
+            "---\nname: shared\n---\n",
+        )
+        .unwrap();
 
         // Create dir without agent.md (should be skipped).
         std::fs::create_dir_all(agents_dir.join("noconfig")).unwrap();

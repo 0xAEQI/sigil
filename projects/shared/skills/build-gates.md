@@ -1,7 +1,7 @@
 ---
 name: "build-gates"
 description: Build Gates
-phase: verify
+tags: [verify]
 ---
 
 # Build Gates

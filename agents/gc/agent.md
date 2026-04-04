@@ -1,7 +1,6 @@
 ---
 name: gc
 display_name: General Counsel
-inject: session
 model_tier: capable
 max_workers: 1
 max_turns: 20

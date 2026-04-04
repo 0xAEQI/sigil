@@ -1,7 +1,7 @@
 ---
 name: "git-workflow"
 description: Git Workflow
-phase: implement
+tags: [implement]
 ---
 
 # Git Workflow

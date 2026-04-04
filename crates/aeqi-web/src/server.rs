@@ -135,7 +135,11 @@ async fn login_handler(
             .into_response();
     }
 
-    let signing_key = if expected.is_empty() { "aeqi-dev" } else { expected };
+    let signing_key = if expected.is_empty() {
+        "aeqi-dev"
+    } else {
+        expected
+    };
     match auth::create_token(signing_key, 24) {
         Ok(token) => axum::Json(serde_json::json!({
             "ok": true,

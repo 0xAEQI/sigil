@@ -1,7 +1,7 @@
 ---
 name: "workflow-bugfix"
 description: "Use when fixing a bug, crash, or incorrect behavior. Not for features, refactors, or research."
-phase: workflow
+tags: [workflow]
 ---
 
 # Bugfix Workflow

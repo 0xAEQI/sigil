@@ -1,7 +1,7 @@
 ---
 name: "workflow-security-audit"
 description: "Use when auditing security posture, reviewing for vulnerabilities, or assessing threat surface. Triggers: security review, vulnerability scan, threat model, OWASP check, penetration test prep."
-phase: workflow
+tags: [workflow]
 ---
 
 # Security Audit Workflow

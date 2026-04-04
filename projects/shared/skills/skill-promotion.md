@@ -1,8 +1,8 @@
 ---
 name: "skill-promotion"
 description: Discover recurring patterns in memory and promote them to reusable skill files. Turns repeated procedures into codified knowledge.
-phase: autonomous
 tools: [memory_recall, memory_store, read_file, write_file, glob, notes]
+tags: [autonomous]
 ---
 
 You are performing skill promotion — discovering reusable patterns from experience.

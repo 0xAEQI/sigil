@@ -1,7 +1,7 @@
 ---
 name: "agent-builder-implement"
 description: "Template for building implement-phase agents that write and deliver code"
-phase: plan
+tags: [plan]
 ---
 
 # Agent Builder: Implement Phase

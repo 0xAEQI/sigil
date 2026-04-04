@@ -1,7 +1,7 @@
 ---
 name: "workflow-plan-review"
 description: "Use when reviewing a plan before implementation starts. Three passes: strategic (CEO), design (UX), engineering (technical). Triggers: plan review, pre-code review, architecture review, design review."
-phase: workflow
+tags: [workflow]
 ---
 
 # Plan Review Workflow

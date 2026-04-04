@@ -1,7 +1,6 @@
 ---
 name: ceo
 display_name: CEO
-inject: session
 model_tier: capable
 max_workers: 3
 max_turns: 30

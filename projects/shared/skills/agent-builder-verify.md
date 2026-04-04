@@ -1,7 +1,7 @@
 ---
 name: "agent-builder-verify"
 description: "Template for building verify-phase agents that review and gate merges"
-phase: plan
+tags: [plan]
 ---
 
 # Agent Builder: Verify Phase

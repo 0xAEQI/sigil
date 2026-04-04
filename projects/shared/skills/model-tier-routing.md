@@ -1,7 +1,7 @@
 ---
 name: "model-tier-routing"
 description: "Reference: model selection guidance for orchestrators. Use when deciding which model to dispatch for a task. Triggers: model selection, cost optimization, task routing."
-phase: discover
+tags: [discover]
 ---
 
 # Model Tier Routing

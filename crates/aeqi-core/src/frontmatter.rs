@@ -42,8 +42,7 @@ pub fn load_frontmatter<T: DeserializeOwned>(content: &str) -> Result<(T, String
 pub fn load_frontmatter_file<T: DeserializeOwned>(path: &Path) -> Result<(T, String)> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read: {}", path.display()))?;
-    load_frontmatter::<T>(&content)
-        .with_context(|| format!("failed to parse: {}", path.display()))
+    load_frontmatter::<T>(&content).with_context(|| format!("failed to parse: {}", path.display()))
 }
 
 /// Minimal YAML-like parser for frontmatter key: value pairs.
@@ -179,6 +178,47 @@ fn insert_typed(map: &mut serde_json::Map<String, serde_json::Value>, key: &str,
             }
         }
     }
+}
+
+/// Execute `!`backtick`` blocks in a prompt string and replace with their stdout.
+/// Format: `!`command here`` — the content between markers is passed to `bash -c`.
+pub fn expand_shell_commands(prompt: &str) -> String {
+    let mut result = String::with_capacity(prompt.len());
+    let mut remaining = prompt;
+
+    while let Some(start) = remaining.find("!`") {
+        result.push_str(&remaining[..start]);
+        let after_marker = &remaining[start + 2..];
+
+        if let Some(end) = after_marker.find('`') {
+            let command = &after_marker[..end];
+            let output = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(command)
+                .output();
+
+            match output {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    result.push_str(stdout.trim_end());
+                }
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    result.push_str(&format!("[shell error: {}]", stderr.trim()));
+                }
+                Err(e) => {
+                    result.push_str(&format!("[shell exec failed: {e}]"));
+                }
+            }
+
+            remaining = &after_marker[end + 1..];
+        } else {
+            result.push_str("!`");
+            remaining = after_marker;
+        }
+    }
+    result.push_str(remaining);
+    result
 }
 
 #[cfg(test)]

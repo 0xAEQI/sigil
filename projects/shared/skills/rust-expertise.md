@@ -1,7 +1,7 @@
 ---
 name: "rust-expertise"
 description: Rust Expertise — Shared Knowledge Base
-phase: implement
+tags: [implement]
 ---
 
 # Rust Expertise — Shared Knowledge Base

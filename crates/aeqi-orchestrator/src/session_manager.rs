@@ -124,8 +124,10 @@ pub struct SpawnOptions {
     pub parent_id: Option<String>,
     /// Task being executed (links session to task).
     pub task_id: Option<String>,
-    /// Skills to inject (prompt + tool filter). Multiple allowed.
+    /// Session prompts to inject (prompt + tool filter). Multiple allowed.
     pub skills: Vec<String>,
+    /// Turn-level prompts. Re-read from disk before each API call.
+    pub turn_prompts: Vec<String>,
     /// Close session automatically when agent.run() completes.
     /// Default: true. Set false for persistent/interactive sessions.
     pub auto_close: bool,
@@ -175,6 +177,11 @@ impl SpawnOptions {
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_turn_prompts(mut self, names: Vec<String>) -> Self {
+        self.turn_prompts.extend(names);
         self
     }
 
@@ -414,59 +421,63 @@ impl SessionManager {
             )));
         }
 
-        // 5b. Apply skills — load skill prompts and filter tools.
-        let mut skill_prompt_parts: Vec<String> = Vec::new();
-        let mut model_override: Option<String> = None;
-        if !opts.skills.is_empty() {
-            // Discover skills from project + shared dirs.
-            // Use workdir's parent as base (workdir = projects/{name}, base = projects/..)
-            let base_dir = workdir
-                .parent()
-                .and_then(|p| p.parent())
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
-            let mut all_skills: Vec<aeqi_tools::Skill> = Vec::new();
-            if let Ok(shared) =
-                aeqi_tools::Skill::discover(&base_dir.join("projects/shared/skills"))
-            {
-                all_skills.extend(shared);
-            }
-            if !self.default_project.is_empty()
-                && let Ok(proj_skills) = aeqi_tools::Skill::discover(
-                    &base_dir
-                        .join("projects")
-                        .join(&self.default_project)
-                        .join("skills"),
-                )
-            {
-                all_skills.extend(proj_skills);
-            }
-
-            for skill_name in &opts.skills {
-                if let Some(skill) = all_skills.iter().find(|s| s.name == *skill_name) {
-                    // Append skill prompt to identity.
-                    skill_prompt_parts.push(skill.system_prompt(""));
-                    // Filter tools by skill policy.
-                    tools.retain(|t| skill.is_tool_allowed(t.name()));
-                    // Model override (last skill wins).
-                    if let Some(ref m) = skill.model {
-                        model_override = Some(m.clone());
-                    }
-                    debug!(skill = %skill_name, "skill applied to session");
-                } else {
-                    warn!(skill = %skill_name, "skill not found — skipping");
-                }
-            }
+        // 5b. Discover all available prompts (shared + project).
+        let base_dir = workdir
+            .parent()
+            .and_then(|p| p.parent())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let mut all_skills: Vec<aeqi_tools::Skill> = Vec::new();
+        if let Ok(shared) = aeqi_tools::Skill::discover(&base_dir.join("projects/shared/skills")) {
+            all_skills.extend(shared);
+        }
+        if !self.default_project.is_empty()
+            && let Ok(proj_skills) = aeqi_tools::Skill::discover(
+                &base_dir
+                    .join("projects")
+                    .join(&self.default_project)
+                    .join("skills"),
+            )
+        {
+            all_skills.extend(proj_skills);
         }
 
-        // Append skill prompts to system prompt.
+        // 5c. Apply session prompts — load into system prompt and filter tools.
+        let mut skill_prompt_parts: Vec<String> = Vec::new();
+        for skill_name in &opts.skills {
+            if let Some(skill) = all_skills.iter().find(|s| s.name == *skill_name) {
+                skill_prompt_parts.push(skill.system_prompt(""));
+                tools.retain(|t| skill.is_tool_allowed(t.name()));
+                debug!(skill = %skill_name, "session prompt applied");
+            } else {
+                warn!(skill = %skill_name, "session prompt not found — skipping");
+            }
+        }
         if !skill_prompt_parts.is_empty() {
             let skill_context = skill_prompt_parts.join("\n\n---\n\n");
             system_prompt = format!("{system_prompt}\n\n---\n\n{skill_context}");
         }
 
+        // 5d. Resolve turn prompts to TurnPromptSpecs.
+        let turn_prompt_names = &opts.turn_prompts;
+        let mut turn_prompt_specs: Vec<aeqi_core::TurnPromptSpec> = Vec::new();
+        for name in turn_prompt_names {
+            if let Some(skill) = all_skills.iter().find(|s| s.name == *name) {
+                if let Some(ref path) = skill.source_path {
+                    turn_prompt_specs.push(aeqi_core::TurnPromptSpec {
+                        path: path.clone(),
+                        allow_shell: skill.allow_shell,
+                        name: skill.name.clone(),
+                    });
+                    debug!(turn_prompt = %name, "turn prompt resolved");
+                }
+            } else {
+                warn!(turn_prompt = %name, "turn prompt not found — skipping");
+            }
+        }
+
         // 6. Build AgentConfig.
-        let model = model_override.unwrap_or_else(|| self.default_model.clone());
+        let model = self.default_model.clone();
         let context_window = aeqi_providers::context_window_for_model(&model);
         let session_type = if is_interactive {
             aeqi_core::SessionType::Perpetual
@@ -494,7 +505,8 @@ impl SessionManager {
 
         let mut agent =
             aeqi_core::Agent::new(agent_config, provider, tools, observer, system_prompt)
-                .with_chat_stream(stream_sender.clone());
+                .with_chat_stream(stream_sender.clone())
+                .with_turn_prompts(turn_prompt_specs);
 
         if let Some(ref mem) = memory_for_agent {
             agent = agent.with_memory(mem.clone());

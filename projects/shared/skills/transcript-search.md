@@ -1,9 +1,9 @@
 ---
 name: "transcript-search"
 description: "Search past session transcripts for context. Use when memory doesn't have the details you need — transcripts have the raw conversation."
-phase: autonomous
 when_to_use: "When you need to recall HOW you solved something (reasoning, steps, tool calls), not just WHAT the answer was. Memory stores facts; transcripts store process."
 tools: [transcript_search, memory_recall, notes]
+tags: [autonomous]
 ---
 
 You need to recall details from a past session.

@@ -1,7 +1,6 @@
 ---
 name: cpo
 display_name: CPO
-inject: session
 model_tier: balanced
 max_workers: 1
 max_turns: 20

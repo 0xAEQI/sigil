@@ -1,7 +1,7 @@
 ---
 name: "workflow-feature"
 description: "Use when implementing a new feature, component, or multi-file change. Not for single-line fixes or research."
-phase: workflow
+tags: [workflow]
 ---
 
 # Feature Workflow

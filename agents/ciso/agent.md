@@ -1,7 +1,6 @@
 ---
 name: ciso
 display_name: CISO
-inject: session
 model_tier: capable
 max_workers: 2
 max_turns: 25

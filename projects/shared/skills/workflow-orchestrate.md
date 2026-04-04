@@ -1,7 +1,7 @@
 ---
 name: "workflow-orchestrate"
 description: "Use when decomposing work across multiple parallel agents. Triggers: parallel execution, multi-agent task, orchestrator pattern, fan-out delegation."
-phase: workflow
+tags: [workflow]
 ---
 
 # Orchestration Workflow

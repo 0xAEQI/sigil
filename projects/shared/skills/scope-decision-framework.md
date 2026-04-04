@@ -1,7 +1,7 @@
 ---
 name: "scope-decision-framework"
 description: "Use when deciding scope, evaluating build vs skip, or challenging project premises. Triggers: scope creep, should we build this, alternative approaches, effort estimation."
-phase: discover
+tags: [discover]
 ---
 
 # Scope Decision Framework

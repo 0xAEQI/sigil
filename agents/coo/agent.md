@@ -1,7 +1,6 @@
 ---
 name: coo
 display_name: COO
-inject: session
 model_tier: balanced
 max_workers: 2
 max_turns: 20

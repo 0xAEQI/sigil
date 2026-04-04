@@ -1,8 +1,8 @@
 ---
 name: "memory-consolidation"
 description: "Consolidate and compress agent memories. Deduplicate similar entries, merge related knowledge, prune stale facts."
-phase: autonomous
 tools: [memory_recall, memory_store]
+tags: [autonomous]
 ---
 
 You are performing memory consolidation — housekeeping for your knowledge.

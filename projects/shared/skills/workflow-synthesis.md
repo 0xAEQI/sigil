@@ -1,7 +1,7 @@
 ---
 name: "workflow-synthesis"
 description: "Use when learning from an external source (codebase, framework, paper) to improve AEQI. Not for internal-only work."
-phase: workflow
+tags: [workflow]
 ---
 
 # Synthesis Workflow

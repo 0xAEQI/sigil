@@ -1,8 +1,8 @@
 ---
 name: "process-channel-message"
 description: Process a message posted to a department or project channel. Participate if relevant.
-phase: autonomous
 tools: [delegate, memory_recall, notes]
+tags: [autonomous]
 ---
 
 A message was posted to a channel you participate in.

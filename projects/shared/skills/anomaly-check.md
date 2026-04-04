@@ -1,8 +1,8 @@
 ---
 name: "anomaly-check"
 description: "Monitor for anomalies — cost spikes, failure rate surges, stale tasks. Escalate when thresholds are breached."
-phase: autonomous
 tools: [memory_recall, memory_store, notes, dispatch_send]
+tags: [autonomous]
 ---
 
 You are performing anomaly detection for your project.

@@ -1,9 +1,9 @@
 ---
 name: "orchestration-guide"
 description: "Guide for team leaders — how to delegate, monitor, coordinate, and synthesize across direct reports."
-phase: autonomous
 when_to_use: "Loaded for agents with direct reports. Guides delegation, monitoring, and synthesis."
 tools: [dispatch_send, dispatch_read, delegate, memory_recall, notes]
+tags: [autonomous]
 ---
 
 You are operating as a team leader. Your direct reports are listed in your org context.

@@ -1,8 +1,8 @@
 ---
 name: "morning-brief"
 description: "Generate a daily situational brief — task progress, costs, blockers, and priorities for the day."
-phase: autonomous
 tools: [memory_recall, notes, dispatch_send]
+tags: [autonomous]
 ---
 
 You are generating the morning brief — a concise daily situation report.

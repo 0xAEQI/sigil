@@ -563,12 +563,25 @@ const SYNTHETIC_TOOL_RESULT: &str = "[Tool result unavailable — context was co
 ///
 /// - **after_turn hook**: Enables AEQI's verification pipeline to validate the
 ///   agent's work before accepting a "done" signal.
+/// A turn-level prompt that is re-read from disk before each API call.
+#[derive(Debug, Clone)]
+pub struct TurnPromptSpec {
+    /// Path to the `.md` file on disk.
+    pub path: PathBuf,
+    /// Whether to expand `!`backtick`` shell commands in the body each turn.
+    pub allow_shell: bool,
+    /// Name for logging.
+    pub name: String,
+}
+
 pub struct Agent {
     config: AgentConfig,
     provider: Arc<dyn Provider>,
     tools: Vec<Arc<dyn Tool>>,
     observer: Arc<dyn Observer>,
     system_prompt: String,
+    /// Turn-level prompts re-read from disk before each API call.
+    turn_prompts: Vec<TurnPromptSpec>,
     memory: Option<Arc<dyn Insight>>,
     chat_stream: Option<crate::chat_stream::ChatStreamSender>,
     /// Receiver for notifications from background agents. Drained between turns.
@@ -595,6 +608,7 @@ impl Agent {
             tools,
             observer,
             system_prompt,
+            turn_prompts: Vec::new(),
             memory: None,
             chat_stream: None,
             notification_rx: None,
@@ -625,6 +639,12 @@ impl Agent {
     /// Notifications are drained between turns and injected as user-role messages.
     pub fn with_notification_rx(mut self, rx: NotificationReceiver) -> Self {
         self.notification_rx = Some(Arc::new(Mutex::new(rx)));
+        self
+    }
+
+    /// Attach turn-level prompts that are re-read from disk before each API call.
+    pub fn with_turn_prompts(mut self, specs: Vec<TurnPromptSpec>) -> Self {
+        self.turn_prompts = specs;
         self
     }
 
@@ -818,10 +838,25 @@ impl Agent {
                 active_model.clone()
             };
 
-            // Build request — turn_model is consumed here (no extra clone).
+            // Build request — inject fresh turn context into the request copy.
+            let mut request_messages = messages.clone();
+            if !self.turn_prompts.is_empty() {
+                let turn_ctx = self.build_turn_context();
+                if !turn_ctx.is_empty() {
+                    request_messages.insert(
+                        1,
+                        Message {
+                            role: Role::System,
+                            content: MessageContent::text(format!(
+                                "<turn-context>\n{turn_ctx}\n</turn-context>"
+                            )),
+                        },
+                    );
+                }
+            }
             let request = ChatRequest {
                 model: turn_model,
-                messages: messages.clone(),
+                messages: request_messages,
                 tools: tool_specs.clone(),
                 max_tokens: self.config.max_tokens,
                 temperature: self.config.temperature,
@@ -1708,6 +1743,42 @@ impl Agent {
         }
 
         (transition, estimated_tokens)
+    }
+
+    // -----------------------------------------------------------------------
+    // Turn context
+    // -----------------------------------------------------------------------
+
+    /// Build fresh turn context by re-reading prompt files from disk.
+    fn build_turn_context(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        for spec in &self.turn_prompts {
+            match std::fs::read_to_string(&spec.path) {
+                Ok(content) => {
+                    let body = match crate::frontmatter::parse_frontmatter(&content) {
+                        Ok((_meta, body)) => body,
+                        Err(_) => content,
+                    };
+                    let expanded = if spec.allow_shell {
+                        crate::frontmatter::expand_shell_commands(&body)
+                    } else {
+                        body
+                    };
+                    if !expanded.trim().is_empty() {
+                        parts.push(expanded);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        agent = %self.config.name,
+                        path = %spec.path.display(),
+                        prompt = %spec.name,
+                        "failed to read turn prompt: {e}"
+                    );
+                }
+            }
+        }
+        parts.join("\n\n---\n\n")
     }
 
     // -----------------------------------------------------------------------

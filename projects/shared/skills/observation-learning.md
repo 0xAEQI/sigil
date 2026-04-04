@@ -1,11 +1,10 @@
 ---
 name: "observation-learning"
 description: "Autonomous skill: extracts patterns from recent agent sessions. Fires on schedule, analyzes tool usage, suggests new skills or workflow improvements."
-phase: autonomous
 when_to_use: Triggered automatically via schedule. Do not invoke manually.
-context: fork
 tools: [read_file, glob, grep, shell, memory_recall, memory_store, notes]
 deny: [write_file, edit_file, delegate]
+tags: [autonomous]
 ---
 
 You are an observation analyst. Your job is to analyze recent agent tool-use patterns and extract learnable insights.

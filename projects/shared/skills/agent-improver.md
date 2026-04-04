@@ -1,7 +1,7 @@
 ---
 name: "agent-improver"
 description: "Analyze and improve an existing agent — tighten the prompt, verify phase alignment, ensure output matches phase contract."
-phase: finalize
+tags: [finalize]
 ---
 
 # Agent Improver

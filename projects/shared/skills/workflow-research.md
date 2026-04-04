@@ -1,7 +1,7 @@
 ---
 name: "workflow-research"
 description: "Use for investigation, analysis, and understanding tasks. No code changes — produces findings only."
-phase: workflow
+tags: [workflow]
 ---
 
 # Research Workflow

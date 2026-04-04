@@ -1,8 +1,8 @@
 ---
 name: "health-check"
 description: "Periodic project health check. Verify services, builds, and infrastructure are operational. Escalate issues."
-phase: autonomous
 tools: [shell, read_file, glob, grep, notes, dispatch_send]
+tags: [autonomous]
 ---
 
 You are performing a health check for your project.

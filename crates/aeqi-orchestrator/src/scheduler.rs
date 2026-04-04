@@ -32,7 +32,7 @@ use crate::metrics::AEQIMetrics;
 use crate::middleware::{
     ClarificationMiddleware, ContextBudgetMiddleware, ContextCompressionMiddleware,
     CostTrackingMiddleware, GraphGuardrailsMiddleware, GuardrailsMiddleware,
-    LoopDetectionMiddleware, InsightRefreshMiddleware, MiddlewareChain, SafetyNetMiddleware,
+    InsightRefreshMiddleware, LoopDetectionMiddleware, MiddlewareChain, SafetyNetMiddleware,
 };
 use crate::session_store::SessionStore;
 use crate::trigger::TriggerStore;

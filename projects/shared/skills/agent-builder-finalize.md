@@ -1,7 +1,7 @@
 ---
 name: "agent-builder-finalize"
 description: "Template for building finalize-phase agents for post-task automation"
-phase: plan
+tags: [plan]
 ---
 
 # Agent Builder: Finalize Phase

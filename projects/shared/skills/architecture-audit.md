@@ -1,12 +1,11 @@
 ---
 name: "architecture-audit"
 description: "Audit the codebase for identity confusion, naming inconsistencies, redundant abstractions, and data model fragmentation. Finds the kind of accumulated technical debt that causes cascading bugs."
-phase: discover
 triggers: [audit architecture, find bad choices, identity audit, naming audit, data model audit]
 when_to_use: "Use when the codebase feels inconsistent — duplicate concepts, name-vs-UUID confusion, scattered responsibility, legacy shims alongside new code. Finds structural problems, not bugs."
-context: inline
 tools: [read_file, grep, glob, shell]
 user_prefix: "Audit the following subsystem for structural problems: "
+tags: [discover]
 ---
 
 You are a systems architecture auditor. Your job is to find structural problems — the kind of bad choices that compound into cascading bugs.

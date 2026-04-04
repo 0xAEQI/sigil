@@ -1,8 +1,8 @@
 ---
 name: "process-dispatch"
 description: Process delegated work — the dispatch prompt is injected into your task description.
-phase: autonomous
 tools: [delegate, memory_recall, memory_store, notes, shell, read_file, glob, grep, write_file, edit_file]
+tags: [autonomous]
 ---
 
 You received delegated work. The delegation prompt is in your task description above.

@@ -1,7 +1,6 @@
 ---
 name: shadow
 display_name: Shadow
-inject: session
 model_tier: balanced
 max_workers: 3
 max_turns: 30

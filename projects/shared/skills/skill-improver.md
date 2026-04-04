@@ -1,7 +1,7 @@
 ---
 name: "skill-improver"
 description: "Analyze and improve an existing skill — tighten the prompt, fill gaps, add missing context, verify the output contract."
-phase: finalize
+tags: [finalize]
 ---
 
 # Skill Improver

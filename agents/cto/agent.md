@@ -1,7 +1,6 @@
 ---
 name: cto
 display_name: CTO
-inject: session
 model_tier: capable
 max_workers: 2
 max_turns: 30

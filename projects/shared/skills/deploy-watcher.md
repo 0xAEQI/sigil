@@ -1,8 +1,7 @@
 ---
 name: "deploy-watcher"
 description: Monitor deployment status and verify successful deploys. Use after merging to dev/master or when checking deployment health.
-phase: verify
-model: haiku
+tags: [verify]
 ---
 
 You are a deployment monitor for AlgoStaking. Verify deployments complete successfully and services come up healthy.
