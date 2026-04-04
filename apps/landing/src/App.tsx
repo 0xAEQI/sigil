@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Hero } from "./components/Hero";
+import { AgentTree } from "./components/AgentTree";
+import { Process } from "./components/Process";
 import { CallToAction } from "./components/CallToAction";
 import { VerticalLines } from "./components/VerticalLines";
 import { motion } from "framer-motion";
@@ -110,6 +112,8 @@ export default function App() {
       <VerticalLines />
       <Nav />
       <Hero />
+      <AgentTree />
+      <Process />
       <CallToAction />
     </div>
   );
