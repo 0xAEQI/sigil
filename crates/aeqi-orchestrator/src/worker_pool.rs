@@ -609,15 +609,17 @@ impl WorkerPool {
             );
 
             // Record audit: WorkerTimedOut.
-            if let Some(ref audit) = self.audit_log {
-                let _ = audit.record(
+            if let Some(ref audit) = self.audit_log
+                && let Err(e) = audit.record(
                     &AuditEvent::new(
                         &self.project_name,
                         DecisionType::WorkerTimedOut,
                         format!("Timed out after {}s", self.worker_timeout_secs),
                     )
                     .with_task(&task_id),
-                );
+                )
+            {
+                warn!(error = %e, "failed to record audit event");
             }
 
             // Capture external checkpoint before resetting — preserve git state evidence.
@@ -725,15 +727,17 @@ impl WorkerPool {
                     "budget exhausted for project, skipping task"
                 );
                 // Record audit: BudgetBlocked.
-                if let Some(ref audit) = self.audit_log {
-                    let _ = audit.record(
+                if let Some(ref audit) = self.audit_log
+                    && let Err(e) = audit.record(
                         &AuditEvent::new(
                             &self.project_name,
                             DecisionType::BudgetBlocked,
                             format!("Budget exhausted: ${spent:.2}/${budget:.2}"),
                         )
                         .with_task(&task.id.0),
-                    );
+                    )
+                {
+                    warn!(error = %e, "failed to record audit event");
                 }
                 break;
             }
@@ -788,7 +792,7 @@ impl WorkerPool {
                 } else {
                     format!("Project default → {agent_name}")
                 };
-                let _ = audit.record(
+                if let Err(e) = audit.record(
                     &AuditEvent::new(
                         &self.project_name,
                         DecisionType::RouteDecision,
@@ -796,7 +800,9 @@ impl WorkerPool {
                     )
                     .with_task(&task.id.0)
                     .with_agent(&agent_name),
-                );
+                ) {
+                    warn!(error = %e, "failed to record audit event");
+                }
             }
             // Preflight assessment: evaluate task before committing resources.
             if self.preflight_enabled && !self.preflight_model.is_empty() {
@@ -821,7 +827,7 @@ impl WorkerPool {
                     // Auto-inject the unified adaptive execution skill.
                     let mut store = self.tasks.lock().await;
                     let skill_name = assessment.adaptive_pipeline_skill().to_string();
-                    let _ = store.update(&task.id.0, |b| {
+                    if let Err(e) = store.update(&task.id.0, |b| {
                         if !b.labels.iter().any(|label| label == "execution:adaptive") {
                             b.labels.push("execution:adaptive".to_string());
                         }
@@ -834,7 +840,9 @@ impl WorkerPool {
                                 "auto-injected adaptive pipeline skill"
                             );
                         }
-                    });
+                    }) {
+                        warn!(error = %e, "failed to update task");
+                    }
 
                     let budget_remaining = self
                         .cost_ledger
@@ -862,8 +870,8 @@ impl WorkerPool {
                                 reason = %reason,
                                 "preflight rejected task"
                             );
-                            if let Some(ref audit) = self.audit_log {
-                                let _ = audit.record(
+                            if let Some(ref audit) = self.audit_log
+                                && let Err(e) = audit.record(
                                     &AuditEvent::new(
                                         &self.project_name,
                                         DecisionType::PreflightRejected,
@@ -871,16 +879,20 @@ impl WorkerPool {
                                     )
                                     .with_task(&task.id.0)
                                     .with_agent(&agent_name),
-                                );
+                                )
+                            {
+                                warn!(error = %e, "failed to record audit event");
                             }
                             // Store assessment in task metadata.
                             let mut store = self.tasks.lock().await;
-                            let _ = store.update(&task.id.0, |b| {
+                            if let Err(e) = store.update(&task.id.0, |b| {
                                 b.labels.push(format!(
                                     "preflight:rejected:{}",
                                     reason.chars().take(50).collect::<String>()
                                 ));
-                            });
+                            }) {
+                                warn!(error = %e, "failed to update task");
+                            }
                             continue;
                         }
                         PreflightVerdict::Reroute { reason } => {
@@ -890,8 +902,8 @@ impl WorkerPool {
                                 reason = %reason,
                                 "preflight rerouted task"
                             );
-                            if let Some(ref audit) = self.audit_log {
-                                let _ = audit.record(
+                            if let Some(ref audit) = self.audit_log
+                                && let Err(e) = audit.record(
                                     &AuditEvent::new(
                                         &self.project_name,
                                         DecisionType::PreflightRejected,
@@ -899,7 +911,9 @@ impl WorkerPool {
                                     )
                                     .with_task(&task.id.0)
                                     .with_agent(&agent_name),
-                                );
+                                )
+                            {
+                                warn!(error = %e, "failed to record audit event");
                             }
                             continue;
                         }
@@ -919,8 +933,8 @@ impl WorkerPool {
             );
 
             // Record audit: TaskAssigned.
-            if let Some(ref audit) = self.audit_log {
-                let _ = audit.record(
+            if let Some(ref audit) = self.audit_log
+                && let Err(e) = audit.record(
                     &AuditEvent::new(
                         &self.project_name,
                         DecisionType::TaskAssigned,
@@ -928,7 +942,9 @@ impl WorkerPool {
                     )
                     .with_task(&task.id.0)
                     .with_agent(&agent_name),
-                );
+                )
+            {
+                warn!(error = %e, "failed to record audit event");
             }
 
             let mut worker = self
@@ -944,18 +960,22 @@ impl WorkerPool {
                         let checkpoint_ctx: String = checkpoint.as_context();
                         let max_desc = self.max_description_chars;
                         let mut store = self.tasks.lock().await;
-                        let _ = store.update(&task.id.0, |b| {
+                        if let Err(e) = store.update(&task.id.0, |b| {
                             b.description
                                 .push_str(&format!("\n\n---\n{checkpoint_ctx}"));
                             Self::cap_description_with_limit(&mut b.description, max_desc);
-                        });
+                        }) {
+                            warn!(error = %e, "failed to update task");
+                        }
                         info!(
                             project = %self.project_name,
                             task = %task.id,
                             "injected external checkpoint context from previous worker"
                         );
                         // Remove the checkpoint file — it's been consumed.
-                        let _ = AgentCheckpoint::remove(&cp_path);
+                        if let Err(e) = AgentCheckpoint::remove(&cp_path) {
+                            warn!(error = %e, "failed to remove checkpoint");
+                        }
                     }
                     Ok(None) => {} // No checkpoint — normal launch.
                     Err(e) => {
@@ -981,8 +1001,8 @@ impl WorkerPool {
             if let Some(ref m) = self.metrics {
                 m.workers_spawned.inc();
             }
-            if let Some(ref audit) = self.audit_log {
-                let _ = audit.record(
+            if let Some(ref audit) = self.audit_log
+                && let Err(e) = audit.record(
                     &AuditEvent::new(
                         &self.project_name,
                         DecisionType::WorkerSpawned,
@@ -990,7 +1010,9 @@ impl WorkerPool {
                     )
                     .with_task(&task.id.0)
                     .with_agent(&agent_name),
-                );
+                )
+            {
+                warn!(error = %e, "failed to record audit event");
             }
             let tasks_for_err = self.tasks.clone();
             let expertise_ledger = self.expertise_ledger.clone();
@@ -1043,8 +1065,8 @@ impl WorkerPool {
                         );
 
                         // Record to cost ledger.
-                        if let Some(ref ledger) = cost_ledger {
-                            let _ = ledger.record(CostEntry {
+                        if let Some(ref ledger) = cost_ledger
+                            && let Err(e) = ledger.record(CostEntry {
                                 project: project_name_task.clone(),
                                 task_id: task_id_clone.clone(),
                                 worker: "worker".to_string(),
@@ -1058,7 +1080,9 @@ impl WorkerPool {
                                 cached_tokens: 0,
                                 model: runtime.session.model.clone().unwrap_or_default(),
                                 provider: String::new(),
-                            });
+                            })
+                        {
+                            warn!(error = %e, "failed to record to ledger");
                         }
 
                         // Record metrics.
@@ -1087,7 +1111,7 @@ impl WorkerPool {
                                     TaskOutcome::Handoff { .. } => TaskOutcomeKind::Handoff,
                                     TaskOutcome::Blocked { .. } => TaskOutcomeKind::Blocked,
                                 };
-                                let _ = ledger.record(&ExpertiseRecord {
+                                if let Err(e) = ledger.record(&ExpertiseRecord {
                                     agent_name: agent_name_for_records.clone(),
                                     task_domain: domain,
                                     outcome: outcome_kind,
@@ -1095,7 +1119,9 @@ impl WorkerPool {
                                     duration_secs,
                                     turns,
                                     timestamp: chrono::Utc::now(),
-                                });
+                                }) {
+                                    warn!(error = %e, "failed to record to ledger");
+                                }
                             }
                         }
 
@@ -1107,7 +1133,7 @@ impl WorkerPool {
                                 TaskOutcome::Handoff { .. } => DecisionType::TaskRetried,
                                 TaskOutcome::Blocked { .. } => DecisionType::TaskBlocked,
                             };
-                            let _ = audit.record(
+                            if let Err(e) = audit.record(
                                 &AuditEvent::new(
                                     &project_name_task,
                                     dt,
@@ -1118,7 +1144,9 @@ impl WorkerPool {
                                 )
                                 .with_task(&task_id_clone)
                                 .with_agent(&agent_name_for_records),
-                            );
+                            ) {
+                                warn!(error = %e, "failed to record audit event");
+                            }
                         }
 
                         match &outcome {
@@ -1146,21 +1174,27 @@ impl WorkerPool {
                                                 crate::session_store::named_channel_chat_id(
                                                     &channel_name,
                                                 );
-                                            let _ = cs
+                                            if let Err(e) = cs
                                                 .ensure_channel(
                                                     chat_id,
                                                     "department",
                                                     &channel_name,
                                                 )
-                                                .await;
-                                            let _ = cs
+                                                .await
+                                            {
+                                                warn!(error = %e, "failed to ensure session channel");
+                                            }
+                                            if let Err(e) = cs
                                                 .record_with_source(
                                                     chat_id,
                                                     "assistant",
                                                     &response_content,
                                                     Some("delegation"),
                                                 )
-                                                .await;
+                                                .await
+                                            {
+                                                warn!(error = %e, "failed to record session message");
+                                            }
                                             debug!(
                                                 task = %task_id_clone,
                                                 channel = %channel_name,
@@ -1217,8 +1251,7 @@ impl WorkerPool {
                                         )
                                         .is_ok()
                                         && let Some(ref audit) = audit_log_worker
-                                    {
-                                        let _ = audit.record(
+                                        && let Err(e) = audit.record(
                                             &AuditEvent::new(
                                                 &project_name_task,
                                                 DecisionType::NotePost,
@@ -1229,7 +1262,9 @@ impl WorkerPool {
                                             )
                                             .with_task(&task_id_clone)
                                             .with_agent(&agent_name_for_records),
-                                        );
+                                        )
+                                    {
+                                        warn!(error = %e, "failed to record audit event");
                                     }
                                 }
 
@@ -1306,8 +1341,8 @@ impl WorkerPool {
                                         );
 
                                         // Record verification failure in audit log.
-                                        if let Some(ref audit) = audit_log_worker {
-                                            let _ = audit.record(
+                                        if let Some(ref audit) = audit_log_worker
+                                            && let Err(e) = audit.record(
                                                 &AuditEvent::new(
                                                     &project_name_task,
                                                     DecisionType::TaskFailed,
@@ -1318,8 +1353,10 @@ impl WorkerPool {
                                                 )
                                                 .with_task(&task_id_clone)
                                                 .with_agent(&agent_name_for_records),
-                                            );
-                                        }
+                                            )
+                                            {
+                                                warn!(error = %e, "failed to record audit event");
+                                            }
 
                                         // Dispatch verification feedback for retry context.
                                         let feedback = format!(
@@ -1433,9 +1470,12 @@ impl WorkerPool {
                                 let chat_id = crate::session_store::named_channel_chat_id(
                                     &format!("transcript:{}", agent_name_for_records),
                                 );
-                                let _ = cs
+                                if let Err(e) = cs
                                     .ensure_channel(chat_id, "transcript", &agent_name_for_records)
-                                    .await;
+                                    .await
+                                {
+                                    warn!(error = %e, "failed to ensure session channel");
+                                }
                                 for msg in &state.messages {
                                     let role = match msg.role {
                                         aeqi_core::traits::Role::User => "user",
@@ -1444,10 +1484,12 @@ impl WorkerPool {
                                         aeqi_core::traits::Role::Tool => "tool",
                                     };
                                     let text = msg.content.to_transcript_text();
-                                    if !text.is_empty() {
-                                        let _ = cs
+                                    if !text.is_empty()
+                                        && let Err(e) = cs
                                             .record_with_source(chat_id, role, &text, Some("agent"))
-                                            .await;
+                                            .await
+                                    {
+                                        warn!(error = %e, "failed to record session message");
                                     }
                                 }
 
@@ -1456,9 +1498,12 @@ impl WorkerPool {
                                     format!("transcript:task:{}", task_id_clone);
                                 let task_chat_id =
                                     crate::session_store::named_channel_chat_id(&task_channel_name);
-                                let _ = cs
+                                if let Err(e) = cs
                                     .ensure_channel(task_chat_id, "transcript", &task_channel_name)
-                                    .await;
+                                    .await
+                                {
+                                    warn!(error = %e, "failed to ensure session channel");
+                                }
                                 for msg in &state.messages {
                                     let role = match msg.role {
                                         aeqi_core::traits::Role::User => "user",
@@ -1467,15 +1512,17 @@ impl WorkerPool {
                                         aeqi_core::traits::Role::Tool => "tool",
                                     };
                                     let text = msg.content.to_transcript_text();
-                                    if !text.is_empty() {
-                                        let _ = cs
+                                    if !text.is_empty()
+                                        && let Err(e) = cs
                                             .record_with_source(
                                                 task_chat_id,
                                                 role,
                                                 &text,
                                                 Some("agent"),
                                             )
-                                            .await;
+                                            .await
+                                    {
+                                        warn!(error = %e, "failed to record session message");
                                     }
                                 }
                             }
@@ -1491,10 +1538,12 @@ impl WorkerPool {
                         // Reset task to Pending so patrol picks it up again.
                         {
                             let mut store = tasks_for_err.lock().await;
-                            let _ = store.update(&task_id_clone, |b| {
+                            if let Err(e) = store.update(&task_id_clone, |b| {
                                 b.status = TaskStatus::Pending;
                                 b.assignee = None;
-                            });
+                            }) {
+                                warn!(error = %e, "failed to update task");
+                            }
                         }
                         if let Some(ref m) = metrics {
                             m.tasks_failed.inc();
@@ -1613,21 +1662,23 @@ impl WorkerPool {
         );
 
         // Record audit: TaskRetried.
-        if let Some(ref audit) = self.audit_log {
-            let _ = audit.record(
+        if let Some(ref audit) = self.audit_log
+            && let Err(e) = audit.record(
                 &AuditEvent::new(
                     &self.project_name,
                     DecisionType::TaskRetried,
                     format!("Project-level resolution attempt {new_depth}"),
                 )
                 .with_task(&task.id.0),
-            );
+            )
+        {
+            warn!(error = %e, "failed to record audit event");
         }
 
         // Update task: append resolution context, increment depth, reset to Pending.
         let max_desc = self.max_description_chars;
         let mut store = self.tasks.lock().await;
-        let _ = store.update(&task.id.0, |b| {
+        if let Err(e) = store.update(&task.id.0, |b| {
             // Append blocker context to description so the next worker sees it.
             b.description.push_str(&format!(
                 "\n\n---\n## Resolution Attempt {new_depth}\n\n\
@@ -1647,7 +1698,9 @@ impl WorkerPool {
             // Reset to Pending so patrol picks it up for a new worker.
             b.status = TaskStatus::Pending;
             b.assignee = None;
-        });
+        }) {
+            warn!(error = %e, "failed to update task");
+        }
     }
 
     /// Walk the department hierarchy for an agent and return the first
@@ -1725,9 +1778,11 @@ impl WorkerPool {
             // Mark as notified to prevent re-notification.
             {
                 let mut store = self.tasks.lock().await;
-                let _ = store.update(&task.id.0, |b| {
+                if let Err(e) = store.update(&task.id.0, |b| {
                     b.labels.push("escalated-human".to_string());
-                });
+                }) {
+                    warn!(error = %e, "failed to update task");
+                }
             }
             info!(
                 project = %self.project_name,
@@ -1773,15 +1828,17 @@ impl WorkerPool {
         );
 
         // Record audit: TaskEscalated.
-        if let Some(ref audit) = self.audit_log {
-            let _ = audit.record(
+        if let Some(ref audit) = self.audit_log
+            && let Err(e) = audit.record(
                 &AuditEvent::new(
                     &self.project_name,
                     DecisionType::TaskEscalated,
                     format!("Escalated to {target}"),
                 )
                 .with_task(&task.id.0),
-            );
+            )
+        {
+            warn!(error = %e, "failed to record audit event");
         }
 
         if let Some(ref m) = self.metrics {
@@ -1789,9 +1846,11 @@ impl WorkerPool {
         }
         {
             let mut store = self.tasks.lock().await;
-            let _ = store.update(&task.id.0, |b| {
+            if let Err(e) = store.update(&task.id.0, |b| {
                 b.labels.push(label.to_string());
-            });
+            }) {
+                warn!(error = %e, "failed to update task");
+            }
         }
 
         self.dispatch_bus
@@ -1835,7 +1894,7 @@ impl WorkerPool {
 
         let max_desc = self.max_description_chars;
         let mut store = self.tasks.lock().await;
-        let _ = store.update(task_id, |b| {
+        if let Err(e) = store.update(task_id, |b| {
             b.description.push_str(&format!(
                 "\n\n---\n## Resolution (from Leader Agent)\n\n{answer}\n\n\
                  **Now proceed with the original task using this answer.**\n"
@@ -1849,7 +1908,9 @@ impl WorkerPool {
                     && l != "escalated"
                     && l != "escalated-system"
             });
-        });
+        }) {
+            warn!(error = %e, "failed to update task");
+        }
     }
 
     /// Cap a task description to the configured limit, keeping the most recent content.
@@ -2003,10 +2064,12 @@ impl WorkerPool {
                 .collect();
             for id in orphaned {
                 warn!(project = %self.project_name, task = %id, "resetting orphaned InProgress task to Pending");
-                let _ = store.update(&id, |t| {
+                if let Err(e) = store.update(&id, |t| {
                     t.status = TaskStatus::Pending;
                     t.assignee = None;
-                });
+                }) {
+                    warn!(error = %e, "failed to update task");
+                }
             }
         }
 
@@ -2027,10 +2090,12 @@ impl WorkerPool {
         for task_id in &timed_out {
             warn!(project = %self.project_name, task = %task_id, "worker timed out");
             let mut store = self.tasks.lock().await;
-            let _ = store.update(task_id, |t| {
+            if let Err(e) = store.update(task_id, |t| {
                 t.status = TaskStatus::Pending;
                 t.assignee = None;
-            });
+            }) {
+                warn!(error = %e, "failed to update task");
+            }
         }
 
         self.handle_blocked_tasks().await;
@@ -2181,11 +2246,13 @@ impl WorkerPool {
             return Ok(false);
         }
 
-        let _ = store.update(task_id, |q| {
+        if let Err(e) = store.update(task_id, |q| {
             q.status = aeqi_tasks::TaskStatus::Cancelled;
             q.assignee = None;
             q.closed_reason = Some("Cancelled by user".to_string());
-        });
+        }) {
+            warn!(error = %e, "failed to update task");
+        }
 
         // Kill process group + abort the running worker if one exists for this task.
         self.running_tasks.retain(|t| {

@@ -1,138 +1,172 @@
-# Architecture
+# AEQI Architecture
 
-AEQI is an agent runtime and orchestration engine in Rust. 10 crates, 70k lines, 613 tests.
+AEQI is an agent runtime and orchestration engine in Rust. 10 crates, 619 tests.
 
-## System Map
+## Two Orthogonal Concepts
 
 ```
-Operator
-  ├─ CLI (aeqi)           commands, TUI chat, MCP server, daemon control
-  ├─ Web UI (apps/ui)     React 19, sessions, dashboard, agent control plane
-  └─ API (aeqi-web)       Axum REST + WebSocket, JWT auth
-          │
-          ▼
-    Daemon (aeqi-orchestrator)
-          │
-          ├─ SessionManager       persistent agent sessions (perpetual + spawned)
-          ├─ WorkerPool           task-based agent execution per company
-          ├─ CompanyRegistry      companies, worker pools, cost ledger, metrics
-          ├─ AgentRegistry        persistent agent identities (UUID, system prompt, org tree)
-          ├─ DispatchBus          agent-to-agent messaging with ACK/retry
-          ├─ Notes                inter-agent coordination surface with TTL
-          ├─ SessionStore         SQLite chat/session transcript persistence
-          ├─ TriggerStore         cron/event/webhook triggers
-          ├─ CostLedger           per-agent, per-company cost tracking
-          ├─ EventBroadcaster     real-time execution events
-          └─ Middleware (9 layers) guardrails, graph, loop detection, compression,
-                                   budget, cost, memory refresh, clarification, safety net
-          │
-          ▼
-    Providers (aeqi-providers)    OpenRouter, Anthropic, Ollama
+Task = WHAT needs to be done (persistent, trackable, assignable)
+Session = HOW it's being done (execution transcript, agent loop, tools)
 ```
+
+A Task is a Jira issue. A Session is a terminal window.
+
+- Task can exist without a session (queued, unstarted)
+- Task can have multiple sessions (retries, handoffs)
+- Session can exist without a task (ad-hoc chat, exploration)
+- Session references `task_id` when executing task work
+- Task references `session_id` of its current execution
+
+## Sessions — The Universal Execution Model
+
+Every execution is a session. `SessionManager.spawn_session()` is the single entry point:
+
+```rust
+session_manager.spawn_session(
+    agent_id,
+    prompt,
+    provider,
+    SpawnOptions::new()
+        .with_parent(parent_session_id)
+        .with_task(task_id)
+        .with_skill("architecture-audit")
+        .with_project(project_id)
+        .with_name("Review PR #42")
+)
+```
+
+`auto_close: true` (default) = session closes when agent finishes.
+`auto_close: false` = session stays open for follow-up messages.
+
+### Session Types (derived from context, not declared)
+
+| Context | Type | Behavior |
+|---------|------|----------|
+| `parent_id` set | delegation | Child of another session |
+| `task_id` set | task | Executing tracked work |
+| `auto_close: false` | perpetual | Accepts follow-up messages |
+| Default | session | Runs to completion |
+
+### Session Hierarchy
+
+Sessions form a tree via `parent_id`. Children visible in parent's UI.
+
+### Operations on Sessions
+
+| Operation | Method |
+|-----------|--------|
+| Spawn | `session_manager.spawn_session(agent, prompt, provider, opts)` |
+| Send message | `session_manager.send(session_id, message)` |
+| Stream events | `session_manager.send_streaming(session_id, message)` |
+| Close | `session_manager.close(session_id)` |
+| List children | `session_store.list_children(parent_id)` |
+
+## Skills — Spawn-Time Context Injection
+
+Skills are TOML files (`projects/shared/skills/*.toml`):
+
+```toml
+[skill]
+name = "architecture-audit"
+description = "Find structural problems"
+model = "anthropic/claude-sonnet-4.6"
+
+[tools]
+allow = ["read_file", "grep", "glob", "shell"]
+
+[prompt]
+system = "You are a systems architecture auditor..."
+```
+
+When injected via `SpawnOptions.with_skill()`:
+- Skill prompt appended to agent identity
+- Tools filtered by allow/deny policy
+- Model overridden if specified
+- Multiple skills stack: `.with_skill("a").with_skill("b")`
+
+## Entry Points
+
+All converge to `spawn_session`:
+
+| Entry | How |
+|-------|-----|
+| Web chat | `spawn_session(agent, message, provider, SpawnOptions::interactive())` |
+| Delegation | `aeqi_delegate` tool → `spawn_session(opts.with_parent(id))` |
+| Task execution | Patrol loop → `spawn_session(opts.with_task(id))` |
+| Trigger/cron | Creates task → patrol spawns session |
+| Telegram/Discord | MessageRouter → task or direct session |
+
+## Tasks — Tracked Work Items
+
+Persistent work units with status, priority, dependencies, acceptance criteria, checkpoints, retry logic, and escalation chains.
+
+Tasks live in `.tasks/*.jsonl` (git-native). The patrol loop finds ready tasks and spawns sessions.
+
+| Need | Use |
+|------|-----|
+| "Do this right now" | Spawn session directly |
+| "This needs to get done" | Create task (patrol assigns) |
+| "Track retries and priority" | Task |
+| "Just run a prompt" | Session |
+
+## Agent Identity
+
+Agents are persistent identities in SQLite (`agents` table):
+
+- `id` (UUID) — stable identity, memory scope key
+- `name` — display label
+- `system_prompt` — personality + instructions
+- `project` / `project_id` — project scope
+- `department_id` — team membership
+- `model` — preferred model
+- `capabilities` — permissions
+
+## Memory — Three-Tier Hierarchical Recall
+
+```
+Agent scope      → entity_id = agent UUID
+Department scope → entity_id = department UUID
+Project scope    → entity_id = project UUID
+```
+
+`hierarchical_search` queries all three tiers, deduplicates, returns top-k.
+
+## Project Identity
+
+Projects have stable UUIDs (auto-generated, persisted in `project_ids.json`). Names are display labels — renaming preserves all data.
+
+## Event Streaming
+
+13 `ChatStreamEvent` types, all forwarded to the frontend:
+
+TurnStart, TextDelta, ToolStart, ToolComplete, TurnComplete, Status, DelegateStart, DelegateComplete, MemoryActivity, Compacted, ToolProgress, Complete, Error.
+
+Tool events persist to session store — visible on page reload.
+
+## Web UI
+
+Sessions page shows: sidebar (permanent, active work, spawned work, closed), session header (agent, model, status), spawned sessions bar (inline children with live timers), interleaved message timeline (text → tools → text with expandable output), duration/cost/tokens per response.
+
+## Daemon Patrol Loop (30s)
+
+1. Assign ready tasks → spawn sessions
+2. Detect timeouts, handle blocked tasks
+3. Fire due triggers
+4. Persist cost ledger
+5. Reap dead sessions
+6. Flush memory writes
 
 ## Crates
 
 | Crate | Purpose |
 |-------|---------|
-| `aeqi-core` | Agent loop, config, identity, traits, session types, chat stream |
-| `aeqi-orchestrator` | Daemon, worker pools, middleware, sessions, dispatch, cost, notes |
-| `aeqi-tools` | Shell, file I/O, grep, glob, git worktree, web, tasks |
-| `aeqi-providers` | LLM providers with retry, fallback, cost estimation |
-| `aeqi-memory` | SQLite + FTS5 + vector search, hybrid ranking, MMR, chunking |
-| `aeqi-tasks` | JSONL task DAG with dependency inference |
-| `aeqi-web` | Axum HTTP API + WebSocket streaming |
-| `aeqi-gates` | Telegram, Discord, Slack channel integrations |
-| `aeqi-graph` | Code intelligence — tree-sitter indexing, symbol graph, impact analysis |
-| `aeqi-cli` | CLI binary, TUI, MCP server, daemon/web commands |
-
-## Primitives
-
-**Agent** — persistent identity with stable UUID, entity-scoped memory, department membership, system prompt from template. Stored in AgentRegistry (SQLite).
-
-**Session** — continuous execution context. One permanent per agent (always alive), plus spawned sessions for triggers/skills/users. Agent loop runs with `SessionType::Perpetual` — waits for input after each response, compacts when full, never exits until closed.
-
-**Company** — an operating unit with its own repo, task store, memory DB, worker pool, team, departments, and budget. Configured in `[[companies]]` in aeqi.toml.
-
-**Department** — org hierarchy within a company. Agents belong to departments. Departments have managers and escalation chains.
-
-**Task** — a unit of work assigned to an agent. JSONL-persisted, DAG dependencies, priority, status lifecycle (pending → in_progress → done/blocked/cancelled).
-
-## Two Execution Paths
-
-**Sessions (interactive)** — user/trigger opens a session on an agent. Messages flow in via `session_send`. Agent has full tool access, memory, streaming. Context persists across messages. Used by the web UI and API.
-
-**Workers (task-based)** — the patrol loop assigns pending tasks to agents. WorkerPool spawns `AgentWorker` per task with pre-loaded context (identity, notes, org context, skill prompt, middleware chain). Worker runs to completion, returns structured outcome.
-
-Both paths use the same `Agent::run()` loop, same tools, same providers.
-
-## Agent Loop
-
-```
-System prompt (identity + primers)
-  + User message
-  + Initial memory recall (domain + entity scopes)
-  │
-  ▼
-┌─ LLM call (with all tool specs) ─────────────────┐
-│  Response: text and/or tool calls                 │
-│  ├─ TextDelta → stream to UI                      │
-│  ├─ ToolStart → execute tool                      │
-│  │   └─ ToolComplete → add result to messages     │
-│  ├─ Mid-loop memory recall (every N tools)        │
-│  └─ EndTurn → wait for next input (perpetual)     │
-│              or exit (async)                       │
-│                                                   │
-│  Compaction: snip → microcompact → LLM summary    │
-│  when context exceeds threshold                   │
-└───────────────────────────────────────────────────┘
-```
-
-## Tools Available to Agents
-
-All tools are self-describing via `tool.spec()` — the LLM sees name, description, and JSON schema on every call. No primer needed to list them.
-
-**Base tools:** shell, read_file, write_file, edit_file, list_dir, grep, glob, web_fetch, web_search, git_worktree, task_create, task_close, task_show, task_update, task_dep, task_ready
-
-**Orchestration tools:** aeqi_recall (memory search), aeqi_remember (memory store), aeqi_notes (coordination), aeqi_delegate (agent/department delegation), aeqi_graph (code intelligence), task_detail, task_cancel, task_reprioritize, transcript_search, usage_stats
-
-## Memory
-
-3 scopes: **Domain** (company-wide), **Entity** (per-agent UUID), **System** (cross-company).
-
-SQLite + FTS5 for keyword search. Vector embeddings for semantic search. Hybrid ranking: `keyword_weight * BM25 + vector_weight * cosine`. Temporal decay with 30-day half-life. MMR for diversity. Chunking at 400 tokens with 80 overlap.
-
-## Config
-
-Single file: `config/aeqi.toml`
-
-```toml
-[aeqi]
-name = "my-instance"
-shared_primer = """..."""       # injected into all agent sessions
-
-[[companies]]
-name = "mycompany"
-prefix = "mc"
-repo = "/path/to/repo"
-model = "provider/model-name"
-primer = """..."""              # company-specific context
-team.leader = "engineer"
-team.agents = ["engineer", "reviewer"]
-
-[[companies.departments]]
-name = "engineering"
-lead = "engineer"
-agents = ["engineer", "reviewer"]
-```
-
-Agent templates in `agents/{name}/agent.toml` with frontmatter (display_name, model, capabilities, triggers) and `[prompt].system` for the full system prompt.
-
-## IPC
-
-Unix socket at `~/.aeqi/rm.sock`. JSON-line protocol. 54 commands covering status, tasks, sessions, memory, notes, agents, departments, triggers, cost, audit, approvals, webhooks.
-
-Streaming mode: `session_send` with `"stream": true` writes multiple JSON lines (TextDelta, ToolStart, ToolComplete, Complete) before closing.
-
-## Web API
-
-49 routes behind JWT auth. WebSocket at `/api/chat/stream` for real-time session streaming. Public webhook endpoint for trigger firing with HMAC-SHA256 verification.
+| aeqi-core | Agent loop, config, identity, traits, streaming executor |
+| aeqi-orchestrator | Daemon, sessions, tasks, delegation, memory routing |
+| aeqi-tools | Shell, file, web, skills |
+| aeqi-providers | OpenRouter, Anthropic, Ollama |
+| aeqi-memory | SQLite + FTS5, vector search, hierarchical scoping |
+| aeqi-tasks | Task DAG, JSONL persistence, status machine |
+| aeqi-web | Axum REST + WebSocket API |
+| aeqi-gates | Telegram, Discord, Slack bridges |
+| aeqi-graph | Code intelligence (symbol graph, call chains) |
+| aeqi-cli | CLI, MCP server, TUI |
