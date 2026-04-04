@@ -58,11 +58,18 @@ export default function AppLayout() {
           <div className="left-sidebar-body">
             <AgentTree />
           </div>
-          <div className="left-sidebar-footer" onClick={() => navigate("/settings")}>
-            <BlockAvatar name={userName} size={28} />
-            <div className="left-sidebar-footer-info">
-              <span className="user-profile-name">{userName}</span>
+          <div className="sidebar-profile">
+            <BlockAvatar name={userName} size={32} />
+            <div className="sidebar-profile-info">
+              <span className="sidebar-profile-name">{userName}</span>
+              <span className="sidebar-profile-plan">free plan</span>
             </div>
+            <span className="sidebar-profile-settings" onClick={() => navigate("/settings")} title="Settings">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8" cy="8" r="2.5" />
+                <path d="M13.5 8a5.5 5.5 0 01-.4 1.6l1.1 1.3-1.1 1.1-1.3-1.1A5.5 5.5 0 018 13.5a5.5 5.5 0 01-3.8-2.6L3 12l-1.1-1.1 1.1-1.3A5.5 5.5 0 012.5 8a5.5 5.5 0 01.5-1.6L1.9 5.1 3 4l1.3 1.1A5.5 5.5 0 018 2.5a5.5 5.5 0 013.8 2.6L13 4l1.1 1.1-1.1 1.3A5.5 5.5 0 0113.5 8z" />
+              </svg>
+            </span>
           </div>
         </div>
 
