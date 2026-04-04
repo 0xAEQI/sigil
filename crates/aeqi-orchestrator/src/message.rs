@@ -295,6 +295,16 @@ impl DispatchBus {
                  ON dispatches(timestamp);",
         )?;
 
+        // Migration: add idempotency_key column if missing (pre-existing DBs).
+        let has_idem_col: bool = conn
+            .prepare("PRAGMA table_info(dispatches)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .any(|col| col == "idempotency_key");
+        if !has_idem_col {
+            conn.execute_batch("ALTER TABLE dispatches ADD COLUMN idempotency_key TEXT;")?;
+        }
+
         // Schema migration: add delivery guarantee columns if missing.
         let has_dispatch_id: bool = conn
             .query_row(
@@ -384,7 +394,7 @@ impl DispatchBus {
                     }
                 };
 
-                let _ = conn.execute(
+                if let Err(e) = conn.execute(
                     "INSERT INTO dispatches (
                         from_agent, to_agent, kind_json, timestamp, is_read,
                         dispatch_id, requires_ack, retry_count, max_retries, first_sent_at,
@@ -403,7 +413,9 @@ impl DispatchBus {
                         dispatch.first_sent_at.to_rfc3339(),
                         dispatch.idempotency_key,
                     ],
-                );
+                ) {
+                    warn!(error = %e, to = %dispatch.to, "failed to persist dispatch to SQLite");
+                }
             }
         }
 
