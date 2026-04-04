@@ -72,6 +72,22 @@ export function Hero() {
         unopinionated <span className="text-white/90 font-semibold">artificial intelligence</span> orchestration
       </motion.p>
 
+      {/* Install command */}
+      <motion.div
+        className="mt-12 relative z-10"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, delay: 1.3, ease: "easeOut" }}
+      >
+        <code
+          className="text-[13px] text-white/25 tracking-wide cursor-pointer hover:text-white/40 transition-colors"
+          onClick={() => { navigator.clipboard.writeText("cargo install aeqi"); }}
+          title="click to copy"
+        >
+          <span className="text-white/15 select-none">$ </span>cargo install aeqi
+        </code>
+      </motion.div>
+
       {/* Scroll indicator */}
       <motion.div
         className="absolute bottom-12 left-1/2 -translate-x-1/2"
