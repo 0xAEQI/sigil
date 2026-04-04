@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import { Hero } from "./components/Hero";
-import { Terminal } from "./components/Terminal";
-import { CallToAction } from "./components/CallToAction";
 import { VerticalLines } from "./components/VerticalLines";
 import { motion } from "framer-motion";
 
@@ -35,13 +33,13 @@ function GitHubStars() {
   );
 }
 
-function ToriiGate() {
+function ToriiGate({ className = "w-[14px] h-[14px]" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
       fill="none"
-      className="w-[20px] h-[20px]"
-      stroke="#c0392b"
+      className={className}
+      stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -68,12 +66,9 @@ function Nav() {
       >
         <a
           href="/"
-          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          className="text-[14px] font-bold tracking-[0.06em] text-[#c0392b] hover:opacity-80 transition-opacity"
         >
-          <span className="text-[14px] font-bold tracking-[0.06em] text-[#c0392b]">
-            AEQI
-          </span>
-          <ToriiGate />
+          AEQI
         </a>
         <div className="w-px h-3.5 bg-white/[0.08]" />
         <GitHubStars />
@@ -85,10 +80,11 @@ function Nav() {
         </a>
         <a
           href="https://app.aeqi.ai"
-          className="bg-white text-[#06060E] rounded-full px-4 py-1.5 text-[12px] font-semibold hover:bg-white/90 transition-colors"
+          className="bg-white text-[#06060E] rounded-full px-4 py-1.5 text-[12px] font-semibold hover:bg-white/90 transition-colors flex items-center gap-1.5"
           style={{ fontFamily: "'Space Grotesk', sans-serif" }}
         >
           Enter
+          <ToriiGate />
         </a>
       </div>
     </motion.nav>
@@ -126,6 +122,28 @@ function Backdrop() {
   );
 }
 
+function Footer() {
+  return (
+    <motion.footer
+      className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, delay: 1.2, ease: "easeOut" }}
+    >
+      <div
+        className="backdrop-blur-2xl bg-white/[0.03] border border-white/[0.07] rounded-full px-5 py-2 flex items-center gap-4 text-[11px] text-white/25"
+        style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+      >
+        <span className="tracking-[0.08em]">aeqi.ai</span>
+        <div className="w-px h-3 bg-white/[0.08]" />
+        <a href="https://github.com/0xAEQI/aeqi" className="hover:text-white/50 transition-colors">GitHub</a>
+        <a href="https://github.com/0xAEQI/aeqi/blob/main/docs/architecture.md" className="hover:text-white/50 transition-colors">Docs</a>
+        <div className="w-px h-3 bg-white/[0.08]" />
+        <span className="text-white/15">Open source · Rust</span>
+      </div>
+    </motion.footer>
+  );
+}
 
 export default function App() {
   return (
@@ -134,8 +152,7 @@ export default function App() {
       <VerticalLines />
       <Nav />
       <Hero />
-      <Terminal />
-      <CallToAction />
+      <Footer />
     </div>
   );
 }
