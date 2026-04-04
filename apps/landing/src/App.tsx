@@ -95,9 +95,11 @@ function Backdrop() {
   return (
     <>
       <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat"
+        className="fixed inset-0 z-0 bg-cover bg-no-repeat"
+        // nudge image up so the gate sits higher
         style={{
           backgroundImage: "url('/bg.jpg')",
+          backgroundPosition: "center 35%",
           filter: "blur(6px) saturate(1.4) brightness(0.3) contrast(1.3)",
           transform: "scale(1.03)",
         }}
