@@ -344,7 +344,7 @@ impl SessionManager {
         if let Some(ref pp) = self.project_primer {
             knowledge_parts.push(pp.clone());
         }
-        let identity = aeqi_core::Identity {
+        let mut identity = aeqi_core::Identity {
             persona: Some(agent_system_prompt),
             knowledge: if knowledge_parts.is_empty() {
                 None
@@ -381,7 +381,7 @@ impl SessionManager {
             Arc::new(aeqi_tools::FileWriteTool::new(workdir.clone())),
             Arc::new(aeqi_tools::FileEditTool::new(workdir.clone())),
             Arc::new(aeqi_tools::GrepTool::new(workdir.clone())),
-            Arc::new(aeqi_tools::GlobTool::new(workdir)),
+            Arc::new(aeqi_tools::GlobTool::new(workdir.clone())),
             Arc::new(aeqi_tools::WebFetchTool),
             Arc::new(aeqi_tools::WebSearchTool),
         ];
@@ -454,8 +454,60 @@ impl SessionManager {
             )));
         }
 
-        // 6. Build AgentConfig — Perpetual for Interactive, Async for others.
-        let context_window = aeqi_providers::context_window_for_model(&self.default_model);
+        // 5b. Apply skills — load skill prompts and filter tools.
+        let mut skill_prompt_parts: Vec<String> = Vec::new();
+        let mut model_override: Option<String> = None;
+        if !opts.skills.is_empty() {
+            // Discover skills from project + shared dirs.
+            // Use workdir's parent as base (workdir = projects/{name}, base = projects/..)
+            let base_dir = workdir
+                .parent()
+                .and_then(|p| p.parent())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let mut all_skills: Vec<aeqi_tools::Skill> = Vec::new();
+            if let Ok(shared) =
+                aeqi_tools::Skill::discover(&base_dir.join("projects/shared/skills"))
+            {
+                all_skills.extend(shared);
+            }
+            if let Some(ref proj) = agent_company
+                && let Ok(proj_skills) = aeqi_tools::Skill::discover(
+                    &base_dir.join("projects").join(proj).join("skills"),
+                )
+            {
+                all_skills.extend(proj_skills);
+            }
+
+            for skill_name in &opts.skills {
+                if let Some(skill) = all_skills.iter().find(|s| s.skill.name == *skill_name) {
+                    // Append skill prompt to identity.
+                    skill_prompt_parts.push(skill.system_prompt(""));
+                    // Filter tools by skill policy.
+                    tools.retain(|t| skill.is_tool_allowed(t.name()));
+                    // Model override (last skill wins).
+                    if let Some(ref m) = skill.skill.model {
+                        model_override = Some(m.clone());
+                    }
+                    debug!(skill = %skill_name, "skill applied to session");
+                } else {
+                    warn!(skill = %skill_name, "skill not found — skipping");
+                }
+            }
+        }
+
+        // Append skill prompts to identity.
+        if !skill_prompt_parts.is_empty() {
+            let skill_context = skill_prompt_parts.join("\n\n---\n\n");
+            identity.knowledge = Some(match identity.knowledge {
+                Some(existing) => format!("{existing}\n\n---\n\n{skill_context}"),
+                None => skill_context,
+            });
+        }
+
+        // 6. Build AgentConfig.
+        let model = model_override.unwrap_or_else(|| self.default_model.clone());
+        let context_window = aeqi_providers::context_window_for_model(&model);
         let session_type = if is_interactive {
             aeqi_core::SessionType::Perpetual
         } else {
@@ -464,7 +516,7 @@ impl SessionManager {
         let max_iterations = if is_interactive { 200 } else { 50 };
 
         let agent_config = aeqi_core::AgentConfig {
-            model: self.default_model.clone(),
+            model,
             max_iterations,
             name: agent_name.clone(),
             context_window,

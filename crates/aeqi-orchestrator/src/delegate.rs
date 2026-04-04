@@ -215,7 +215,7 @@ impl DelegateTool {
     ///
     /// Resolves the target agent, delegates all session building to SessionManager,
     /// and returns the session ID. The session auto-closes when the agent finishes.
-    async fn spawn_session(&self, prompt: &str) -> Result<ToolResult> {
+    async fn spawn_session(&self, prompt: &str, skill: Option<&str>) -> Result<ToolResult> {
         let sm = self
             .session_manager
             .as_ref()
@@ -238,6 +238,9 @@ impl DelegateTool {
         }
         if let Some(ref proj) = self.project_name {
             spawn_opts = spawn_opts.with_project(proj.clone());
+        }
+        if let Some(s) = skill {
+            spawn_opts = spawn_opts.with_skill(s);
         }
 
         let spawned = sm
@@ -328,7 +331,7 @@ impl Tool for DelegateTool {
             "subagent" => {
                 if self.provider.is_some() && self.session_manager.is_some() {
                     // Direct spawn — no dispatch bus, no patrol delay.
-                    self.spawn_session(prompt).await
+                    self.spawn_session(prompt, skill.as_deref()).await
                 } else {
                     // Fallback to dispatch (legacy path — provider/session_manager not wired).
                     let target = self.resolve_subagent_target().await;
@@ -372,7 +375,7 @@ impl Tool for DelegateTool {
                     && self.provider.is_some()
                     && self.session_manager.is_some()
                 {
-                    self.spawn_session(prompt).await
+                    self.spawn_session(prompt, skill.as_deref()).await
                 } else {
                     self.delegate_to_agent(agent_name, prompt, &response_mode, create_task, skill)
                         .await
