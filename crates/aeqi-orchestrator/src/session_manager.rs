@@ -116,13 +116,81 @@ pub struct SessionResponse {
 }
 
 /// What kind of session to spawn.
-pub enum SpawnType {
-    /// Interactive perpetual session (web chat) — accepts follow-up messages.
-    Interactive,
-    /// Task execution — runs to completion, updates task.
-    Task { task_id: String },
-    /// Delegation — child of another session.
-    Delegation { parent_id: String },
+/// Options for spawning a session. Every field is optional context —
+/// spawn_session works with just agent_id + prompt + provider.
+#[derive(Default)]
+pub struct SpawnOptions {
+    /// Project scope (for workdir, memory, tools).
+    pub project_id: Option<String>,
+    /// Parent session (for delegation chains).
+    pub parent_id: Option<String>,
+    /// Task being executed (links session to task).
+    pub task_id: Option<String>,
+    /// Skills to inject (prompt + tool filter). Multiple allowed.
+    pub skills: Vec<String>,
+    /// Close session automatically when agent.run() completes.
+    /// Default: true. Set false for persistent/interactive sessions.
+    pub auto_close: bool,
+    /// Label for the session (shown in UI sidebar).
+    pub name: Option<String>,
+}
+
+impl SpawnOptions {
+    pub fn new() -> Self {
+        Self {
+            auto_close: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn interactive() -> Self {
+        Self {
+            auto_close: false,
+            ..Default::default()
+        }
+    }
+
+    pub fn with_project(mut self, id: impl Into<String>) -> Self {
+        self.project_id = Some(id.into());
+        self
+    }
+
+    pub fn with_parent(mut self, id: impl Into<String>) -> Self {
+        self.parent_id = Some(id.into());
+        self
+    }
+
+    pub fn with_task(mut self, id: impl Into<String>) -> Self {
+        self.task_id = Some(id.into());
+        self
+    }
+
+    pub fn with_skill(mut self, name: impl Into<String>) -> Self {
+        self.skills.push(name.into());
+        self
+    }
+
+    pub fn with_skills(mut self, names: Vec<String>) -> Self {
+        self.skills.extend(names);
+        self
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    fn session_type_str(&self) -> &str {
+        if self.parent_id.is_some() {
+            "delegation"
+        } else if self.task_id.is_some() {
+            "task"
+        } else if !self.auto_close {
+            "perpetual"
+        } else {
+            "session"
+        }
+    }
 }
 
 /// Returned from `spawn_session` — the caller uses this to subscribe to events.
@@ -205,10 +273,10 @@ impl SessionManager {
         &self,
         agent_id_or_hint: &str,
         prompt: &str,
-        spawn_type: SpawnType,
         provider: Arc<dyn Provider>,
-        project_id: Option<&str>,
+        opts: SpawnOptions,
     ) -> anyhow::Result<SpawnedSession> {
+        let project_id = opts.project_id.as_deref();
         let agent_registry = self
             .agent_registry
             .as_ref()
@@ -354,7 +422,7 @@ impl SessionManager {
         });
 
         // Determine session_id placeholder for delegate tool wiring (filled in after DB create).
-        let is_interactive = matches!(spawn_type, SpawnType::Interactive);
+        let is_interactive = !opts.auto_close;
 
         // Build orchestration tools (delegate, memory, notes, graph, etc.)
         let empty_channels: Arc<
@@ -432,25 +500,19 @@ impl SessionManager {
         };
 
         // 9. Create session in DB.
-        let (parent_id, task_id) = match &spawn_type {
-            SpawnType::Interactive => (None, None),
-            SpawnType::Task { task_id } => (None, Some(task_id.as_str())),
-            SpawnType::Delegation { parent_id } => (Some(parent_id.as_str()), None),
-        };
-        let session_type_str = match &spawn_type {
-            SpawnType::Interactive => "perpetual",
-            SpawnType::Task { .. } => "task",
-            SpawnType::Delegation { .. } => "delegation",
-        };
+        let parent_id = opts.parent_id.as_deref();
+        let task_id = opts.task_id.as_deref();
+        let session_type_str = opts.session_type_str();
 
         let session_id = if let Some(ref ss) = self.session_store {
             let aid = agent_uuid.as_deref().unwrap_or("");
+            let display_name = opts.name.as_deref().unwrap_or(&agent_name);
             ss.create_session(
                 aid,
                 effective_project_id.as_deref(),
                 agent_department_id.as_deref(),
                 session_type_str,
-                &agent_name,
+                display_name,
                 parent_id,
                 task_id,
             )
@@ -502,7 +564,8 @@ impl SessionManager {
         info!(
             session_id = %session_id,
             agent = %agent_name,
-            spawn_type = session_type_str,
+            session_type = session_type_str,
+            auto_close = opts.auto_close,
             "spawn_session: session spawned"
         );
 

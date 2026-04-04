@@ -3797,9 +3797,8 @@ impl Daemon {
                                 .spawn_session(
                                     agent_id_or_hint,
                                     message,
-                                    crate::session_manager::SpawnType::Interactive,
                                     provider.clone(),
-                                    None,
+                                    crate::session_manager::SpawnOptions::interactive(),
                                 )
                                 .await
                             {

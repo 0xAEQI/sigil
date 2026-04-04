@@ -231,16 +231,17 @@ impl DelegateTool {
             .await
             .unwrap_or_else(|| self.agent_name.clone());
 
+        let mut spawn_opts = crate::session_manager::SpawnOptions::new()
+            .with_name(format!("Delegation from {}", self.agent_name));
+        if let Some(ref pid) = self.session_id {
+            spawn_opts = spawn_opts.with_parent(pid.clone());
+        }
+        if let Some(ref proj) = self.project_name {
+            spawn_opts = spawn_opts.with_project(proj.clone());
+        }
+
         let spawned = sm
-            .spawn_session(
-                &agent_id,
-                prompt,
-                crate::session_manager::SpawnType::Delegation {
-                    parent_id: self.session_id.clone().unwrap_or_default(),
-                },
-                provider.clone(),
-                self.project_name.as_deref(),
-            )
+            .spawn_session(&agent_id, prompt, provider.clone(), spawn_opts)
             .await?;
 
         info!(
