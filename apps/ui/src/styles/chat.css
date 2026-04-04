@@ -958,29 +958,41 @@
   color: var(--text-muted);
 }
 
-/* Message bubbles */
+/* Message layout: avatar + body */
 .asv-msg {
+  display: flex;
+  gap: 10px;
+  animation: c-fade-in 0.2s ease-out;
+}
+.asv-msg-avatar {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.asv-msg-body {
+  flex: 1;
+  min-width: 0;
   padding: 8px 12px;
   border-radius: var(--radius-lg);
   position: relative;
-  animation: c-fade-in 0.2s ease-out;
 }
 
 .asv-msg-user {
+  flex-direction: row-reverse;
+}
+.asv-msg-user .asv-msg-body {
   background: var(--bg-elevated);
   color: var(--text-primary);
-  align-self: flex-end;
   max-width: 72%;
   border-bottom-right-radius: 4px;
 }
 
-.asv-msg-assistant {
+.asv-msg-assistant .asv-msg-body {
   background: var(--bg-base);
   border: 1px solid var(--border);
   max-width: 85%;
 }
 
-.asv-msg-error {
+.asv-msg-error .asv-msg-body {
   background: var(--bg-surface);
   border: 1px solid rgba(239, 68, 68, 0.2);
   max-width: 85%;

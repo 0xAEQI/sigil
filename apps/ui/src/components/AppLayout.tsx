@@ -59,9 +59,7 @@ export default function AppLayout() {
             <AgentTree />
           </div>
           <div className="left-sidebar-footer" onClick={() => navigate("/settings")}>
-            <div className="user-profile-avatar">
-              <UserAvatar name={userName} size={28} />
-            </div>
+            <BlockAvatar name={userName} size={28} />
             <div className="left-sidebar-footer-info">
               <span className="user-profile-name">{userName}</span>
             </div>
