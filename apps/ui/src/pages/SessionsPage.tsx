@@ -636,41 +636,66 @@ export default function SessionsPage() {
   const activeSessions = sessions.filter((s) => s.type === "active");
   const closedSessions = sessions.filter((s) => s.type === "history");
 
+  // Collapsible group state — closed defaults to collapsed
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({
+    closed: true,
+  });
+  const toggleGroup = (key: string) =>
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  // Reusable collapsible section
+  const SessionGroup = ({ id, label, count, children }: {
+    id: string; label: string; count: number; children: React.ReactNode;
+  }) => {
+    const isCollapsed = collapsedGroups[id] ?? false;
+    return (
+      <div className="sessions-group">
+        <div className="sessions-group-header" onClick={() => toggleGroup(id)}>
+          <svg className="sessions-group-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none"
+            style={{ transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)", transition: "transform 0.15s ease" }}>
+            <path d="M5 3.5L8.5 7L5 10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="sessions-group-label">{label}</span>
+          <span className="sessions-group-count">{count}</span>
+        </div>
+        {!isCollapsed && <div className="sessions-group-body">{children}</div>}
+      </div>
+    );
+  };
+
   return (
     <div className="sessions-split">
       <div className="sessions-list-pane">
-        <div className="sessions-list-title">Sessions</div>
-        <div className="session-list-add" onClick={() => {
-          const id = `new-${Date.now()}`;
-          const num = sessionCounter + 1;
-          setSessionCounter(num);
-          setSessions((prev) => [...prev, {
-            id, name: `session ${num}`, type: "active" as const, status: "new",
-          }]);
-          setActiveSessionId(id);
-          setMessages([]);
-          setStreamText("");
-        }}>+</div>
+        <div className="sessions-list-top">
+          <div className="sessions-list-title">Sessions</div>
+          <div className="session-list-add" onClick={() => {
+            const id = `new-${Date.now()}`;
+            const num = sessionCounter + 1;
+            setSessionCounter(num);
+            setSessions((prev) => [...prev, {
+              id, name: `session ${num}`, type: "active" as const, status: "new",
+            }]);
+            setActiveSessionId(id);
+            setMessages([]);
+            setStreamText("");
+          }}>+</div>
+        </div>
 
-        <div className="sessions-list-section">
-          <div className="sessions-list-header">permanent</div>
+        <SessionGroup id="permanent" label="Permanent" count={1}>
           <div
             className={`session-list-item${activeSessionId === "perpetual" ? " active" : ""}`}
             onClick={() => setActiveSessionId("perpetual")}
           >
-            <span className="session-list-dot">●</span>
+            <span className="session-list-dot live" />
             <span className="session-list-name">{agentName || "Agent"}</span>
           </div>
-        </div>
+        </SessionGroup>
 
         {liveSubagents.length > 0 && (
-          <div className="sessions-list-section">
-            <div className="sessions-list-header">active work</div>
+          <SessionGroup id="active-work" label="Active Work" count={liveSubagents.length}>
             {liveSubagents.map((s, i) => (
               <div key={i} className={`session-list-item subagent-item ${s.status}`} title={s.subject}>
-                <span className="session-list-dot subagent-dot">
-                  {s.status === "running" ? "\u27F3" : s.status === "completed" ? "\u2713" : "\u2717"}
-                </span>
+                <span className={`session-list-dot ${s.status}`} />
                 <span className="session-list-name">{s.workerName}</span>
                 {s.status === "running" && (
                   <span className="session-list-time"><SubagentTimer start={s.startTime} /></span>
@@ -678,12 +703,11 @@ export default function SessionsPage() {
                 {s.duration && <span className="session-list-time">{s.duration}</span>}
               </div>
             ))}
-          </div>
+          </SessionGroup>
         )}
 
         {childSessions.length > 0 && (
-          <div className="sessions-list-section">
-            <div className="sessions-list-header">spawned work</div>
+          <SessionGroup id="spawned" label="Spawned" count={childSessions.length}>
             {childSessions.map(s => (
               <div key={s.id}
                 className={`session-list-item${activeSessionId === s.id ? " active" : ""}`}
@@ -701,23 +725,22 @@ export default function SessionsPage() {
                   }
                 }}
               >
-                <span className="session-list-dot">{s.status === "active" ? "\u25CF" : "\u25CB"}</span>
+                <span className={`session-list-dot ${s.status === "active" ? "live" : "dim"}`} />
                 <span className="session-list-name">{s.name}</span>
                 {s.time && <span className="session-list-time">{timeAgo(s.time)}</span>}
               </div>
             ))}
-          </div>
+          </SessionGroup>
         )}
 
         {activeSessions.length > 0 && (
-          <div className="sessions-list-section">
-            <div className="sessions-list-header">active</div>
+          <SessionGroup id="active" label="Active" count={activeSessions.length}>
             {activeSessions.map((s) => (
               <div key={s.id}
                 className={`session-list-item${activeSessionId === s.id ? " active" : ""}`}
                 onClick={() => setActiveSessionId(s.id)}
               >
-                <span className="session-list-dot">●</span>
+                <span className="session-list-dot live" />
                 <span className="session-list-name">{s.name}</span>
                 {s.status && s.type !== "perpetual" && (
                   <StatusBadge status={s.status} size="sm" />
@@ -725,12 +748,11 @@ export default function SessionsPage() {
                 {s.time && <span className="session-list-time">{timeAgo(s.time)}</span>}
               </div>
             ))}
-          </div>
+          </SessionGroup>
         )}
 
         {linkedTasks.length > 0 && (
-          <div className="sessions-list-section">
-            <div className="sessions-list-header">linked tasks</div>
+          <SessionGroup id="linked" label="Linked Tasks" count={linkedTasks.length}>
             {linkedTasks.slice(0, 10).map((t: any) => (
               <div key={t.id}
                 className={`session-list-item${activeSessionId === t.id ? " active" : ""}`}
@@ -740,18 +762,17 @@ export default function SessionsPage() {
                 <span className="session-list-name">{t.subject}</span>
               </div>
             ))}
-          </div>
+          </SessionGroup>
         )}
 
         {closedSessions.length > 0 && (
-          <div className="sessions-list-section">
-            <div className="sessions-list-header">closed</div>
+          <SessionGroup id="closed" label="Closed" count={closedSessions.length}>
             {closedSessions.map((s) => (
               <div key={s.id}
                 className={`session-list-item${activeSessionId === s.id ? " active" : ""}`}
                 onClick={() => setActiveSessionId(s.id)}
               >
-                <span className="session-list-dot dim">○</span>
+                <span className="session-list-dot dim" />
                 <span className="session-list-name">{s.name}</span>
                 {s.status && s.type !== "perpetual" && (
                   <StatusBadge status={s.status} size="sm" />
@@ -759,7 +780,7 @@ export default function SessionsPage() {
                 {s.time && <span className="session-list-time">{timeAgo(s.time)}</span>}
               </div>
             ))}
-          </div>
+          </SessionGroup>
         )}
       </div>
 

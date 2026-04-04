@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useChatStore } from "@/store/chat";
 import { useDaemonStore } from "@/store/daemon";
 import CompanyPatternIcon from "./CompanyPatternIcon";
+import CreateCompanyModal from "./CreateCompanyModal";
 
 export default function CompanyRail() {
   const navigate = useNavigate();
@@ -9,6 +11,7 @@ export default function CompanyRail() {
   const setChannel = useChatStore((s) => s.setChannel);
   const companies = useDaemonStore((s) => s.companies);
   const tasks = useDaemonStore((s) => s.tasks);
+  const [showCreate, setShowCreate] = useState(false);
 
   const activeCounts: Record<string, number> = {};
   for (const t of tasks) {
@@ -20,33 +23,42 @@ export default function CompanyRail() {
   const selectedCompany = channel ?? null;
 
   return (
-    <div className="rail">
-      <div className="rail-inner">
-        <div className="rail-add" title="New company" onClick={() => {}}>+</div>
+    <>
+      <div className="rail">
+        <div className="rail-inner">
+          <div
+            className={`rail-icon rail-home${!channel ? " active" : ""}`}
+            onClick={() => { setChannel(null); navigate("/"); }}
+            title="AEQI"
+          >Æ</div>
 
-        {companies.map((p) => {
-          const isSelected = selectedCompany === p.name;
-          const hasActive = (activeCounts[p.name] || 0) > 0;
+          <div className="rail-add" title="New company" onClick={() => setShowCreate(true)}>+</div>
 
-          return (
-            <div key={p.name} className="rail-project-wrapper">
-              <button
-                className="rail-project-btn"
-                onClick={() => { setChannel(p.name); navigate("/"); }}
-                title={p.name}
-              >
-                <CompanyPatternIcon name={p.name} selected={isSelected} />
-                {hasActive && (
-                  <span className="rail-live-dot">
-                    <span className="rail-live-dot-pulse" />
-                    <span className="rail-live-dot-core" />
-                  </span>
-                )}
-              </button>
-            </div>
-          );
-        })}
+          {companies.map((p) => {
+            const isSelected = selectedCompany === p.name;
+            const hasActive = (activeCounts[p.name] || 0) > 0;
+
+            return (
+              <div key={p.name} className="rail-project-wrapper">
+                <button
+                  className="rail-project-btn"
+                  onClick={() => { setChannel(p.name); navigate("/"); }}
+                  title={p.name}
+                >
+                  <CompanyPatternIcon name={p.name} selected={isSelected} />
+                  {hasActive && (
+                    <span className="rail-live-dot">
+                      <span className="rail-live-dot-pulse" />
+                      <span className="rail-live-dot-core" />
+                    </span>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
+      <CreateCompanyModal open={showCreate} onClose={() => setShowCreate(false)} />
+    </>
   );
 }

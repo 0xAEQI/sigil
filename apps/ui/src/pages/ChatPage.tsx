@@ -1,8 +1,27 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { ThreadEvent } from "@/lib/types";
 import { useChatStore } from "@/store/chat";
+import { useDaemonStore } from "@/store/daemon";
 import { useWebSocket, type WorkerEvent } from "@/hooks/useWebSocket";
+
+// ── Slash commands ──
+interface SlashCommand {
+  name: string;
+  description: string;
+  template: string;
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { name: "task", description: "Create a new task", template: "/task " },
+  { name: "status", description: "Check system status", template: "What is the current status?" },
+  { name: "recall", description: "Search agent memory", template: "/recall " },
+  { name: "skill", description: "Load or list skills", template: "/skill " },
+  { name: "deploy", description: "Deploy a service", template: "/deploy " },
+  { name: "audit", description: "Run a security audit", template: "/audit " },
+  { name: "research", description: "Start a research task", template: "Research: " },
+  { name: "blocked", description: "Show blocked tasks", template: "What tasks are blocked and why?" },
+];
 
 interface BubbleMessage {
   kind: "message";
@@ -371,6 +390,11 @@ export default function ChatPage() {
   const getOrCreateThread = useChatStore((s) => s.getOrCreateThread);
   const updateThread = useChatStore((s) => s.updateThread);
 
+  // Daemon state for context bar
+  const dashboard = useDaemonStore((s) => s.dashboard);
+  const tasks = useDaemonStore((s) => s.tasks);
+  const wsConnected = useDaemonStore((s) => s.wsConnected);
+
   const [timelineEvents, setTimelineEvents] = useState<ThreadEvent[]>([]);
   const [pendingMessages, setPendingMessages] = useState<BubbleMessage[]>([]);
   const [input, setInput] = useState("");
@@ -380,12 +404,62 @@ export default function ChatPage() {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Slash command state
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
+
+  // Message history
+  const [history] = useState<string[]>(() => []);
+  const historyPos = useRef(-1);
+
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isAtBottom = useRef(true);
   const refreshInFlight = useRef(false);
 
   const scope = parseChannelScope(channel);
+
+  // Compute live stats for context bar
+  const liveStats = useMemo(() => {
+    const blockedCount = tasks.filter((t: any) => t.status === "blocked").length;
+    const activeCount = tasks.filter((t: any) => t.status === "in_progress").length;
+    const pendingCount = tasks.filter((t: any) => t.status === "pending").length;
+    const todayCost = dashboard?.cost_today_usd ?? dashboard?.total_cost_usd ?? 0;
+    return { blockedCount, activeCount, pendingCount, todayCost };
+  }, [tasks, dashboard]);
+
+  // Compute smart suggestions based on current state
+  const suggestions = useMemo(() => {
+    const items: { label: string; value: string }[] = [];
+    if (liveStats.blockedCount > 0) {
+      items.push({
+        label: `${liveStats.blockedCount} blocked — review?`,
+        value: "What tasks are blocked and what's preventing progress?",
+      });
+    }
+    if (liveStats.pendingCount > 3) {
+      items.push({
+        label: `${liveStats.pendingCount} pending tasks`,
+        value: "Prioritize and start working on pending tasks.",
+      });
+    }
+    if (items.length === 0) {
+      items.push(
+        { label: "System status", value: "What is the current status?" },
+        { label: "Create a task", value: "/task " },
+      );
+    }
+    items.push({ label: "What happened today?", value: "Give me a summary of today's activity." });
+    return items.slice(0, 4);
+  }, [liveStats]);
+
+  // Filtered slash commands
+  const slashQuery = slashOpen ? input.slice(1).toLowerCase() : "";
+  const filteredCommands = slashOpen
+    ? SLASH_COMMANDS.filter(
+        (cmd) => cmd.name.includes(slashQuery) || cmd.description.toLowerCase().includes(slashQuery),
+      )
+    : [];
 
   useEffect(() => {
     getOrCreateThread(channel);
@@ -465,10 +539,28 @@ export default function ChatPage() {
   }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
+    const val = e.target.value;
+    setInput(val);
+
+    // Slash command detection
+    if (val === "/") {
+      setSlashOpen(true);
+      setSlashIndex(0);
+    } else if (val.startsWith("/") && !val.includes(" ")) {
+      setSlashOpen(true);
+    } else {
+      setSlashOpen(false);
+    }
+
     const el = e.target;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  };
+
+  const selectSlashCommand = (cmd: SlashCommand) => {
+    setInput(cmd.template);
+    setSlashOpen(false);
+    inputRef.current?.focus();
   };
 
   const copyToClipboard = useCallback((text: string) => {
@@ -478,6 +570,11 @@ export default function ChatPage() {
   const sendMessage = async () => {
     const msg = input.trim();
     if (!msg || loading || !thread) return;
+
+    // Push to history
+    history.unshift(msg);
+    if (history.length > 50) history.pop();
+    historyPos.current = -1;
 
     const optimisticId = nextId();
     const optimisticMessage: BubbleMessage = {
@@ -491,6 +588,7 @@ export default function ChatPage() {
 
     setPendingMessages((prev) => [...prev, optimisticMessage]);
     setInput("");
+    setSlashOpen(false);
     setError(null);
     setLoading(true);
     if (inputRef.current) inputRef.current.style.height = "auto";
@@ -530,6 +628,52 @@ export default function ChatPage() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Slash command navigation
+    if (slashOpen && filteredCommands.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % filteredCommands.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        selectSlashCommand(filteredCommands[slashIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        setSlashOpen(false);
+        return;
+      }
+    }
+
+    // Message history (up/down when input is empty or navigating history)
+    if (e.key === "ArrowUp" && (input === "" || historyPos.current >= 0)) {
+      e.preventDefault();
+      const next = historyPos.current + 1;
+      if (next < history.length) {
+        historyPos.current = next;
+        setInput(history[next]);
+      }
+      return;
+    }
+    if (e.key === "ArrowDown" && historyPos.current >= 0) {
+      e.preventDefault();
+      const next = historyPos.current - 1;
+      if (next < 0) {
+        historyPos.current = -1;
+        setInput("");
+      } else {
+        historyPos.current = next;
+        setInput(history[next]);
+      }
+      return;
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void sendMessage();
@@ -632,8 +776,69 @@ export default function ChatPage() {
 
       <ScrollAnchor show={showScroll} onClick={scrollToBottom} />
 
+      {/* Context status bar */}
+      <div className="c-context-bar">
+        <div className="c-context-stats">
+          <span className={`c-stat-dot ${wsConnected ? "c-stat-dot-live" : "c-stat-dot-off"}`} />
+          {liveStats.activeCount > 0 && (
+            <span className="c-stat">
+              <span className="c-stat-value">{liveStats.activeCount}</span> active
+            </span>
+          )}
+          {liveStats.pendingCount > 0 && (
+            <span className="c-stat">
+              <span className="c-stat-value">{liveStats.pendingCount}</span> pending
+            </span>
+          )}
+          {liveStats.blockedCount > 0 && (
+            <span className="c-stat c-stat-warn">
+              <span className="c-stat-value">{liveStats.blockedCount}</span> blocked
+            </span>
+          )}
+          {liveStats.todayCost > 0 && (
+            <span className="c-stat c-stat-cost">${liveStats.todayCost.toFixed(2)}</span>
+          )}
+        </div>
+        <div className="c-context-suggestions">
+          {!hasMessages &&
+            suggestions.map((s) => (
+              <button
+                key={s.label}
+                className="c-chip"
+                onClick={() => {
+                  setInput(s.value);
+                  inputRef.current?.focus();
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+        </div>
+      </div>
+
+      {/* Composer */}
       <div className="c-composer">
-        <div className="c-composer-inner">
+        {/* Slash command dropdown */}
+        {slashOpen && filteredCommands.length > 0 && (
+          <div className="c-slash-menu">
+            {filteredCommands.map((cmd, i) => (
+              <button
+                key={cmd.name}
+                className={`c-slash-item ${i === slashIndex ? "c-slash-item-active" : ""}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  selectSlashCommand(cmd);
+                }}
+                onMouseEnter={() => setSlashIndex(i)}
+              >
+                <span className="c-slash-name">/{cmd.name}</span>
+                <span className="c-slash-desc">{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className={`c-composer-inner ${loading ? "c-composer-busy" : ""}`}>
           {channel && <span className="c-composer-ctx">#{channel.split("/").pop()}</span>}
           <textarea
             ref={inputRef}
@@ -646,7 +851,17 @@ export default function ChatPage() {
           />
           <div className="c-composer-actions">
             <span className="c-composer-hint">
-              {input.length > 0 ? <kbd>Enter</kbd> : <kbd>Shift+Enter</kbd>}
+              {slashOpen ? (
+                <>
+                  <kbd>Tab</kbd> select
+                </>
+              ) : input.length > 0 ? (
+                <kbd>Enter</kbd>
+              ) : (
+                <>
+                  <kbd>/</kbd> commands &nbsp; <kbd>Up</kbd> history
+                </>
+              )}
             </span>
             <button
               className={`c-send ${canSend ? "c-send-ready" : ""} ${loading ? "c-send-loading" : ""}`}

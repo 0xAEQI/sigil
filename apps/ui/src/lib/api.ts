@@ -85,6 +85,8 @@ export const api = {
 
   // Companies
   getCompanies: () => request<any>("/companies"),
+  createCompany: (data: { name: string }) =>
+    request<any>("/companies", { method: "POST", body: JSON.stringify(data) }),
 
   // Tasks
   getTasks: (params?: { status?: string; company?: string }) => {

@@ -449,11 +449,85 @@
   text-transform: uppercase;
 }
 
-/* Composer */
-.c-composer {
-  padding: var(--space-3) var(--space-6);
-  border-top: 1px solid var(--border);
+/* ── Context status bar ── */
+.c-context-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-6);
   flex-shrink: 0;
+}
+
+.c-context-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-2xs);
+  color: var(--text-muted);
+}
+
+.c-stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.c-stat-value {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.c-stat-warn .c-stat-value { color: var(--warning); }
+.c-stat-cost { font-family: var(--font-mono); color: var(--accent-dim); }
+
+.c-stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.c-stat-dot-live {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: c-pulse 2s ease-in-out infinite;
+}
+
+.c-stat-dot-off {
+  background: var(--text-muted);
+  opacity: 0.4;
+}
+
+.c-context-suggestions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.c-chip {
+  font-size: var(--font-size-2xs);
+  color: var(--text-muted);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.c-chip:hover {
+  border-color: var(--border-accent);
+  color: var(--accent);
+  background: var(--accent-bg);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.04);
+}
+
+/* ── Composer ── */
+.c-composer {
+  padding: var(--space-2) var(--space-6) var(--space-3);
+  flex-shrink: 0;
+  position: relative;
 }
 
 .c-composer-inner {
@@ -461,15 +535,117 @@
   align-items: center;
   gap: var(--space-2);
   background: var(--bg-surface);
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: var(--radius-xl);
   padding: var(--space-2) var(--space-3);
-  transition: all var(--transition-smooth);
+  transition: box-shadow var(--transition-smooth);
+  position: relative;
+  /* Gradient border via background-clip trick */
+  background-clip: padding-box;
+  background-origin: padding-box;
+}
+
+/* Animated gradient border on focus */
+.c-composer-inner::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--radius-xl) + 1px);
+  background: var(--border);
+  z-index: -1;
+  transition: background 0.4s ease, opacity 0.4s ease;
+  opacity: 1;
+}
+
+.c-composer-inner:focus-within::before {
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    rgba(212, 169, 106, 0.6) 25%,
+    rgba(255, 255, 255, 0.15) 50%,
+    rgba(212, 169, 106, 0.6) 75%,
+    var(--accent) 100%
+  );
+  background-size: 300% 300%;
+  animation: c-border-glow 4s ease infinite;
 }
 
 .c-composer-inner:focus-within {
-  border-color: var(--border-accent);
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.03), 0 2px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 30px rgba(212, 169, 106, 0.06), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.c-composer-busy::before {
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    rgba(212, 169, 106, 0.4) 50%,
+    var(--accent) 100%
+  );
+  background-size: 200% 200%;
+  animation: c-border-glow 1.5s ease infinite;
+  opacity: 0.6;
+}
+
+@keyframes c-border-glow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ── Slash command menu ── */
+.c-slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 1px rgba(255, 255, 255, 0.05);
+  animation: c-slash-in 0.15s ease-out;
+  z-index: 20;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+@keyframes c-slash-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.c-slash-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.c-slash-item:hover,
+.c-slash-item-active {
+  background: var(--bg-hover);
+}
+
+.c-slash-name {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+.c-slash-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .c-composer-ctx {
