@@ -32,7 +32,7 @@ export function Hero() {
 
       <motion.h1
         className="leading-[1.05] text-left select-none relative z-10"
-        style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1, ease: "easeOut" }}
@@ -64,7 +64,7 @@ export function Hero() {
       {/* Tagline */}
       <motion.p
         className="mt-10 text-[15px] md:text-[17px] text-white/45 tracking-wide text-center relative z-10"
-        style={{ fontFamily: "'Inter', sans-serif" }}
+
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8, delay: 1.0, ease: "easeOut" }}

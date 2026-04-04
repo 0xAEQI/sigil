@@ -43,7 +43,7 @@ function Nav() {
     >
       <div
         className="backdrop-blur-2xl bg-white/[0.03] border border-white/[0.07] rounded-full px-5 py-2.5 flex items-center gap-5"
-        style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+
       >
         <a
           href="/"
@@ -61,7 +61,7 @@ function Nav() {
           <a
             href="https://app.aeqi.ai"
             className="bg-white text-[#06060E] rounded-full px-4 py-1.5 text-[12px] font-semibold hover:bg-white/90 transition-colors"
-            style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+    
           >
             Get Started
           </a>
@@ -113,7 +113,7 @@ function Footer() {
     >
       <div
         className="backdrop-blur-2xl bg-white/[0.03] border border-white/[0.07] rounded-full px-5 py-2 flex items-center gap-4 text-[11px] text-white/25"
-        style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+
       >
         <span className="tracking-[0.08em]"><span className="text-[#c0392b]">aeqi</span><span className="text-white">.ai</span></span>
         <div className="w-px h-3 bg-white/[0.08]" />
