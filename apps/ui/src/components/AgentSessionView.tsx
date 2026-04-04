@@ -184,12 +184,18 @@ export default function AgentSessionView({ agentId, sessionId: urlSessionId }: A
 
   // Start a new conversation: drop session param, show empty composer.
   const handleNewConversation = useCallback(() => {
+    prevSessionRef.current = null;
+    setMessages([]);
+    setStreamText("");
+    setLiveToolEvents([]);
     setSession(null);
     setShowSessionList(false);
   }, [setSession]);
 
-  // Switch to an existing session
+  // Switch to an existing session — force reload
   const handleSelectSession = useCallback((sid: string) => {
+    prevSessionRef.current = null; // Force reload on next effect
+    setMessages([]);
     setSession(sid);
     setShowSessionList(false);
   }, [setSession]);
@@ -238,16 +244,35 @@ export default function AgentSessionView({ agentId, sessionId: urlSessionId }: A
   }, []);
 
   // Load messages when session changes (only if we have a session)
+  const prevSessionRef = useRef<string | null>(null);
   useEffect(() => {
-    setMessages([]);
+    if (!activeSessionId) {
+      // No session = new conversation, clear everything
+      setMessages([]);
+      setStreamText("");
+      setLiveToolEvents([]);
+      prevSessionRef.current = null;
+      return;
+    }
+
+    // If we just created this session (messages already in state from streaming), don't reload
+    if (activeSessionId === prevSessionRef.current) return;
+    prevSessionRef.current = activeSessionId;
+
+    // Clear and reload from API
     setStreamText("");
     setLiveToolEvents([]);
 
-    if (!activeSessionId) return; // No session = new conversation, no messages to load
-
     api.getSessionMessages({ session_id: activeSessionId, limit: 50 })
-      .then((d: any) => setMessages(processRawMessages(d.messages || [])))
-      .catch(() => setMessages([]));
+      .then((d: any) => {
+        const loaded = processRawMessages(d.messages || []);
+        // Only replace if we got messages — preserve local state if API returns empty
+        // (race condition: messages might not be persisted yet)
+        if (loaded.length > 0) {
+          setMessages(loaded);
+        }
+      })
+      .catch(() => {});
   }, [activeSessionId, processRawMessages]);
 
   // Auto-scroll
