@@ -107,7 +107,7 @@ function Primitives() {
           className="text-[11px] uppercase tracking-[0.25em] text-black/20 mb-6"
           {...fadeView()}
         >
-          four primitives, one system
+          unlock the agent economy
         </motion.p>
         <motion.p
           className="text-[17px] tracking-[0.06em] text-black/30"
