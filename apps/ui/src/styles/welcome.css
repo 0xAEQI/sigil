@@ -1,111 +1,89 @@
 .welcome {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 100%;
   padding: 48px 24px;
-  max-width: 640px;
-  margin: 0 auto;
 }
 
-.welcome-hero {
-  text-align: center;
-  margin-bottom: 40px;
+.welcome-inner {
+  width: 100%;
+  max-width: 480px;
+}
+
+/* Identity block — avatar + name + tagline inline */
+.welcome-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.welcome-identity-text {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  gap: 2px;
 }
-
-.welcome-title {
-  font-size: 24px;
+.welcome-name {
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
-  letter-spacing: -0.03em;
-}
-
-.welcome-dot {
-  color: var(--accent);
-}
-
-.welcome-tagline {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin: 6px 0 0;
-}
-
-.welcome-editable {
+  letter-spacing: -0.02em;
   cursor: pointer;
-  border-radius: var(--radius-md);
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--radius-sm);
   transition: background 0.1s;
-  padding: 2px 6px;
-  margin-left: -6px;
-  margin-right: -6px;
 }
-.welcome-editable:hover {
-  background: var(--bg-elevated);
-}
-
-.welcome-title-input {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius-md);
-  padding: 2px 8px;
-  text-align: center;
-  outline: none;
-  letter-spacing: -0.03em;
-  width: 100%;
-  max-width: 400px;
-}
-
-.welcome-tagline-input {
-  font-size: 14px;
+.welcome-name:hover { background: var(--bg-elevated); }
+.welcome-sub {
+  font-size: 13px;
   color: var(--text-muted);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-hover);
-  border-radius: var(--radius-md);
-  padding: 4px 8px;
-  text-align: center;
-  outline: none;
-  width: 100%;
-  max-width: 300px;
-  margin-top: 6px;
+  margin: 0;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: var(--radius-sm);
+  transition: background 0.1s;
 }
+.welcome-sub:hover { background: var(--bg-elevated); }
 
 .welcome-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 100%;
+  gap: 2px;
 }
 
 .welcome-card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.1s;
 }
 
 .welcome-card:hover {
-  border-color: var(--border-hover);
   background: var(--bg-elevated);
 }
 
 .welcome-card-icon {
-  font-size: 20px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   flex-shrink: 0;
-  width: 32px;
-  text-align: center;
+  color: var(--text-muted);
+}
+.welcome-card:hover .welcome-card-icon {
+  color: var(--text-secondary);
+  border-color: var(--border-hover);
 }
 
 .welcome-card-body {
@@ -115,106 +93,68 @@
 
 .welcome-card-body h3 {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-primary);
-  margin: 0 0 2px;
+  margin: 0;
 }
 
 .welcome-card-body p {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
-  margin: 0;
-  line-height: 1.4;
+  margin: 2px 0 0;
+  line-height: 1.3;
 }
 
 .welcome-card-arrow {
   color: var(--text-muted);
-  font-size: 14px;
   flex-shrink: 0;
-  transition: transform 0.15s;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.15s;
 }
 
 .welcome-card:hover .welcome-card-arrow {
-  transform: translateX(2px);
+  opacity: 1;
+  transform: translateX(0);
   color: var(--text-secondary);
 }
 
-/* New workspace */
 .welcome-new-ws {
-  margin-top: 24px;
-  padding: 10px 20px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  background: var(--bg-surface);
+  margin-top: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
   border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.12s;
   width: 100%;
+  text-align: left;
 }
 .welcome-new-ws:hover {
-  color: var(--text-primary);
+  color: var(--text-secondary);
   border-color: var(--border-hover);
-  border-style: solid;
 }
-.welcome-create {
-  margin-top: 24px;
-  padding: 20px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  width: 100%;
+
+.welcome-footer {
+  margin-top: 40px;
+  text-align: center;
 }
-.welcome-create h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 4px;
-}
-.welcome-create p {
-  font-size: 12px;
+.welcome-footer p {
+  font-size: 10px;
   color: var(--text-muted);
-  margin: 0 0 14px;
-  line-height: 1.4;
+  margin: 0;
+  line-height: 1.6;
 }
-.welcome-create-form {
-  display: flex;
-  gap: 8px;
-}
-.welcome-create-input {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 13px;
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  outline: none;
-}
-.welcome-create-input:focus { border-color: var(--border-hover); }
-.welcome-create-input::placeholder { color: var(--text-muted); }
-.welcome-create-btn {
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  background: var(--accent);
-  color: var(--bg-base);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.welcome-create-btn:hover { opacity: 0.85; }
-.welcome-create-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.welcome-create-cancel {
-  margin-top: 8px;
-  font-size: 12px;
+.welcome-link {
   color: var(--text-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.welcome-create-cancel:hover { color: var(--text-secondary); }
+.welcome-link:hover {
+  color: var(--text-secondary);
+}
 
 /* New workspace page */
 @keyframes ws-fade-in {

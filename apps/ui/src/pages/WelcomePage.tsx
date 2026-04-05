@@ -4,7 +4,7 @@ import { useUIStore } from "@/store/ui";
 import BlockAvatar from "@/components/BlockAvatar";
 import "@/styles/welcome.css";
 
-// Same SVGs as sidebar — single source of truth
+// Same SVGs as sidebar
 const ICONS: Record<string, React.ReactNode> = {
   agents: <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="7" cy="5" r="2.5" /><path d="M3 12.5c0-2.2 1.8-4 4-4s4 1.8 4 4" /></svg>,
   events: <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><rect x="2" y="2" width="10" height="10" rx="1.5" /><path d="M2 8.5h3l1 1.5h2l1-1.5h3" /></svg>,
@@ -32,7 +32,6 @@ export default function WelcomePage() {
 
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(activeWorkspace);
-
   const [tagline, setTagline] = useState(
     () => localStorage.getItem("aeqi_workspace_tagline") || "The agent runtime.",
   );
@@ -43,7 +42,6 @@ export default function WelcomePage() {
     if (nameDraft.trim()) setActiveWorkspace(nameDraft.trim());
     setEditingName(false);
   };
-
   const saveTagline = () => {
     const val = taglineDraft.trim() || "The agent runtime.";
     setTagline(val);
@@ -55,78 +53,84 @@ export default function WelcomePage() {
 
   return (
     <div className="welcome">
-      <div className="welcome-hero">
-        <BlockAvatar name={displayName} size={56} />
-
-        {editingName ? (
-          <input
-            className="welcome-title-input"
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={saveName}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveName();
-              if (e.key === "Escape") { setEditingName(false); setNameDraft(activeWorkspace); }
-            }}
-            autoFocus
-          />
-        ) : (
-          <h1
-            className="welcome-title welcome-editable"
-            onClick={() => { setEditingName(true); setNameDraft(activeWorkspace); }}
-            title="Click to rename workspace"
-          >
-            {displayName}
-          </h1>
-        )}
-
-        {editingTagline ? (
-          <input
-            className="welcome-tagline-input"
-            value={taglineDraft}
-            onChange={(e) => setTaglineDraft(e.target.value)}
-            onBlur={saveTagline}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveTagline();
-              if (e.key === "Escape") { setEditingTagline(false); setTaglineDraft(tagline); }
-            }}
-            autoFocus
-          />
-        ) : (
-          <p
-            className="welcome-tagline welcome-editable"
-            onClick={() => { setEditingTagline(true); setTaglineDraft(tagline); }}
-            title="Click to edit tagline"
-          >
-            {tagline}
-          </p>
-        )}
-      </div>
-
-      <div className="welcome-grid">
-        {ITEMS.map((item) => (
-          <div key={item.key} className="welcome-card" onClick={() => navigate(item.route)}>
-            <span className="welcome-card-icon">{ICONS[item.key]}</span>
-            <div className="welcome-card-body">
-              <h3>{item.name}</h3>
-              <p>{item.desc}</p>
-            </div>
-            <span className="welcome-card-arrow">&rarr;</span>
+      <div className="welcome-inner new-ws-animate">
+        {/* Identity — same pattern as /new */}
+        <div className="welcome-identity">
+          <BlockAvatar name={displayName} size={56} />
+          <div className="welcome-identity-text">
+            {editingName ? (
+              <input
+                className="new-ws-name-input"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={saveName}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveName();
+                  if (e.key === "Escape") { setEditingName(false); setNameDraft(activeWorkspace); }
+                }}
+                autoFocus
+              />
+            ) : (
+              <h1
+                className="welcome-name"
+                onClick={() => { setEditingName(true); setNameDraft(activeWorkspace); }}
+                title="Click to rename"
+              >
+                {displayName}
+              </h1>
+            )}
+            {editingTagline ? (
+              <input
+                className="new-ws-tagline-input"
+                value={taglineDraft}
+                onChange={(e) => setTaglineDraft(e.target.value)}
+                onBlur={saveTagline}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveTagline();
+                  if (e.key === "Escape") { setEditingTagline(false); setTaglineDraft(tagline); }
+                }}
+                autoFocus
+              />
+            ) : (
+              <p
+                className="welcome-sub"
+                onClick={() => { setEditingTagline(true); setTaglineDraft(tagline); }}
+                title="Click to edit"
+              >
+                {tagline}
+              </p>
+            )}
           </div>
-        ))}
-      </div>
+        </div>
 
-      <button className="welcome-new-ws" onClick={() => navigate("/new")}>
-        + New workspace
-      </button>
+        {/* Navigation grid */}
+        <div className="welcome-grid">
+          {ITEMS.map((item) => (
+            <div key={item.key} className="welcome-card" onClick={() => navigate(item.route)}>
+              <span className="welcome-card-icon">{ICONS[item.key]}</span>
+              <div className="welcome-card-body">
+                <h3>{item.name}</h3>
+                <p>{item.desc}</p>
+              </div>
+              <svg className="welcome-card-arrow" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M5 3l4 4-4 4" /></svg>
+            </div>
+          ))}
+        </div>
 
-      <div className="welcome-footer">
-        <p>
-          By using aeqi.ai you agree to our{" "}
-          <a href="/terms" className="welcome-link">Terms of Service</a>
-          {" "}and{" "}
-          <a href="/privacy" className="welcome-link">Privacy Policy</a>.
-        </p>
+        {/* New workspace */}
+        <button className="welcome-new-ws" onClick={() => navigate("/new")}>
+          + New workspace
+        </button>
+
+        {/* Footer */}
+        <div className="welcome-footer">
+          <p>
+            By using aeqi.ai you agree to our{" "}
+            <a href="/terms" className="welcome-link">Terms of Service</a>
+            {" "}and{" "}
+            <a href="/privacy" className="welcome-link">Privacy Policy</a>.
+          </p>
+        </div>
       </div>
     </div>
   );
