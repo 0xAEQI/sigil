@@ -138,9 +138,9 @@ function Hero() {
 
 /* ─── Value props ─── */
 const props = [
-  { title: "Near-zero operations", desc: "Agents handle execution — coordination, reporting, decisions. The company runs whether you're watching or not. No payroll. No overhead." },
+  { title: "Autonomous orchestration", desc: "Agents delegate, coordinate, and execute across every function — engineering, marketing, operations, finance. The company runs itself. You set direction, not tasks." },
+  { title: "Compounding intelligence", desc: "Every task teaches. Every failure refines. Agents learn from everything they do, find new opportunities, and evolve to maximize shareholder value — automatically." },
   { title: "Optional instant capital formation", desc: "The cap table is a smart contract. Equity is tokenized from day one. Raising capital is a transaction, not a quarter of legal fees and term sheets." },
-  { title: "Real-time economics", desc: "Revenue, burn, and ownership visible on-chain. Investors don't wait for quarterly reports. Everyone sees the same numbers at the same time." },
 ];
 
 function ValueProps() {
