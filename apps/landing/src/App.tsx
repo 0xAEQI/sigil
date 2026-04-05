@@ -55,7 +55,7 @@ function Hero() {
   };
 
   return (
-    <section className="pt-36 pb-24 px-6">
+    <section className="pt-36 pb-32 px-6">
       <div className="max-w-3xl mx-auto text-center">
         <motion.div {...fade(0.1)}>
           <span className="text-[120px] md:text-[180px] font-bold tracking-tighter leading-none text-black select-none">
@@ -67,17 +67,10 @@ function Hero() {
           className="mt-5 text-lg md:text-xl text-black/40 tracking-wide"
           {...fade(0.35)}
         >
-          agent evolution
+          agent economy
         </motion.p>
 
-        <motion.p
-          className="mt-8 text-[15px] text-black/30 tracking-[0.04em]"
-          {...fade(0.5)}
-        >
-          <span className="font-bold text-black">a</span>gent&ensp;&middot;&ensp;<span className="font-bold text-black">e</span>vent&ensp;&middot;&ensp;<span className="font-bold text-black">q</span>uest&ensp;&middot;&ensp;<span className="font-bold text-black">i</span>nsight
-        </motion.p>
-
-        <motion.div className="mt-10" {...fade(0.6)}>
+        <motion.div className="mt-10" {...fade(0.5)}>
           <button
             onClick={copy}
             className="group inline-flex items-center gap-3 bg-black/[0.03] hover:bg-black/[0.06] rounded-lg px-5 py-3 transition-colors cursor-pointer"
@@ -91,12 +84,41 @@ function Hero() {
             </span>
           </button>
         </motion.div>
-
       </div>
     </section>
   );
 }
 
+
+/* ─── Scroll fade helper ─── */
+const fadeView = (delay = 0) => ({
+  initial: { opacity: 0, y: 12 } as const,
+  whileInView: { opacity: 1, y: 0 } as const,
+  viewport: { once: true, margin: "-60px" } as const,
+  transition: { duration: 0.5, ease: "easeOut" as const, delay },
+});
+
+/* ─── Primitives ─── */
+function Primitives() {
+  return (
+    <section className="pb-32 px-6">
+      <div className="max-w-3xl mx-auto text-center">
+        <motion.p
+          className="text-[11px] uppercase tracking-[0.25em] text-black/20 mb-6"
+          {...fadeView()}
+        >
+          four primitives, one system
+        </motion.p>
+        <motion.p
+          className="text-[17px] tracking-[0.06em] text-black/30"
+          {...fadeView(0.1)}
+        >
+          <span className="font-bold text-black">a</span>gent&ensp;&middot;&ensp;<span className="font-bold text-black">e</span>vent&ensp;&middot;&ensp;<span className="font-bold text-black">q</span>uest&ensp;&middot;&ensp;<span className="font-bold text-black">i</span>nsight
+        </motion.p>
+      </div>
+    </section>
+  );
+}
 
 /* ─── Footer ─── */
 function Footer() {
@@ -161,6 +183,7 @@ export default function App() {
     <div className="min-h-screen bg-white">
       <Nav />
       <Hero />
+      <Primitives />
       <Footer />
     </div>
   );
