@@ -1323,48 +1323,136 @@ impl Daemon {
                 }
 
                 "companies" => {
-                    // List agents and their task counts from agent_registry.
-                    let agents = agent_registry.list_active().await.unwrap_or_default();
-                    let mut projects: Vec<serde_json::Value> = Vec::new();
-                    for agent in &agents {
-                        let task_counts = agent_registry
-                            .list_tasks(None, Some(&agent.id))
-                            .await
-                            .map(|tasks| {
-                                let total = tasks.len();
-                                let open = tasks.iter().filter(|t| !t.is_closed()).count();
-                                let pending = tasks
-                                    .iter()
-                                    .filter(|t| t.status == aeqi_quests::QuestStatus::Pending)
-                                    .count();
-                                let in_progress = tasks
-                                    .iter()
-                                    .filter(|t| t.status == aeqi_quests::QuestStatus::InProgress)
-                                    .count();
-                                let done = tasks
-                                    .iter()
-                                    .filter(|t| t.status == aeqi_quests::QuestStatus::Done)
-                                    .count();
-                                let cancelled = tasks
-                                    .iter()
-                                    .filter(|t| t.status == aeqi_quests::QuestStatus::Cancelled)
-                                    .count();
-                                (total, open, pending, in_progress, done, cancelled)
-                            })
-                            .unwrap_or_default();
-                        projects.push(serde_json::json!({
-                            "name": agent.name,
-                            "prefix": "",
+                    // List companies from the companies table with task counts.
+                    let companies = agent_registry.list_companies().await.unwrap_or_default();
+                    let mut result: Vec<serde_json::Value> = Vec::new();
+                    for company in &companies {
+                        let task_counts = if let Some(ref aid) = company.agent_id {
+                            agent_registry
+                                .list_tasks(None, Some(aid))
+                                .await
+                                .map(|tasks| {
+                                    let total = tasks.len();
+                                    let open = tasks.iter().filter(|t| !t.is_closed()).count();
+                                    let pending = tasks
+                                        .iter()
+                                        .filter(|t| t.status == aeqi_quests::QuestStatus::Pending)
+                                        .count();
+                                    let in_progress = tasks
+                                        .iter()
+                                        .filter(|t| {
+                                            t.status == aeqi_quests::QuestStatus::InProgress
+                                        })
+                                        .count();
+                                    let done = tasks
+                                        .iter()
+                                        .filter(|t| t.status == aeqi_quests::QuestStatus::Done)
+                                        .count();
+                                    let cancelled = tasks
+                                        .iter()
+                                        .filter(|t| {
+                                            t.status == aeqi_quests::QuestStatus::Cancelled
+                                        })
+                                        .count();
+                                    (total, open, pending, in_progress, done, cancelled)
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            (0, 0, 0, 0, 0, 0)
+                        };
+                        result.push(serde_json::json!({
+                            "name": company.name,
+                            "display_name": company.display_name,
+                            "prefix": company.prefix,
+                            "tagline": company.tagline,
+                            "logo_url": company.logo_url,
+                            "source": company.source,
                             "open_tasks": task_counts.1,
                             "total_tasks": task_counts.0,
                             "pending_tasks": task_counts.2,
                             "in_progress_tasks": task_counts.3,
                             "done_tasks": task_counts.4,
                             "cancelled_tasks": task_counts.5,
-                            "departments": [],
                         }));
                     }
-                    serde_json::json!({"ok": true, "projects": projects})
+                    serde_json::json!({"ok": true, "companies": result})
+                }
+
+                "create_company" => {
+                    let name = request
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    if name.is_empty() {
+                        serde_json::json!({"ok": false, "error": "name is required"})
+                    } else {
+                        let prefix = request
+                            .get("prefix")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| {
+                                name.chars()
+                                    .take(2)
+                                    .collect::<String>()
+                                    .to_lowercase()
+                            });
+                        let tagline = request
+                            .get("tagline")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let record = crate::agent_registry::CompanyRecord {
+                            name: name.to_string(),
+                            display_name: None,
+                            prefix: prefix.clone(),
+                            tagline,
+                            logo_url: None,
+                            primer: None,
+                            repo: None,
+                            model: None,
+                            max_workers: 2,
+                            execution_mode: "agent".to_string(),
+                            worker_timeout_secs: 1800,
+                            worktree_root: None,
+                            max_turns: Some(25),
+                            max_budget_usd: None,
+                            max_cost_per_day_usd: None,
+                            source: "api".to_string(),
+                            agent_id: None,
+                            created_at: now.clone(),
+                            updated_at: now,
+                        };
+                        match agent_registry.create_company(&record).await {
+                            Ok(()) => {
+                                // Spawn a runtime agent for this company.
+                                let agent = agent_registry
+                                    .spawn(
+                                        name,
+                                        None,
+                                        "company",
+                                        &format!("Agent for {name}"),
+                                        None,
+                                        None,
+                                        &[],
+                                    )
+                                    .await;
+                                if let Ok(agent) = agent {
+                                    let _ = agent_registry
+                                        .update_company_agent_id(name, &agent.id)
+                                        .await;
+                                }
+                                // Create projects directory.
+                                if let Ok(cwd) = std::env::current_dir() {
+                                    let project_dir = cwd.join("projects").join(name);
+                                    let _ = std::fs::create_dir_all(&project_dir);
+                                }
+                                serde_json::json!({"ok": true, "company": {"name": name, "prefix": prefix}})
+                            }
+                            Err(e) => {
+                                serde_json::json!({"ok": false, "error": e.to_string()})
+                            }
+                        }
+                    }
                 }
 
                 "mail" => {

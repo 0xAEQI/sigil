@@ -21,11 +21,11 @@ export default function NewWorkspacePage() {
     setCreating(true);
     setError("");
     try {
-      await api.createCompany({ name: name.trim() });
+      await api.createCompany({
+        name: name.trim(),
+        tagline: tagline.trim() || undefined,
+      });
       setActiveCompany(name.trim());
-      if (tagline.trim()) {
-        localStorage.setItem("aeqi_company_tagline", tagline.trim());
-      }
       navigate("/agents");
     } catch (e: any) {
       setError(e?.message || "Failed to create company");

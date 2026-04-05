@@ -165,6 +165,30 @@ impl std::fmt::Display for AgentStatus {
     }
 }
 
+/// A company record — business identity stored in the companies table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompanyRecord {
+    pub name: String,
+    pub display_name: Option<String>,
+    pub prefix: String,
+    pub tagline: Option<String>,
+    pub logo_url: Option<String>,
+    pub primer: Option<String>,
+    pub repo: Option<String>,
+    pub model: Option<String>,
+    pub max_workers: u32,
+    pub execution_mode: String,
+    pub worker_timeout_secs: u64,
+    pub worktree_root: Option<String>,
+    pub max_turns: Option<u32>,
+    pub max_budget_usd: Option<f64>,
+    pub max_cost_per_day_usd: Option<f64>,
+    pub source: String,
+    pub agent_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// SQLite-backed registry — the single source of truth for the agent tree.
 pub struct AgentRegistry {
     db: Arc<Mutex<Connection>>,
@@ -358,6 +382,31 @@ impl AgentRegistry {
         if !has_trigger_prompts {
             conn.execute_batch("ALTER TABLE triggers ADD COLUMN prompts TEXT DEFAULT '[]';")?;
         }
+
+        // Create companies table (identity + config, separate from agent tree).
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS companies (
+                 name TEXT PRIMARY KEY,
+                 display_name TEXT,
+                 prefix TEXT NOT NULL,
+                 tagline TEXT,
+                 logo_url TEXT,
+                 primer TEXT,
+                 repo TEXT,
+                 model TEXT,
+                 max_workers INTEGER NOT NULL DEFAULT 2,
+                 execution_mode TEXT NOT NULL DEFAULT 'agent',
+                 worker_timeout_secs INTEGER NOT NULL DEFAULT 1800,
+                 worktree_root TEXT,
+                 max_turns INTEGER DEFAULT 25,
+                 max_budget_usd REAL,
+                 max_cost_per_day_usd REAL,
+                 source TEXT NOT NULL DEFAULT 'api',
+                 agent_id TEXT,
+                 created_at TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+             );",
+        )?;
 
         // Create events table (unified event store).
         crate::event_store::EventStore::create_tables(&conn)?;
@@ -1357,6 +1406,142 @@ impl AgentRegistry {
     pub fn db(&self) -> Arc<Mutex<Connection>> {
         self.db.clone()
     }
+
+    // -- Company CRUD ---------------------------------------------------------
+
+    /// Upsert a company from TOML config (overwrites existing TOML-sourced entries).
+    pub async fn upsert_company_from_toml(&self, record: &CompanyRecord) -> Result<()> {
+        let db = self.db.lock().await;
+        db.execute(
+            "INSERT INTO companies (name, display_name, prefix, tagline, logo_url, primer, repo, model,
+                max_workers, execution_mode, worker_timeout_secs, worktree_root, max_turns,
+                max_budget_usd, max_cost_per_day_usd, source, agent_id, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,'toml',?16,?17,?17)
+             ON CONFLICT(name) DO UPDATE SET
+                prefix=?3, primer=?6, repo=?7, model=?8, max_workers=?9,
+                execution_mode=?10, worker_timeout_secs=?11, worktree_root=?12,
+                max_turns=?13, max_budget_usd=?14, max_cost_per_day_usd=?15,
+                agent_id=?16, updated_at=?17
+             WHERE source='toml'",
+            rusqlite::params![
+                record.name,
+                record.display_name,
+                record.prefix,
+                record.tagline,
+                record.logo_url,
+                record.primer,
+                record.repo,
+                record.model,
+                record.max_workers,
+                record.execution_mode,
+                record.worker_timeout_secs,
+                record.worktree_root,
+                record.max_turns,
+                record.max_budget_usd,
+                record.max_cost_per_day_usd,
+                record.agent_id,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Create a company via API (fails if name already exists).
+    pub async fn create_company(&self, record: &CompanyRecord) -> Result<()> {
+        let db = self.db.lock().await;
+        let now = chrono::Utc::now().to_rfc3339();
+        db.execute(
+            "INSERT INTO companies (name, display_name, prefix, tagline, logo_url, primer, repo, model,
+                max_workers, execution_mode, worker_timeout_secs, source, agent_id, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'api',?12,?13,?13)",
+            rusqlite::params![
+                record.name, record.display_name, record.prefix, record.tagline,
+                record.logo_url, record.primer, record.repo, record.model,
+                record.max_workers, record.execution_mode, record.worker_timeout_secs,
+                record.agent_id, now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Get a company by name.
+    pub async fn get_company(&self, name: &str) -> Result<Option<CompanyRecord>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT name, display_name, prefix, tagline, logo_url, primer, repo, model,
+                    max_workers, execution_mode, worker_timeout_secs, worktree_root, max_turns,
+                    max_budget_usd, max_cost_per_day_usd, source, agent_id, created_at, updated_at
+             FROM companies WHERE name = ?1",
+        )?;
+        let result = stmt.query_row(rusqlite::params![name], row_to_company).ok();
+        Ok(result)
+    }
+
+    /// List all companies.
+    pub async fn list_companies(&self) -> Result<Vec<CompanyRecord>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT name, display_name, prefix, tagline, logo_url, primer, repo, model,
+                    max_workers, execution_mode, worker_timeout_secs, worktree_root, max_turns,
+                    max_budget_usd, max_cost_per_day_usd, source, agent_id, created_at, updated_at
+             FROM companies ORDER BY created_at",
+        )?;
+        let companies = stmt
+            .query_map([], row_to_company)?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(companies)
+    }
+
+    /// List companies created via API (not TOML).
+    pub async fn list_api_companies(&self) -> Result<Vec<CompanyRecord>> {
+        let db = self.db.lock().await;
+        let mut stmt = db.prepare(
+            "SELECT name, display_name, prefix, tagline, logo_url, primer, repo, model,
+                    max_workers, execution_mode, worker_timeout_secs, worktree_root, max_turns,
+                    max_budget_usd, max_cost_per_day_usd, source, agent_id, created_at, updated_at
+             FROM companies WHERE source = 'api' ORDER BY created_at",
+        )?;
+        let companies = stmt
+            .query_map([], row_to_company)?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(companies)
+    }
+
+    /// Update the agent_id link for a company.
+    pub async fn update_company_agent_id(&self, name: &str, agent_id: &str) -> Result<()> {
+        let db = self.db.lock().await;
+        db.execute(
+            "UPDATE companies SET agent_id = ?1, updated_at = ?2 WHERE name = ?3",
+            rusqlite::params![agent_id, chrono::Utc::now().to_rfc3339(), name],
+        )?;
+        Ok(())
+    }
+}
+
+fn row_to_company(row: &rusqlite::Row) -> rusqlite::Result<CompanyRecord> {
+    Ok(CompanyRecord {
+        name: row.get(0)?,
+        display_name: row.get(1)?,
+        prefix: row.get(2)?,
+        tagline: row.get(3)?,
+        logo_url: row.get(4)?,
+        primer: row.get(5)?,
+        repo: row.get(6)?,
+        model: row.get(7)?,
+        max_workers: row.get::<_, u32>(8).unwrap_or(2),
+        execution_mode: row.get::<_, String>(9).unwrap_or_else(|_| "agent".to_string()),
+        worker_timeout_secs: row.get::<_, u64>(10).unwrap_or(1800),
+        worktree_root: row.get(11)?,
+        max_turns: row.get(12)?,
+        max_budget_usd: row.get(13)?,
+        max_cost_per_day_usd: row.get(14)?,
+        source: row.get::<_, String>(15).unwrap_or_else(|_| "api".to_string()),
+        agent_id: row.get(16)?,
+        created_at: row.get::<_, String>(17).unwrap_or_default(),
+        updated_at: row.get::<_, String>(18).unwrap_or_default(),
+    })
 }
 
 /// Convert a SQLite row to a Task.

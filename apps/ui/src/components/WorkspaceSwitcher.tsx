@@ -7,6 +7,7 @@ import BlockAvatar from "./BlockAvatar";
 
 interface Workspace {
   name: string;
+  tagline?: string;
 }
 
 export default function WorkspaceSwitcher() {
@@ -29,7 +30,9 @@ export default function WorkspaceSwitcher() {
         const items = Array.isArray(raw) ? raw : [];
         if (items.length > 0) {
           setWorkspaces(
-            items.map((c: any) => ({ name: c.name || c.company || "" })).filter((w: Workspace) => w.name),
+            items
+              .map((c: any) => ({ name: c.name || c.company || "", tagline: c.tagline }))
+              .filter((w: Workspace) => w.name),
           );
           return;
         }
@@ -92,7 +95,9 @@ export default function WorkspaceSwitcher() {
         <div className="ws-trigger-text" onClick={() => navigate("/")}>
           <span className="ws-trigger-name">{displayName}</span>
           <span className="ws-trigger-plan">
-            {localStorage.getItem("aeqi_company_tagline") || "The agent runtime."}
+            {workspaces.find((w) => w.name === activeCompany)?.tagline
+              || localStorage.getItem("aeqi_company_tagline")
+              || "The agent runtime."}
           </span>
         </div>
         <button

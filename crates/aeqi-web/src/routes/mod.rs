@@ -18,7 +18,7 @@ pub fn webhook_routes() -> Router<AppState> {
 pub fn api_routes() -> Router<AppState> {
     Router::new()
         .route("/status", get(status))
-        .route("/companies", get(projects))
+        .route("/companies", get(projects).post(create_company))
         .route("/tasks", get(tasks).post(create_task))
         .route("/tasks/{id}/close", post(close_task))
         .route("/agents", get(agents))
@@ -71,10 +71,17 @@ async fn status(State(state): State<AppState>) -> Response {
     ipc_proxy(state, "status", serde_json::Value::Null).await
 }
 
-// --- Projects ---
+// --- Companies ---
 
 async fn projects(State(state): State<AppState>) -> Response {
-    ipc_proxy(state, "projects", serde_json::Value::Null).await
+    ipc_proxy(state, "companies", serde_json::Value::Null).await
+}
+
+async fn create_company(
+    State(state): State<AppState>,
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> Response {
+    ipc_proxy(state, "create_company", body).await
 }
 
 // --- Tasks ---

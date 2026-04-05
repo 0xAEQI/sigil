@@ -4,7 +4,8 @@ use aeqi_core::traits::Channel;
 use aeqi_gates::TelegramChannel;
 use aeqi_orchestrator::tools::build_orchestration_tools;
 use aeqi_orchestrator::{
-    AEQIMetrics, AgentRouter, Daemon, EventStore, Scheduler, SchedulerConfig, SessionStore,
+    AEQIMetrics, AgentRouter, CompanyRecord, Daemon, EventStore, Scheduler, SchedulerConfig,
+    SessionStore,
 };
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -378,6 +379,36 @@ pub(crate) async fn cmd_daemon(config_path: &Option<PathBuf>, action: DaemonActi
                         "company agent registered in agent registry"
                     );
                 }
+
+                // Sync company identity to the companies table.
+                let exec_mode = match project_cfg.execution_mode {
+                    aeqi_core::config::ExecutionMode::Agent => "agent",
+                    aeqi_core::config::ExecutionMode::ClaudeCode => "claude_code",
+                };
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = agent_reg
+                    .upsert_company_from_toml(&CompanyRecord {
+                        name: project_cfg.name.clone(),
+                        display_name: None,
+                        prefix: project_cfg.prefix.clone(),
+                        tagline: None,
+                        logo_url: None,
+                        primer: project_cfg.primer.clone(),
+                        repo: Some(repo_path.to_string_lossy().to_string()),
+                        model: project_cfg.model.clone(),
+                        max_workers: project_cfg.max_workers,
+                        execution_mode: exec_mode.to_string(),
+                        worker_timeout_secs: project_cfg.worker_timeout_secs,
+                        worktree_root: project_cfg.worktree_root.clone(),
+                        max_turns: project_cfg.max_turns,
+                        max_budget_usd: project_cfg.max_budget_usd,
+                        max_cost_per_day_usd: project_cfg.max_cost_per_day_usd,
+                        source: "toml".to_string(),
+                        agent_id: Some(agent.id.clone()),
+                        created_at: now.clone(),
+                        updated_at: now,
+                    })
+                    .await;
             }
 
             // Also register advisor + leader agents the same way.
