@@ -6,11 +6,18 @@ import BlockAvatar from "./BlockAvatar";
 export default function ProfileMenu() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
+  const authMode = useAuthStore((s) => s.authMode);
+  const user = useAuthStore((s) => s.user);
+  const fetchMe = useAuthStore((s) => s.fetchMe);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const userName = localStorage.getItem("aeqi_user_name") || "Operator";
-  const userEmail = localStorage.getItem("aeqi_user_email") || "";
+  useEffect(() => {
+    if (authMode === "accounts" && !user) fetchMe();
+  }, [authMode, user, fetchMe]);
+
+  const userName = user?.name || (authMode === "none" ? "Self-hosted" : "Operator");
+  const userEmail = user?.email || "";
 
   useEffect(() => {
     if (!open) return;
@@ -56,20 +63,30 @@ export default function ProfileMenu() {
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><circle cx="7" cy="7" r="5" /><path d="M7 4v3M7 9v0" /></svg>
             Support
           </button>
-          <div className="pm-divider" />
-          <button className="pm-item pm-item-muted" onClick={handleLogout}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M5 2H3.5a1 1 0 00-1 1v8a1 1 0 001 1H5M8 10l3-3-3-3M11 7H5" /></svg>
-            Sign out
-          </button>
+          {authMode !== "none" && (
+            <>
+              <div className="pm-divider" />
+              <button className="pm-item pm-item-muted" onClick={handleLogout}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M5 2H3.5a1 1 0 00-1 1v8a1 1 0 001 1H5M8 10l3-3-3-3M11 7H5" /></svg>
+                Sign out
+              </button>
+            </>
+          )}
         </div>
       )}
 
       <div className="pm-trigger">
         <div className="pm-trigger-profile" onClick={() => { setOpen(false); navigate("/settings"); }}>
-          <BlockAvatar name={userName} size={22} />
+          {user?.avatar_url ? (
+            <img src={user.avatar_url} alt="" style={{ width: 22, height: 22, borderRadius: 4, flexShrink: 0 }} />
+          ) : (
+            <BlockAvatar name={userName} size={22} />
+          )}
           <div className="pm-trigger-text">
             <span className="pm-trigger-name">{userName}</span>
-            <span className="pm-trigger-plan">free plan</span>
+            <span className="pm-trigger-plan">
+              {authMode === "none" ? "local" : "free plan"}
+            </span>
           </div>
         </div>
         <button className="ws-chevron-btn" onClick={() => setOpen(!open)} title="User menu">

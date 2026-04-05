@@ -229,7 +229,6 @@ dependencies = [
  "chrono",
  "jsonwebtoken",
  "mime_guess",
- "rand",
  "reqwest",
  "rusqlite",
  "rust-embed",

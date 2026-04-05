@@ -1,41 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const navigate = useNavigate();
-  const {
-    authMode,
-    googleOAuth,
-    loading,
-    error,
-    fetchAuthMode,
-    login,
-    loginWithEmail,
-    isAuthenticated,
-  } = useAuthStore();
+  const { loading, error, signup, googleOAuth } = useAuthStore();
 
-  const [secret, setSecret] = useState("");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  useEffect(() => {
-    if (!authMode) fetchAuthMode();
-  }, [authMode, fetchAuthMode]);
-
-  useEffect(() => {
-    if (isAuthenticated()) navigate("/", { replace: true });
-  }, [isAuthenticated, navigate]);
-
-  const handleSecretSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const ok = await login(secret);
-    if (ok) navigate("/");
-  };
-
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const ok = await loginWithEmail(email, password);
+    const ok = await signup(email, password, name);
     if (ok) navigate("/");
   };
 
@@ -43,37 +20,11 @@ export default function LoginPage() {
     window.location.href = "/api/auth/google";
   };
 
-  // Secret mode — original password form.
-  if (authMode === "secret") {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <h1 className="login-title">aeqi</h1>
-          <form className="login-form" onSubmit={handleSecretSubmit}>
-            <input
-              className="login-input"
-              type="password"
-              placeholder="Access key"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-              autoFocus
-            />
-            {error && <div className="login-error">{error}</div>}
-            <button className="btn btn-primary" type="submit" disabled={loading}>
-              {loading ? "Connecting..." : "Enter"}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // Accounts mode — email/password + Google OAuth.
   return (
     <div className="login-page">
       <div className="login-card">
         <h1 className="login-title">aeqi</h1>
-        <p className="login-subtitle">Sign in to your account</p>
+        <p className="login-subtitle">Create your account</p>
 
         {googleOAuth && (
           <>
@@ -92,31 +43,38 @@ export default function LoginPage() {
           </>
         )}
 
-        <form className="login-form" onSubmit={handleEmailSubmit}>
+        <form className="login-form" onSubmit={handleSubmit}>
+          <input
+            className="login-input"
+            type="text"
+            placeholder="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
           <input
             className="login-input"
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoFocus
           />
           <input
             className="login-input"
             type="password"
-            placeholder="Password"
+            placeholder="Password (8+ characters)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
           {error && <div className="login-error">{error}</div>}
-          <button className="btn btn-primary" type="submit" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
+          <button className="btn btn-primary" type="submit" disabled={loading || !email || password.length < 8}>
+            {loading ? "Creating..." : "Create account"}
           </button>
         </form>
 
         <p className="login-footer-text">
-          Don't have an account?{" "}
-          <Link to="/signup" className="login-link">Create one</Link>
+          Already have an account?{" "}
+          <Link to="/login" className="login-link">Sign in</Link>
         </p>
       </div>
     </div>

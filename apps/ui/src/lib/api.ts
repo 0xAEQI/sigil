@@ -42,8 +42,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const body = await parseResponseBody(res);
 
   if (res.status === 401) {
-    localStorage.removeItem("aeqi_token");
-    window.location.href = "/login";
+    // Don't redirect for auth mode check or if mode is "none".
+    const authMode = localStorage.getItem("aeqi_auth_mode");
+    if (authMode !== "none" && !path.startsWith("/auth/")) {
+      localStorage.removeItem("aeqi_token");
+      window.location.href = "/login";
+    }
     throw new ApiError(401, "Unauthorized");
   }
 
@@ -60,11 +64,28 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Auth
+  getAuthMode: () =>
+    request<{ mode: string; google_oauth: boolean }>("/auth/mode"),
+
   login: (secret: string) =>
     request<{ ok: boolean; token: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ secret }),
     }),
+
+  loginWithEmail: (email: string, password: string) =>
+    request<{ ok: boolean; token: string; user?: any }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+
+  signup: (email: string, password: string, name: string) =>
+    request<{ ok: boolean; token: string; user?: any }>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password, name }),
+    }),
+
+  getMe: () => request<any>("/auth/me"),
 
   // Dashboard
   getDashboard: () => request<any>("/dashboard"),
