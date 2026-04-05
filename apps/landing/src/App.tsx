@@ -59,7 +59,7 @@ function Hero() {
   const [showParticles, setShowParticles] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowParticles(true), 1200);
+    const timer = setTimeout(() => setShowParticles(true), 800);
     return () => clearTimeout(timer);
   }, []);
 

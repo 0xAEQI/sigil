@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
 
-const PARTICLE_COUNT = 1400;
+const PARTICLE_COUNT = 2500;
 const RETURN_FORCE = 0.04;
 const DAMPING = 0.88;
 const MOUSE_RADIUS = 60;
@@ -144,8 +144,8 @@ export default function ParticleLogo({
 
     // Burst immediately — the solid text already held
     let hasBurst = false;
-    const BURST_FRAME = 3; // Almost instant
-    const BURST_FORCE = 10;
+    const BURST_FRAME = 3;
+    const BURST_FORCE = 20;
 
     let frame = 0;
     let animId: number;
