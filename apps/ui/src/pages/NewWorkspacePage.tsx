@@ -35,18 +35,14 @@ export default function NewWorkspacePage() {
 
   return (
     <div className="new-ws-page">
-      <div className="new-ws-container">
+      <div className="new-ws-container new-ws-animate">
         <a className="new-ws-back" href="/" onClick={(e) => { e.preventDefault(); navigate("/"); }}>
-          &larr; Back
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M8.5 3L4.5 7l4 4" /></svg>
+          Back
         </a>
 
-        <h1 className="new-ws-title">Create a workspace</h1>
-        <p className="new-ws-desc">
-          A workspace is your company, project, or team — a self-contained
-          environment with its own agents, quests, and knowledge.
-        </p>
-
-        <div className="new-ws-avatar-field">
+        <div className="new-ws-hero">
+          {/* Avatar + Name inline */}
           <input
             ref={fileRef}
             type="file"
@@ -61,39 +57,35 @@ export default function NewWorkspacePage() {
               e.target.value = "";
             }}
           />
-          <div className="new-ws-avatar" onClick={() => fileRef.current?.click()} title="Upload image">
-            {imageUrl ? (
-              <img src={imageUrl} alt="" className="new-ws-avatar-img" />
-            ) : (
-              <BlockAvatar name={name || "W"} size={64} />
-            )}
-            <span className="new-ws-avatar-overlay">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 11l3.5-3.5L8 10l3-4 3 3M2 14h12M13 2l1 1" /></svg>
-            </span>
+          <div className="new-ws-identity">
+            <div className="new-ws-avatar" onClick={() => fileRef.current?.click()} title="Upload logo">
+              {imageUrl ? (
+                <img src={imageUrl} alt="" className="new-ws-avatar-img" />
+              ) : (
+                <BlockAvatar name={name || "W"} size={56} />
+              )}
+              <span className="new-ws-avatar-overlay">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 11l3.5-3.5L8 10l3-4 3 3M2 14h12" /></svg>
+              </span>
+            </div>
+            <div className="new-ws-identity-fields">
+              <input
+                className="new-ws-name-input"
+                placeholder="Workspace name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
+                autoFocus
+              />
+              <input
+                className="new-ws-tagline-input"
+                placeholder="Add a tagline..."
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) handleCreate(); }}
+              />
+            </div>
           </div>
-        </div>
-
-        <div className="new-ws-field">
-          <label className="new-ws-label">Name</label>
-          <input
-            className="new-ws-input"
-            placeholder="e.g. Acme Corp, my-project, research-lab"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-            autoFocus
-          />
-        </div>
-
-        <div className="new-ws-field">
-          <label className="new-ws-label">Tagline <span className="new-ws-optional">optional</span></label>
-          <input
-            className="new-ws-input"
-            placeholder="A short description for your workspace"
-            value={tagline}
-            onChange={(e) => setTagline(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-          />
         </div>
 
         {error && <div className="new-ws-error">{error}</div>}
@@ -103,8 +95,14 @@ export default function NewWorkspacePage() {
           onClick={handleCreate}
           disabled={!name.trim() || creating}
         >
-          {creating ? "Creating..." : "Create workspace"}
+          {creating ? "Creating..." : (
+            <>Create workspace <kbd className="new-ws-kbd">↵</kbd></>
+          )}
         </button>
+
+        <p className="new-ws-hint">
+          You can change the name, logo, and tagline anytime from your workspace settings.
+        </p>
       </div>
     </div>
   );

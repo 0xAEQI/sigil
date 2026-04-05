@@ -217,6 +217,10 @@
 .welcome-create-cancel:hover { color: var(--text-secondary); }
 
 /* New workspace page */
+@keyframes ws-fade-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .new-ws-page {
   display: flex;
   align-items: center;
@@ -226,7 +230,10 @@
 }
 .new-ws-container {
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
+}
+.new-ws-animate {
+  animation: ws-fade-in 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .new-ws-back {
   font-size: 12px;
@@ -235,40 +242,32 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
+  transition: color 0.1s;
 }
 .new-ws-back:hover { color: var(--text-secondary); }
-.new-ws-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin: 0 0 6px;
-  letter-spacing: -0.02em;
+
+/* Identity: avatar + name + tagline inline */
+.new-ws-hero {
+  margin-bottom: 28px;
 }
-.new-ws-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: 0 0 24px;
-  line-height: 1.5;
-}
-.new-ws-avatar-field {
+.new-ws-identity {
   display: flex;
-  justify-content: center;
-  margin-bottom: 20px;
+  align-items: center;
+  gap: 16px;
 }
 .new-ws-avatar {
   position: relative;
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
   border: 2px solid var(--border);
-  transition: border-color 0.12s;
+  transition: border-color 0.15s;
+  flex-shrink: 0;
 }
-.new-ws-avatar:hover {
-  border-color: var(--border-hover);
-}
+.new-ws-avatar:hover { border-color: var(--border-hover); }
 .new-ws-avatar-img {
   width: 100%;
   height: 100%;
@@ -277,54 +276,54 @@
 .new-ws-avatar-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   opacity: 0;
-  transition: opacity 0.12s;
+  transition: opacity 0.15s;
 }
-.new-ws-avatar:hover .new-ws-avatar-overlay {
-  opacity: 1;
+.new-ws-avatar:hover .new-ws-avatar-overlay { opacity: 1; }
+.new-ws-identity-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.new-ws-field {
-  margin-bottom: 16px;
-}
-.new-ws-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-.new-ws-optional {
-  font-weight: 400;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.new-ws-input {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 13px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+.new-ws-name-input {
+  font-size: 18px;
+  font-weight: 600;
   color: var(--text-primary);
+  background: transparent;
+  border: none;
   outline: none;
-  transition: border-color 0.12s;
+  padding: 0;
+  letter-spacing: -0.01em;
 }
-.new-ws-input:focus { border-color: var(--border-hover); }
-.new-ws-input::placeholder { color: var(--text-muted); }
+.new-ws-name-input::placeholder { color: var(--text-muted); font-weight: 400; }
+.new-ws-tagline-input {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+.new-ws-tagline-input::placeholder { color: var(--border-hover); }
+
+/* Error */
 .new-ws-error {
   font-size: 12px;
   color: var(--error);
   margin-bottom: 12px;
 }
+
+/* Submit */
 .new-ws-submit {
   width: 100%;
-  padding: 10px;
-  font-size: 13px;
+  padding: 12px;
+  font-size: 14px;
   font-weight: 600;
   background: var(--text-primary);
   color: var(--bg-base);
@@ -332,10 +331,29 @@
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: opacity 0.12s;
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 .new-ws-submit:hover { opacity: 0.85; }
-.new-ws-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+.new-ws-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+.new-ws-kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.15);
+  font-weight: 400;
+}
+
+/* Hint */
+.new-ws-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 12px;
+}
 
 .welcome-footer {
   margin-top: 32px;
