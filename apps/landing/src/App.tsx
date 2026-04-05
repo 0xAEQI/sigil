@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { motion } from "framer-motion";
+
+const ParticleLogo = lazy(() => import("./ParticleLogo"));
 
 /* ─── Fade-in helper ─── */
 const fade = (delay = 0) => ({
@@ -64,10 +66,12 @@ function Hero() {
   return (
     <section className="flex-1 flex items-center justify-center px-6">
       <div className="max-w-3xl mx-auto text-center py-32">
-        <motion.div {...fade(0.1)}>
-          <span className="text-[120px] md:text-[180px] font-bold tracking-tighter leading-none text-black/60 select-none">
-            æ
-          </span>
+        <motion.div {...fade(0.1)} className="flex justify-center">
+          <Suspense fallback={
+            <span className="text-[120px] md:text-[180px] font-bold tracking-tighter leading-none text-black/60 select-none">æ</span>
+          }>
+            <ParticleLogo size={280} />
+          </Suspense>
         </motion.div>
 
         <motion.p
