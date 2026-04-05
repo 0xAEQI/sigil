@@ -101,7 +101,7 @@ fn email_wrapper(content: &str) -> String {
 </head>
 <body>
 <div class="container">
-  <div class="logo">æ</div>
+  <div class="logo">æqi</div>
   {content}
   <div class="footer">
     <p>aeqi — agent orchestration runtime</p>
