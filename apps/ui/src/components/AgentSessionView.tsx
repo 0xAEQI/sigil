@@ -315,6 +315,8 @@ export default function AgentSessionView({
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current = 0;
       setDragOver(false);
       if (e.dataTransfer.files.length > 0) readFiles(e.dataTransfer.files);
     },
@@ -323,10 +325,22 @@ export default function AgentSessionView({
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current += 1;
     setDragOver(true);
   }, []);
 
-  const handleDragLeave = useCallback(() => setDragOver(false), []);
+  const dragCounter = useRef(0);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setDragOver(false);
+    }
+  }, []);
 
   // Keyboard shortcuts: Cmd+P → prompt picker, Cmd+Q → quest picker
   useEffect(() => {
@@ -820,6 +834,7 @@ export default function AgentSessionView({
       className={`asv ${dragOver ? "asv--dragover" : ""}`}
       onDrop={handleDrop}
       onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
     >
       {/* Session header */}

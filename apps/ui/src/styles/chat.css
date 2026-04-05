@@ -840,6 +840,7 @@
 .asv--dragover {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-base));
 }
 
 .asv-header {
