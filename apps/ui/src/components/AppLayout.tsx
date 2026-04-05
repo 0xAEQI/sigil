@@ -68,8 +68,8 @@ export default function AppLayout() {
               href="/"
               onClick={(e) => { e.preventDefault(); navigate("/"); }}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2 7l5-4.5L12 7M3.5 6v5.5h7V6" /></svg>
-              Home
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="7" cy="5" r="2.5" /><path d="M3 12.5c0-2.2 1.8-4 4-4s4 1.8 4 4" /></svg>
+              Agents
             </a>
             <a
               className={`sidebar-nav-item ${page === "inbox" ? "active" : ""}`}
