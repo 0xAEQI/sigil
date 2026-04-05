@@ -301,6 +301,17 @@
   transition: background 0.1s;
 }
 .pm-trigger:hover { background: var(--bg-elevated); }
+.pm-trigger-profile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  padding: 2px 4px 2px 0;
+}
+.pm-trigger-profile:hover { opacity: 0.8; }
 .pm-trigger-text {
   flex: 1;
   min-width: 0;
