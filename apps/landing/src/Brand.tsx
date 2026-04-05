@@ -14,13 +14,28 @@ function drawText(
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, w, h);
 
-  const x = align === "right" ? w * 0.7 + offsetX : w / 2 + offsetX;
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-  ctx.textAlign = align === "right" ? "center" : "center";
   ctx.textBaseline = "middle";
   ctx.font = `bold ${fontSize}px Inter, -apple-system, system-ui, sans-serif`;
   (ctx as any).letterSpacing = `${-fontSize * 0.08}px`;
-  ctx.fillText(text, x, h / 2);
+
+  if (text === "æqi") {
+    // Render "æq" then "i" shifted down to align with q body
+    ctx.textAlign = "right";
+    const cx = align === "right" ? w * 0.7 + offsetX : w / 2 + offsetX;
+    const aqWidth = ctx.measureText("æq").width;
+    const iWidth = ctx.measureText("i").width;
+    const totalWidth = aqWidth + iWidth;
+    const startX = cx - totalWidth / 2;
+
+    ctx.textAlign = "left";
+    ctx.fillText("æq", startX, h / 2);
+    ctx.fillText("i", startX + aqWidth, h / 2 + fontSize * 0.04);
+  } else {
+    const x = align === "right" ? w * 0.7 + offsetX : w / 2 + offsetX;
+    ctx.textAlign = "center";
+    ctx.fillText(text, x, h / 2);
+  }
 }
 
 function BrandCanvas({
