@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUIStore } from "@/store/ui";
+import { api } from "@/lib/api";
 import BlockAvatar from "@/components/BlockAvatar";
 import "@/styles/welcome.css";
 
@@ -38,6 +39,23 @@ export default function WelcomePage() {
   );
   const [editingTagline, setEditingTagline] = useState(false);
   const [taglineDraft, setTaglineDraft] = useState(tagline);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newWsName, setNewWsName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const handleCreateWorkspace = async () => {
+    if (!newWsName.trim() || creating) return;
+    setCreating(true);
+    try {
+      await api.createCompany({ name: newWsName.trim() });
+      setActiveWorkspace(newWsName.trim());
+      setShowCreate(false);
+      setNewWsName("");
+      navigate("/agents");
+    } catch {
+      setCreating(false);
+    }
+  };
 
   const saveName = () => {
     if (nameDraft.trim()) setActiveWorkspace(nameDraft.trim());
@@ -115,6 +133,41 @@ export default function WelcomePage() {
           </div>
         ))}
       </div>
+
+      {/* New workspace */}
+      {showCreate ? (
+        <div className="welcome-create">
+          <h3>Create a workspace</h3>
+          <p>A workspace is your company, project, or team — a self-contained environment for your agents.</p>
+          <div className="welcome-create-form">
+            <input
+              className="welcome-create-input"
+              placeholder="Workspace name"
+              value={newWsName}
+              onChange={(e) => setNewWsName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreateWorkspace();
+                if (e.key === "Escape") { setShowCreate(false); setNewWsName(""); }
+              }}
+              autoFocus
+            />
+            <button
+              className="welcome-create-btn"
+              onClick={handleCreateWorkspace}
+              disabled={!newWsName.trim() || creating}
+            >
+              {creating ? "Creating..." : "Create"}
+            </button>
+          </div>
+          <button className="welcome-create-cancel" onClick={() => { setShowCreate(false); setNewWsName(""); }}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button className="welcome-new-ws" onClick={() => setShowCreate(true)}>
+          + New workspace
+        </button>
+      )}
 
       <div className="welcome-footer">
         <p>

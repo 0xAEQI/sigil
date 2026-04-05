@@ -15,10 +15,7 @@ export default function WorkspaceSwitcher() {
   const agents = useDaemonStore((s) => s.agents);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Derive workspaces from top-level agents (no parent) or companies API
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -78,25 +75,11 @@ export default function WorkspaceSwitcher() {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
-        setCreating(false);
-        setNewName("");
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
-
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    try {
-      await api.createCompany({ name: newName.trim() });
-      setActiveWorkspace(newName.trim());
-      setWorkspaces((prev) => [...prev, { name: newName.trim() }]);
-      setCreating(false);
-      setNewName("");
-      setOpen(false);
-    } catch {}
-  };
 
   const displayName = activeWorkspace || "aeqi";
 
@@ -162,35 +145,15 @@ export default function WorkspaceSwitcher() {
             </button>
           ))}
 
-          {creating ? (
-            <div className="ws-create-form">
-              <input
-                ref={inputRef}
-                className="ws-create-input"
-                placeholder="Workspace name..."
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreate();
-                  if (e.key === "Escape") {
-                    setCreating(false);
-                    setNewName("");
-                  }
-                }}
-                autoFocus
-              />
-            </div>
-          ) : (
-            <button
-              className="ws-create-btn"
-              onClick={() => {
-                setCreating(true);
-                setTimeout(() => inputRef.current?.focus(), 50);
-              }}
-            >
-              + New workspace
-            </button>
-          )}
+          <button
+            className="ws-create-btn"
+            onClick={() => {
+              setOpen(false);
+              navigate("/");
+            }}
+          >
+            + New workspace
+          </button>
         </div>
       )}
     </div>
