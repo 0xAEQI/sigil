@@ -265,18 +265,18 @@
   padding: 12px;
   font-size: 14px;
   font-weight: 600;
-  background: var(--text-primary);
-  color: var(--bg-base);
+  background: #000000;
+  color: #ffffff;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: 999px;
   cursor: pointer;
-  transition: opacity 0.12s;
+  transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
 }
-.new-ws-submit:hover { opacity: 0.85; }
+.new-ws-submit:hover { background: rgba(0, 0, 0, 0.8); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12); }
 .new-ws-submit:disabled { opacity: 0.35; cursor: not-allowed; }
 .new-ws-kbd {
   font-family: var(--font-mono);

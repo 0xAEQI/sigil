@@ -201,7 +201,7 @@
   animation: ws-fade-in 0.15s ease;
 }
 .ws-dropdown-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -480,7 +480,7 @@
   flex: 1;
   padding: 4px 8px;
   overflow-y: auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
 }
 
 .agent-tree-list {
@@ -760,7 +760,7 @@
 .drawer-segment-btn {
   flex: 1;
   height: 28px;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--font-size-2xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
