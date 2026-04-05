@@ -128,10 +128,7 @@ function Marquee() {
 /* ─── Footer ─── */
 function Footer() {
   return (
-    <footer className="bg-black/[0.02]">
-      {/* Floating banner */}
-      <Marquee />
-
+    <footer className="bg-black/[0.02] flex flex-col">
       {/* Links + brand */}
       <div className="border-t border-black/5">
         <div className="max-w-5xl mx-auto px-6 py-12">
@@ -181,6 +178,11 @@ function Footer() {
           </motion.div>
         </div>
       </div>
+
+      {/* Marquee fills remaining space */}
+      <div className="flex-1 flex items-end overflow-hidden">
+        <Marquee />
+      </div>
     </footer>
   );
 }
@@ -193,9 +195,7 @@ export default function App() {
         <Nav />
         <Hero />
       </div>
-      <div className="flex-1 flex flex-col">
-        <Footer />
-      </div>
+      <Footer />
     </div>
   );
 }
