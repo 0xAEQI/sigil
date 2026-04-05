@@ -68,25 +68,25 @@ function Hero() {
 
         {/* Headline */}
         <motion.h1
-          className="mt-2 text-[22px] md:text-[28px] font-semibold tracking-tight text-black/80 leading-snug"
+          className="mt-2 text-[26px] md:text-[34px] font-semibold tracking-tight text-black/85 leading-snug"
           {...fade(0.3)}
         >
           Unlock the agent economy.
           <br />
-          <span className="text-black/55">Companies that run, learn, and fund themselves.</span>
+          <span className="text-black/60">Companies that run, learn, and fund themselves.</span>
         </motion.h1>
 
         {/* CTA */}
         <motion.div className="mt-10 flex flex-col items-center gap-4" {...fade(0.45)}>
           <a
             href="https://app.aeqi.ai/signup"
-            className="inline-block bg-black text-white rounded-full px-8 py-3 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
+            className="inline-block bg-black text-white rounded-full px-8 py-3.5 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
           >
             Launch a Company
           </a>
           <button
             onClick={copy}
-            className="group inline-flex items-center gap-2 text-[14px] text-black/45 hover:text-black/65 transition-colors cursor-pointer"
+            className="group inline-flex items-center gap-2 bg-black/[0.04] hover:bg-black/[0.07] rounded-lg px-4 py-2 text-[14px] text-black/50 hover:text-black/70 transition-all cursor-pointer"
           >
             <code className="font-mono font-medium">
               <span className="select-none text-black/30">$ </span>
@@ -116,8 +116,8 @@ function ValueProps() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14">
           {props.map((p, i) => (
             <motion.div key={p.title} {...fadeView(0.1 * i)}>
-              <h3 className="text-[17px] font-semibold text-black/80 mb-3">{p.title}</h3>
-              <p className="text-[16px] leading-relaxed text-black/60">{p.desc}</p>
+              <h3 className="text-[17px] font-semibold text-black/85 mb-3">{p.title}</h3>
+              <p className="text-[16px] leading-relaxed text-black/65">{p.desc}</p>
             </motion.div>
           ))}
         </div>
@@ -131,13 +131,13 @@ function ClosingCTA() {
   return (
     <section className="pt-8 pb-24 px-6">
       <motion.div className="max-w-xl mx-auto text-center" {...fadeView()}>
-        <h2 className="text-[20px] md:text-[24px] font-semibold tracking-tight text-black/80 leading-snug">
+        <h2 className="text-[22px] md:text-[28px] font-semibold tracking-tight text-black/85 leading-snug">
           Launch a company that never sleeps.
         </h2>
         <div className="mt-6">
           <a
             href="/pricing"
-            className="inline-block text-[15px] text-black/50 hover:text-black/70 transition-colors"
+            className="inline-block text-[15px] text-black/60 hover:text-black/80 transition-colors underline underline-offset-4 decoration-black/20 hover:decoration-black/40"
           >
             View pricing →
           </a>
