@@ -52,12 +52,10 @@ export default function ParticleLogo({
     const sizes = new Float32Array(PARTICLE_COUNT);
     const opacities = new Float32Array(PARTICLE_COUNT);
 
-    // Start scattered far out — explosion inward
+    // Init — will be placed on glyph after sampling
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = size * 1.5 + Math.random() * size;
-      positions[i * 3] = Math.cos(angle) * dist;
-      positions[i * 3 + 1] = Math.sin(angle) * dist;
+      positions[i * 3] = 0;
+      positions[i * 3 + 1] = 0;
       positions[i * 3 + 2] = 0;
       velocities[i * 3] = 0;
       velocities[i * 3 + 1] = 0;
@@ -137,12 +135,18 @@ export default function ParticleLogo({
     }
 
     const glyphTargets = sampleGlyph();
+    // Start particles ON the glyph (solid æ)
     for (let i = 0; i < PARTICLE_COUNT * 3; i++) {
       targets[i] = glyphTargets[i];
+      positions[i] = glyphTargets[i];
     }
+    (geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
 
-    // Track convergence for onReady callback
-    let settled = false;
+    // After a brief pause, burst particles outward
+    let hasBurst = false;
+    const BURST_FRAME = 50; // ~0.8s at 60fps
+    const BURST_FORCE = 12;
+
     let frame = 0;
     let animId: number;
 
@@ -156,26 +160,40 @@ export default function ParticleLogo({
       frame++;
       const time = frame * 0.008;
 
+      // Burst: give each particle a random outward velocity
+      if (!hasBurst && frame === BURST_FRAME) {
+        hasBurst = true;
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const force = BURST_FORCE * (0.5 + Math.random());
+          velocities[i * 3] = Math.cos(angle) * force;
+          velocities[i * 3 + 1] = Math.sin(angle) * force;
+        }
+      }
+
       const mx = mouseRef.current.x;
       const my = mouseRef.current.y;
       const pos = geometry.attributes.position as THREE.BufferAttribute;
 
-      let totalDist = 0;
+      // Only apply spring after burst
+      const springActive = hasBurst;
 
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         const i3 = i * 3;
 
-        // Subtle breathing noise
-        const nx = Math.sin(time * 0.6 + i * 0.07) * 0.15;
-        const ny = Math.cos(time * 0.5 + i * 0.09) * 0.15;
+        // Subtle breathing noise (only after burst settles)
+        const breathe = hasBurst && frame > BURST_FRAME + 60;
+        const nx = breathe ? Math.sin(time * 0.6 + i * 0.07) * 0.15 : 0;
+        const ny = breathe ? Math.cos(time * 0.5 + i * 0.09) * 0.15 : 0;
 
         // Spring to target
         const dx = targets[i3] - positions[i3];
         const dy = targets[i3 + 1] - positions[i3 + 1];
-        totalDist += Math.abs(dx) + Math.abs(dy);
 
-        velocities[i3] += dx * RETURN_FORCE + nx;
-        velocities[i3 + 1] += dy * RETURN_FORCE + ny;
+        if (springActive) {
+          velocities[i3] += dx * RETURN_FORCE + nx;
+          velocities[i3 + 1] += dy * RETURN_FORCE + ny;
+        }
 
         // Mouse repulsion
         const mdx = positions[i3] - mx;
@@ -194,11 +212,6 @@ export default function ParticleLogo({
         positions[i3 + 1] += velocities[i3 + 1];
       }
 
-      // Fire onReady when particles have mostly converged or after 1.5s
-      if (!settled && (totalDist / PARTICLE_COUNT < 15 || frame > 90)) {
-        settled = true;
-        onReady?.();
-      }
 
       pos.needsUpdate = true;
       renderer.render(scene, camera);
