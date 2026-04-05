@@ -8,6 +8,7 @@ import AgentSessionView from "./AgentSessionView";
 import DashboardHome from "./DashboardHome";
 import EventsPage from "@/pages/EventsPage";
 import QuestsPage from "@/pages/QuestsPage";
+import InsightsPage from "@/pages/InsightsPage";
 import { useDaemonStore } from "@/store/daemon";
 import { useDaemonSocket } from "@/hooks/useDaemonSocket";
 
@@ -90,6 +91,14 @@ export default function AppLayout() {
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M4 3h8M4 7h8M4 11h6M2 3v0M2 7v0M2 11v0" strokeLinecap="round" /></svg>
               Quests
             </a>
+            <a
+              className={`sidebar-nav-item ${page === "insights" ? "active" : ""}`}
+              href="/?page=insights"
+              onClick={(e) => { e.preventDefault(); navigate("/?page=insights"); }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M7 2v2M7 10v2M2 7h2M10 7h2M3.8 3.8l1.4 1.4M8.8 8.8l1.4 1.4M10.2 3.8l-1.4 1.4M5.2 8.8l-1.4 1.4" strokeLinecap="round" /></svg>
+              Insights
+            </a>
           </nav>
           <div className="left-sidebar-body">
             <AgentTree />
@@ -117,6 +126,8 @@ export default function AppLayout() {
             <EventsPage />
           ) : page === "quests" ? (
             <QuestsPage />
+          ) : page === "insights" ? (
+            <InsightsPage />
           ) : (
             <div className="content-scroll">
               <DashboardHome />
