@@ -30,8 +30,8 @@ function Nav() {
           <a href="/economy" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
             Economy
           </a>
-          <a href="/enterprise" className="text-[13px] text-black/70 font-medium hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
-            Enterprise
+          <a href="/pricing" className="text-[13px] text-black/70 font-medium hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
+            Pricing
           </a>
           <div className="w-px h-5 bg-black/[0.08] mx-1.5" />
           <a href="https://app.aeqi.ai/login" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
@@ -56,9 +56,9 @@ function Pricing() {
       <div className="max-w-4xl mx-auto w-full">
         <motion.div className="text-center mb-20" {...fade(0.1)}>
           <h1 className="text-[28px] md:text-[36px] font-semibold tracking-tight text-black/80 leading-snug">
-            Simple pricing.
+            Pay for what you use.
             <br />
-            <span className="text-black/40">Scale when you're ready.</span>
+            <span className="text-black/40">Scale when it works.</span>
           </h1>
         </motion.div>
 
@@ -73,7 +73,7 @@ function Pricing() {
               <span className="text-[36px] font-semibold tracking-tight text-black/80">$20</span>
               <span className="text-[15px] text-black/30 ml-1">/mo</span>
             </div>
-            <p className="text-[13px] text-black/25 mb-8">For getting started with your first idea.</p>
+            <p className="text-[13px] text-black/25 mb-8">Ship your first autonomous company.</p>
             <div className="space-y-3.5 text-[14px] text-black/45 mb-10">
               <div className="flex items-center gap-2.5">
                 <span className="text-black/15">+</span>
@@ -118,7 +118,7 @@ function Pricing() {
               <span className="text-[36px] font-semibold tracking-tight text-black/80">$100</span>
               <span className="text-[15px] text-black/30 ml-1">/mo</span>
             </div>
-            <p className="text-[13px] text-black/25 mb-8">For running a portfolio of companies.</p>
+            <p className="text-[13px] text-black/25 mb-8">Run a portfolio. See everything.</p>
             <div className="space-y-3.5 text-[14px] text-black/45 mb-10">
               <div className="flex items-center gap-2.5">
                 <span className="text-black/15">+</span>
@@ -149,7 +149,7 @@ function Pricing() {
               href="https://app.aeqi.ai/signup"
               className="mt-auto inline-block text-center bg-black text-white rounded-xl px-6 py-3 text-[14px] font-medium hover:bg-black/85 transition-all hover:shadow-md hover:shadow-black/10 active:scale-[0.97]"
             >
-              Get Started
+              Scale Up
             </a>
           </motion.div>
 
@@ -162,7 +162,7 @@ function Pricing() {
             <div className="mb-1">
               <span className="text-[36px] font-semibold tracking-tight text-black/80">Custom</span>
             </div>
-            <p className="text-[13px] text-black/25 mb-8">For teams that need more control.</p>
+            <p className="text-[13px] text-black/25 mb-8">Your infrastructure. Your terms.</p>
             <div className="space-y-3.5 text-[14px] text-black/45 mb-10">
               <div className="flex items-center gap-2.5">
                 <span className="text-black/15">+</span>
@@ -190,7 +190,7 @@ function Pricing() {
               </div>
             </div>
             <a
-              href="https://cal.com/aeqi/enterprise"
+              href="https://cal.com/aeqi/pricing"
               className="mt-auto inline-block text-center border border-black/[0.1] text-black/60 rounded-xl px-6 py-3 text-[14px] font-medium hover:bg-black/[0.03] hover:border-black/[0.15] transition-all active:scale-[0.97]"
             >
               Book a Demo
@@ -202,11 +202,11 @@ function Pricing() {
         <motion.div className="mt-20 max-w-2xl mx-auto" {...fadeView(0.1)}>
           <h3 className="text-[14px] font-semibold tracking-wide uppercase text-black/50 mb-4 text-center">Token pricing</h3>
           <p className="text-[15px] leading-[1.7] text-black/35 text-center mb-8">
-            We pass through LLM costs at provider rates plus a 10% platform fee. No hidden margins. Bring your own OpenRouter key to pay providers directly on any plan.
+            LLM costs at provider rates. 20% platform fee. That's it. Or bring your own OpenRouter API key to use any model on any plan.
           </p>
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
-              <p className="text-[24px] font-semibold tracking-tight text-black/70">10%</p>
+              <p className="text-[24px] font-semibold tracking-tight text-black/70">20%</p>
               <p className="text-[12px] text-black/25 mt-1">Platform fee on tokens</p>
             </div>
             <div>
@@ -214,8 +214,8 @@ function Pricing() {
               <p className="text-[12px] text-black/25 mt-1">Markup with your own key</p>
             </div>
             <div>
-              <p className="text-[24px] font-semibold tracking-tight text-black/70">Pay as you go</p>
-              <p className="text-[12px] text-black/25 mt-1">Top up when you need more</p>
+              <p className="text-[24px] font-semibold tracking-tight text-black/70">Usage-based</p>
+              <p className="text-[12px] text-black/25 mt-1">No prepaid commitments</p>
             </div>
           </div>
         </motion.div>
@@ -234,7 +234,7 @@ function Footer() {
             <p className="text-[11px] uppercase tracking-[0.2em] text-black/20 mb-4">Product</p>
             <div className="space-y-2.5 text-[13px]">
               <a href="https://app.aeqi.ai" className="block text-black/35 hover:text-black/60 transition-colors">Launch a Company</a>
-              <a href="/enterprise" className="block text-black/35 hover:text-black/60 transition-colors">Enterprise</a>
+              <a href="/pricing" className="block text-black/35 hover:text-black/60 transition-colors">Pricing</a>
               <a href="https://github.com/0xAEQI/aeqi/blob/main/docs/architecture.md" className="block text-black/35 hover:text-black/60 transition-colors">Docs</a>
             </div>
           </motion.div>

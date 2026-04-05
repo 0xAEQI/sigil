@@ -34,8 +34,8 @@ function Nav() {
           <a href="/economy" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
             Economy
           </a>
-          <a href="/enterprise" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
-            Enterprise
+          <a href="/pricing" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
+            Pricing
           </a>
           <div className="w-px h-5 bg-black/[0.08] mx-1.5" />
           <a href="https://app.aeqi.ai/login" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
@@ -113,7 +113,7 @@ function Hero() {
         {/* CTA */}
         <motion.div className="mt-10 flex flex-col items-center gap-4" {...fade(0.45)}>
           <a
-            href="https://app.aeqi.ai"
+            href="https://app.aeqi.ai/signup"
             className="inline-block bg-black text-white rounded-full px-8 py-3 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
           >
             Launch a Company
@@ -138,9 +138,9 @@ function Hero() {
 
 /* ─── Value props ─── */
 const props = [
-  { title: "Agent orchestration", desc: "A full company operating on agents. Engineering, growth, operations, finance. Coordinating in real time. No employees. No overhead. You set the mission. They run the company." },
-  { title: "Autonomous compounding", desc: "The company gets smarter every day. Agents remember everything, learn from every outcome, and discover new ways to grow. The longer it runs, the more it's worth." },
-  { title: "Instant capital formation", desc: "Equity is tokenized from day one. Investors fund a company in one transaction. No term sheets, no legal quarters, no gates. Real-time revenue and burn, visible on-chain." },
+  { title: "Agent orchestration", desc: "An entire company, staffed by agents. Engineering, growth, operations, finance. Coordinating in real time. No employees. No overhead. You set the mission. They run the company." },
+  { title: "Autonomous compounding", desc: "The company gets smarter every day. Agents remember everything, learn from every outcome, and find new edges on their own. The longer it runs, the more it's worth." },
+  { title: "Instant capital formation", desc: "Equity is tokenized from day one. Investors fund a company in one transaction. No term sheets, no board seats, no waiting. Revenue and burn, visible on-chain in real time." },
 ];
 
 function ValueProps() {
@@ -169,20 +169,20 @@ function ClosingCTA() {
           Get started
         </p>
         <h2 className="text-[24px] md:text-[32px] font-semibold tracking-tight text-black/70 leading-snug">
-          Start something that runs itself.
+          Launch a company that never sleeps.
         </h2>
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
-            href="https://app.aeqi.ai"
+            href="https://app.aeqi.ai/signup"
             className="inline-block bg-black text-white rounded-full px-8 py-3 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
           >
             Launch a Company
           </a>
           <a
-            href="/enterprise"
+            href="/pricing"
             className="inline-block text-[14px] text-black/40 hover:text-black/60 transition-colors"
           >
-            Talk to us →
+            View pricing →
           </a>
         </div>
       </motion.div>
@@ -199,8 +199,8 @@ function Footer() {
           <motion.div {...fadeView(0.05)}>
             <p className="text-[11px] uppercase tracking-[0.2em] text-black/20 mb-4">Product</p>
             <div className="space-y-2.5 text-[13px]">
-              <a href="https://app.aeqi.ai" className="block text-black/35 hover:text-black/60 transition-colors">Launch a Company</a>
-              <a href="/enterprise" className="block text-black/35 hover:text-black/60 transition-colors">Enterprise</a>
+              <a href="https://app.aeqi.ai/signup" className="block text-black/35 hover:text-black/60 transition-colors">Launch a Company</a>
+              <a href="/pricing" className="block text-black/35 hover:text-black/60 transition-colors">Pricing</a>
               <a href="https://github.com/0xAEQI/aeqi/blob/main/docs/architecture.md" className="block text-black/35 hover:text-black/60 transition-colors">Docs</a>
             </div>
           </motion.div>
