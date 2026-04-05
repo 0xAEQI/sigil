@@ -27,8 +27,8 @@ function Nav() {
       transition={{ duration: 0.6, delay: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
     >
       <div className="w-full max-w-3xl backdrop-blur-2xl bg-white/60 border border-black/[0.06] rounded-2xl shadow-lg shadow-black/[0.03] px-5 h-12 flex items-center justify-between">
-        <a href="/" className="text-[17px] font-bold tracking-tighter text-black/50 hover:text-black/70 transition-colors">
-          æ aeqi
+        <a href="/" className="text-[18px] font-bold tracking-tighter text-black/50 hover:text-black/70 transition-colors">
+          æqi
         </a>
         <div className="flex items-center gap-1">
           <a href="/pricing" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
@@ -148,7 +148,7 @@ function ValueProps() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-14">
           {props.map((p, i) => (
             <motion.div key={p.title} {...fadeView(0.1 * i)}>
-              <h3 className="text-[15px] font-semibold text-black/80 mb-3">{p.title}</h3>
+              <h3 className="text-[17px] font-semibold text-black/80 mb-3">{p.title}</h3>
               <p className="text-[15px] leading-[1.7] text-black/50">{p.desc}</p>
             </motion.div>
           ))}
