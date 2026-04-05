@@ -67,7 +67,7 @@ function Hero() {
           className="mt-5 text-lg md:text-xl text-black/40 tracking-wide"
           {...fade(0.35)}
         >
-          unlock the agent economy
+          intelligence from first principles
         </motion.p>
 
         <motion.div className="mt-10" {...fade(0.5)}>
@@ -108,22 +108,15 @@ function Footer() {
           <p className="text-[11px] uppercase tracking-[0.25em] text-black/20 mb-8">
             vision
           </p>
-          <div className="flex items-baseline gap-1 text-[48px] md:text-[64px] font-bold tracking-tighter leading-none text-black/10">
-            <motion.span className="text-black" {...fadeView(0.05)}>a</motion.span>
-            <motion.span {...fadeView(0.05)}>gent</motion.span>
-            <motion.span className="mx-3 text-black/10" {...fadeView(0.1)}>&middot;</motion.span>
-            <motion.span className="text-black" {...fadeView(0.1)}>e</motion.span>
-            <motion.span {...fadeView(0.1)}>conomy</motion.span>
+          <div className="flex flex-wrap items-baseline justify-start gap-x-6 gap-y-2 text-[40px] md:text-[56px] font-bold tracking-tighter leading-tight text-black/10">
+            <motion.span {...fadeView(0.05)}><span className="text-black">a</span>gent</motion.span>
+            <motion.span {...fadeView(0.1)}><span className="text-black">e</span>vent</motion.span>
+            <motion.span {...fadeView(0.15)}><span className="text-black">q</span>uest</motion.span>
+            <motion.span {...fadeView(0.2)}><span className="text-black">i</span>nsight</motion.span>
           </div>
-          <motion.p className="mt-8 text-[16px] text-black/40 leading-relaxed max-w-lg" {...fadeView(0.15)}>
-            Intelligence from first principles. Four building blocks &mdash; agents, events, quests, insights &mdash; and everything else emerges.
+          <motion.p className="mt-8 text-[16px] text-black/40 leading-relaxed max-w-lg" {...fadeView(0.25)}>
+            Four building blocks. Everything else emerges.
           </motion.p>
-          <motion.div className="mt-8 flex items-center gap-8 text-[14px] font-mono text-black/20" {...fadeView(0.2)}>
-            <span><span className="font-bold text-black/50">a</span>gent</span>
-            <span><span className="font-bold text-black/50">e</span>vent</span>
-            <span><span className="font-bold text-black/50">q</span>uest</span>
-            <span><span className="font-bold text-black/50">i</span>nsight</span>
-          </motion.div>
         </motion.div>
       </div>
 
