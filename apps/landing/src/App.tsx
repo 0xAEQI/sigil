@@ -21,22 +21,10 @@ function Nav() {
         </a>
         <div className="flex items-center gap-5">
           <a
-            href="https://github.com/0xAEQI/aeqi/blob/main/docs/architecture.md"
-            className="text-[14px] text-black/40 hover:text-black/70 transition-colors"
-          >
-            docs
-          </a>
-          <a
             href="https://github.com/0xAEQI/aeqi"
             className="text-[14px] text-black/40 hover:text-black/70 transition-colors"
           >
             github
-          </a>
-          <a
-            href="https://x.com/0xAEQI"
-            className="text-[14px] text-black/40 hover:text-black/70 transition-colors"
-          >
-            x
           </a>
           <a
             href="https://aeqi.ai/enterprise"
