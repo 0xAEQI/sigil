@@ -55,7 +55,7 @@ function Hero() {
   };
 
   return (
-    <section className="pt-36 pb-32 px-6">
+    <section className="flex-1 flex items-center justify-center px-6">
       <div className="max-w-3xl mx-auto text-center">
         <motion.div {...fade(0.1)}>
           <span className="text-[120px] md:text-[180px] font-bold tracking-tighter leading-none text-black select-none">
@@ -104,7 +104,6 @@ const marqueeWords = [
   { text: "event", bold: "e" },
   { text: "quest", bold: "q" },
   { text: "insight", bold: "i" },
-  { text: "artificial intelligence", bold: "ai" },
 ];
 
 function Marquee() {
@@ -116,11 +115,7 @@ function Marquee() {
         {items.map((w, i) => (
           <span key={i} className="flex items-center">
             <span className="text-[48px] md:text-[72px] font-bold tracking-tighter text-black/[0.06]">
-              {w.bold === "ai" ? (
-                <><span className="text-black/60">a</span>rtificial <span className="text-black/60">i</span>ntelligence</>
-              ) : (
-                <><span className="text-black/60">{w.bold}</span>{w.text.slice(w.bold.length)}</>
-              )}
+              <span className="text-black/60">{w.bold}</span>{w.text.slice(w.bold.length)}
             </span>
             <span className="mx-6 md:mx-10 text-[36px] text-black/[0.08]">&middot;</span>
           </span>
@@ -194,7 +189,7 @@ function Footer() {
 export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-black/[0.02]">
-      <div className="bg-white">
+      <div className="bg-white flex-1 flex flex-col">
         <Nav />
         <Hero />
       </div>
