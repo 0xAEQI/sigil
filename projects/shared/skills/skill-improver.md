@@ -10,7 +10,7 @@ Given a skill name, analyze it and produce an improved version.
 
 ## Process
 
-1. Load the skill: `aeqi_skills(action="get", name="<skill>")`
+1. Load the skill: `aeqi_prompts(action="get", name="<skill>")`
 2. Assess against these criteria:
    - **Clarity**: Is the purpose obvious in the first line?
    - **Completeness**: Does it have everything an agent needs to act without guessing?

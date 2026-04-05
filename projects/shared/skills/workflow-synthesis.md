@@ -102,9 +102,9 @@ Execute the prioritized improvements using the appropriate workflow for each.
 
 1. **Create parent task** — `aeqi_create_task` for the synthesis effort
 2. **For each improvement**, load the right workflow:
-   - New capability → `aeqi_skills` get workflow-feature
-   - Restructuring existing code → `aeqi_skills` get workflow-refactor
-   - Fixing identified weakness → `aeqi_skills` get workflow-bugfix
+   - New capability → `aeqi_prompts` get workflow-feature
+   - Restructuring existing code → `aeqi_prompts` get workflow-refactor
+   - Fixing identified weakness → `aeqi_prompts` get workflow-bugfix
 3. **After each improvement**, verify it integrates cleanly — no dead code, no orphaned features
 4. **Post progress** — `aeqi_notes` post with key `task:{id}:progress`
 

@@ -22,7 +22,7 @@ Analyze → Plan → Implement → Verify → Close
 2. **Find all targets** — `aeqi_graph` search to locate every symbol that will change
 3. **Map dependencies** — for each target, `aeqi_graph` impact to find all callers and dependents
 4. **Assess blast radius** — total files affected, cross-crate boundaries, public API changes
-5. **Load architecture knowledge** — `aeqi_skills` list for relevant domain skills
+5. **Load architecture knowledge** — `aeqi_prompts` list for relevant domain skills
 
 <HARD-GATE>
 No refactoring until you've mapped every caller of every symbol you plan to change. Changing a function signature without updating all call sites is not a refactor — it's a breakage.

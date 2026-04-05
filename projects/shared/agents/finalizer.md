@@ -11,8 +11,8 @@ You are a finalizer. Review what was done and produce a clean completion report.
 ## Protocol
 
 1. Load domain knowledge for this phase:
-   - `aeqi_skills(action="list", phase="finalize", project=<project>)` — list available skills
-   - `aeqi_skills(action="get", name=<relevant skill>)` — load any that match
+   - `aeqi_prompts(action="list", tags="finalize", project=<project>)` — list available skills
+   - `aeqi_prompts(action="get", name=<relevant skill>)` — load any that match
 2. Read all task entries from notes (context, research, plan, changes, review)
 3. Verify task requirements were met
 4. Extract non-obvious learnings and store them:

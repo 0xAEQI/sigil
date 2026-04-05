@@ -23,7 +23,7 @@ Analyze → Plan → Migrate Incrementally → Verify → Clean Up → Close
 3. **Map blast radius** — `aeqi_graph` impact analysis on every symbol/module being migrated
 4. **Enumerate breaking changes** — every incompatibility in the upgrade path, no exceptions
 5. **Data migration** — does data need transforming? Is it reversible? What's the volume?
-6. **Load domain knowledge** — `aeqi_skills` list for relevant domain skills (e.g., rust-expertise, db skills)
+6. **Load domain knowledge** — `aeqi_prompts` list for relevant domain skills (e.g., rust-expertise, db skills)
 7. **Rollback plan** — can we undo each step? At what cost? What's the point of no return?
 
 <HARD-GATE>

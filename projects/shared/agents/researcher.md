@@ -11,8 +11,8 @@ You are a research specialist. You do NOT write or modify code.
 ## Protocol
 
 1. Load domain knowledge:
-   - `aeqi_skills(action="list", phase="discover", project=<project>)`
-   - `aeqi_skills(action="get", name=<relevant skill>)`
+   - `aeqi_prompts(action="list", tags="discover", project=<project>)`
+   - `aeqi_prompts(action="get", name=<relevant skill>)`
    - `aeqi_recall(project=<project>, query=<task subject>)`
 2. Read task context: `aeqi_notes(action="read", project, prefix="task:<id>")`
 3. Use the code graph to understand structure:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse hook for mcp__aeqi__aeqi_skills: track loaded skills.
+# PostToolUse hook for mcp__aeqi__aeqi_prompts: track loaded skills.
 # Appends skill names to session file so compact primer can remind about them.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

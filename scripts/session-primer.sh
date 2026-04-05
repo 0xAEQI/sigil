@@ -144,7 +144,7 @@ if [ "$EVENT" = "compact" ]; then
     if [ -f "$SKILLS_FILE" ] && [ -s "$SKILLS_FILE" ]; then
         LOST_SKILLS=$(tr '\n' ', ' < "$SKILLS_FILE" | sed 's/, $//')
         echo "# Context compacted. Previously loaded skills: $LOST_SKILLS"
-        echo "# Re-load with: aeqi_skills(action='get', name='<skill>')"
+        echo "# Re-load with: aeqi_prompts(action='get', name='<skill>')"
         echo ""
     fi
 
@@ -165,7 +165,7 @@ AGENTS_CALL='{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"aeq
 
 if [ -n "$PROJECT" ] && [ "$PROJECT" != "shared" ]; then
     PROJECT_CALL="{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"aeqi_primer\",\"arguments\":{\"project\":\"$PROJECT\"}}}"
-    SKILLS_CALL='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"aeqi_skills","arguments":{"action":"list"}}}'
+    SKILLS_CALL='{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"aeqi_prompts","arguments":{"action":"list"}}}'
     RESPONSES=$(cd "$AEQI_DIR" && printf '%s\n%s\n%s\n%s\n%s\n' "$INIT" "$SHARED_CALL" "$PROJECT_CALL" "$SKILLS_CALL" "$AGENTS_CALL" | "$AEQI_BIN" mcp 2>/dev/null) || true
 else
     PROJECTS_CALL='{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"aeqi_projects","arguments":{}}}'
@@ -203,7 +203,7 @@ fi
 cat <<'QREF'
 ## Quick Reference — MCP Tool Names
   mcp__aeqi__aeqi_recall, mcp__aeqi__aeqi_remember, mcp__aeqi__aeqi_primer
-  mcp__aeqi__aeqi_skills, mcp__aeqi__aeqi_agents, mcp__aeqi__aeqi_notes
+  mcp__aeqi__aeqi_prompts, mcp__aeqi__aeqi_agents, mcp__aeqi__aeqi_notes
   mcp__aeqi__aeqi_create_task, mcp__aeqi__aeqi_close_task, mcp__aeqi__aeqi_status
 QREF
 

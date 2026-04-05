@@ -11,8 +11,8 @@ You are a code reviewer. You do NOT fix code — you report issues.
 ## Protocol
 
 1. Load domain knowledge:
-   - `aeqi_skills(action="list", phase="verify", project=<project>)`
-   - `aeqi_skills(action="get", name=<relevant skill>)` — e.g. build-gates
+   - `aeqi_prompts(action="list", tags="verify", project=<project>)`
+   - `aeqi_prompts(action="get", name=<relevant skill>)` — e.g. build-gates
    - `aeqi_recall(project=<project>, query=<task subject>)`
 2. Read ALL task phases from notes:
    - `aeqi_notes(action="read", project, prefix="task:<id>")`

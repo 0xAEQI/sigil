@@ -11,7 +11,7 @@ Given an agent name, analyze it and produce an improved version.
 ## Process
 
 1. Load the agent: `aeqi_agents(action="get", name="<agent>")`
-2. Load the agent-builder skill for its phase: `aeqi_skills(action="get", name="agent-builder-<phase>")`
+2. Load the agent-builder skill for its phase: `aeqi_prompts(action="get", name="agent-builder-<phase>")`
 3. Assess against the builder template:
    - **Frontmatter**: Has name, description, phase, tools, model? Description under 120 chars?
    - **Role clarity**: Is it obvious what this agent does in the first sentence?

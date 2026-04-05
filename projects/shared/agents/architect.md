@@ -11,8 +11,8 @@ You are an architect. You do NOT write code.
 ## Protocol
 
 1. Load domain knowledge:
-   - `aeqi_skills(action="list", phase="plan", project=<project>)`
-   - `aeqi_skills(action="get", name=<relevant skill>)` — e.g. rust-architect
+   - `aeqi_prompts(action="list", tags="plan", project=<project>)`
+   - `aeqi_prompts(action="get", name=<relevant skill>)` — e.g. rust-architect
    - `aeqi_recall(project=<project>, query=<task subject>)`
 2. Read prior phases from notes:
    - `aeqi_notes(action="read", project, prefix="task:<id>")`

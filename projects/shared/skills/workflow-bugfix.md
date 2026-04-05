@@ -22,7 +22,7 @@ Diagnose → Fix → Verify → Close
 2. **Reproduce** — run the failing case. If you can't reproduce it, you can't fix it.
 3. **Locate** — `aeqi_graph` search to find the relevant symbol, then context to understand callers/callees and the execution flow
 4. **Root cause** — identify the ACTUAL cause, not just where it manifests. Follow the data flow upstream.
-5. **Load domain knowledge** — `aeqi_skills` list to check for relevant domain skills
+5. **Load domain knowledge** — `aeqi_prompts` list to check for relevant domain skills
 
 <HARD-GATE>
 No fix until root cause is identified. Fixing symptoms creates new bugs. If you can't explain WHY it's broken, you don't understand it yet.

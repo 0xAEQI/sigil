@@ -2915,7 +2915,7 @@ impl Agent {
             std::collections::HashSet::new();
         let mut skill_contents: Vec<String> = Vec::new();
 
-        // Pass 1: find tool_use IDs for aeqi_skills get calls.
+        // Pass 1: find tool_use IDs for aeqi_prompts get calls.
         for msg in messages {
             if let MessageContent::Parts(parts) = &msg.content {
                 for part in parts {
