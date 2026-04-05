@@ -2,39 +2,75 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useUIStore } from "@/store/ui";
+import { useDaemonStore } from "@/store/daemon";
 import BlockAvatar from "./BlockAvatar";
 
 interface Workspace {
   name: string;
-  prefix?: string;
 }
 
 export default function WorkspaceSwitcher() {
   const activeWorkspace = useUIStore((s) => s.activeWorkspace);
   const setActiveWorkspace = useUIStore((s) => s.setActiveWorkspace);
+  const agents = useDaemonStore((s) => s.agents);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch workspaces
+  // Derive workspaces from top-level agents (no parent) or companies API
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+
   useEffect(() => {
+    // Try companies API first
     api
       .getCompanies()
       .then((data: any) => {
         const raw = data?.companies || data?.projects || data?.agent_spawns || [];
         const items = Array.isArray(raw) ? raw : [];
-        setWorkspaces(items.map((c: any) => ({ name: c.name || c.company || "", prefix: c.prefix })));
-        // Auto-select first if none active
-        if (!activeWorkspace && items.length > 0) {
-          setActiveWorkspace(items[0].name || items[0].company || "");
+        if (items.length > 0) {
+          setWorkspaces(
+            items.map((c: any) => ({ name: c.name || c.company || "" })).filter((w: Workspace) => w.name),
+          );
+          return;
         }
+        // Fallback: derive from top-level agents (projects are root-level in the tree)
+        deriveFromAgents();
       })
-      .catch(() => {});
-  }, []);
+      .catch(() => {
+        deriveFromAgents();
+      });
+  }, [agents]);
+
+  const deriveFromAgents = () => {
+    // Root agents (no parent) that look like projects
+    const roots = agents.filter(
+      (a) => !a.parent_id && a.project,
+    );
+    const projectNames = [...new Set(roots.map((a) => a.project!).filter(Boolean))];
+    if (projectNames.length > 0) {
+      setWorkspaces(projectNames.map((name) => ({ name })));
+    } else {
+      // Last fallback: use root agent names as workspaces
+      const rootNames = agents
+        .filter((a) => !a.parent_id)
+        .map((a) => a.name)
+        .filter(Boolean);
+      const unique = [...new Set(rootNames)];
+      if (unique.length > 0) {
+        setWorkspaces(unique.map((name) => ({ name })));
+      }
+    }
+  };
+
+  // Auto-select first workspace
+  useEffect(() => {
+    if (!activeWorkspace && workspaces.length > 0) {
+      setActiveWorkspace(workspaces[0].name);
+    }
+  }, [workspaces, activeWorkspace, setActiveWorkspace]);
 
   // Click outside to close
   useEffect(() => {
@@ -62,19 +98,25 @@ export default function WorkspaceSwitcher() {
     } catch {}
   };
 
-  const display = activeWorkspace || "Select workspace";
+  const displayName = activeWorkspace || "aeqi";
 
   return (
     <div className="ws-switcher" ref={ref}>
       <div className="ws-trigger">
         <span className="ws-brand" onClick={() => navigate("/")}>
-          {activeWorkspace ? <BlockAvatar name={activeWorkspace} size={22} /> : "æ"}
+          <BlockAvatar name={displayName} size={22} />
         </span>
         <div className="ws-trigger-text" onClick={() => navigate("/")}>
-          <span className="ws-trigger-name">{display}</span>
-          <span className="ws-trigger-plan">{localStorage.getItem("aeqi_workspace_tagline") || "The agent runtime."}</span>
+          <span className="ws-trigger-name">{displayName}</span>
+          <span className="ws-trigger-plan">
+            {localStorage.getItem("aeqi_workspace_tagline") || "The agent runtime."}
+          </span>
         </div>
-        <button className="ws-chevron-btn" onClick={() => setOpen(!open)} title="Switch workspace">
+        <button
+          className="ws-chevron-btn"
+          onClick={() => setOpen(!open)}
+          title="Switch workspace"
+        >
           <svg
             className={`ws-chevron ${open ? "open" : ""}`}
             width="12"
@@ -102,12 +144,18 @@ export default function WorkspaceSwitcher() {
                 setOpen(false);
               }}
             >
-              <span className="ws-option-initial">
-                {w.name.charAt(0).toUpperCase()}
-              </span>
+              <BlockAvatar name={w.name} size={20} />
               <span className="ws-option-name">{w.name}</span>
               {w.name === activeWorkspace && (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
                   <path d="M2.5 6l2.5 2.5 4.5-5" />
                 </svg>
               )}

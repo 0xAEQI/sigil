@@ -92,6 +92,9 @@
   border-top: 1px solid var(--border);
   padding: 4px 8px 8px;
 }
+.sidebar-nav-bottom .sidebar-nav-action {
+  opacity: 1;
+}
 
 /* Workspace switcher */
 .ws-switcher {
