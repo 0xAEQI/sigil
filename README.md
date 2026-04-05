@@ -12,8 +12,7 @@ AEQI is not another chatbot wrapper. It's a runtime where agents are persistent 
 The orchestrator and runtime are one system. When the orchestrator owns the runtime, it can inject context mid-execution, route by empirical expertise, enforce 9 middleware layers on every tool call, and give every agent entity-scoped memory that persists forever.
 
 ```
-aeqi daemon start    # start the orchestration plane
-aeqi web start       # API + dashboard on :8400
+aeqi start              # daemon + dashboard on :8400
 aeqi chat --agent cto   # talk to an agent
 ```
 
@@ -231,28 +230,46 @@ Agents are scored empirically using Wilson score lower-bound confidence on histo
 
 ## Quick Start
 
-**Prerequisites:** Rust stable, an LLM provider key (`OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY`)
+### Install (pre-built binary)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xAEQI/aeqi/main/scripts/install.sh | sh
+```
+
+### Or build from source
+
+```bash
+git clone https://github.com/0xAEQI/aeqi && cd aeqi
+cargo build --release
+```
+
+### Or Docker
 
 ```bash
 git clone https://github.com/0xAEQI/aeqi && cd aeqi
 cp config/aeqi.example.toml config/aeqi.toml
 # Edit config/aeqi.toml with your provider key
-
-cargo build --release
-./target/release/aeqi daemon start   # orchestration plane
-./target/release/aeqi web start      # API + dashboard on :8400
+docker compose up
 ```
+
+### Get started
+
+```bash
+aeqi setup                         # generates config, creates agents
+aeqi secrets set OPENROUTER_API_KEY <key>
+aeqi start                         # daemon + dashboard on localhost:8400
+```
+
+The dashboard, API, and daemon all run from a single binary. SQLite databases are created automatically in `~/.aeqi/`. No external dependencies.
 
 ### CLI
 
 ```bash
-aeqi daemon start              # orchestration daemon
-aeqi web start                 # REST API + WebSocket + dashboard
+aeqi start                     # daemon + web server + embedded dashboard
+aeqi chat --agent cto          # interactive TUI chat
 aeqi agent spawn agents/cto/   # create a persistent agent from template
 aeqi agent registry            # list all registered agents
 aeqi trigger create ...        # schedule, event, or webhook trigger
-aeqi trigger create --webhook  # webhook trigger (prints URL + signing info)
-aeqi chat --agent shadow       # interactive TUI chat
 aeqi assign -r myproject "task description"
 aeqi monitor                   # live terminal dashboard
 ```

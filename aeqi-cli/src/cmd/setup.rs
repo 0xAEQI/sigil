@@ -125,8 +125,7 @@ pub(crate) async fn cmd_setup(runtime: &str, service: bool, force: bool) -> Resu
         }
     }
     println!("  2. aeqi doctor --strict");
-    println!("  3. aeqi team");
-    println!("  4. aeqi daemon install --start");
+    println!("  3. aeqi start");
 
     Ok(())
 }

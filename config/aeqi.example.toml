@@ -85,7 +85,7 @@ worker_timeout_secs = 1800
 # [web]
 # enabled = true
 # bind = "0.0.0.0:8400"
-# ui_dist_dir = "/abs/path/to/aeqi/apps/ui/dist"  # if set, aeqi-web serves the SPA directly
+# ui_dist_dir = "/abs/path/to/aeqi/apps/ui/dist"  # optional: overrides the embedded dashboard (for development)
 # cors_origins = ["https://dashboard.example.com", "http://localhost:5173"]
 # auth_secret = "${AEQI_WEB_SECRET}"
 # ws_poll_interval_secs = 5
