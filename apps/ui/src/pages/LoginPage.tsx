@@ -58,7 +58,7 @@ export default function LoginPage() {
     return (
       <div className="auth-page">
         <div className="auth-container">
-          <div className="auth-logo">æ</div>
+          <div className="auth-logo">æqi</div>
           <h1 className="auth-heading">Welcome back</h1>
           <p className="auth-subheading">Enter your access key to continue</p>
           <form className="auth-form" onSubmit={handleSecretSubmit}>
@@ -91,7 +91,7 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <div className="auth-logo">æ</div>
+        <div className="auth-logo">æqi</div>
         <h1 className="auth-heading">Sign in to aeqi</h1>
         <p className="auth-subheading">Run companies with autonomous agents</p>
 

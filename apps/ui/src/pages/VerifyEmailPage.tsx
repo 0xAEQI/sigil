@@ -85,7 +85,7 @@ export default function VerifyEmailPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <div className="auth-logo">ae</div>
+        <div className="auth-logo">æqi</div>
         <h1 className="auth-heading">Check your email</h1>
         <p className="auth-subheading">
           We sent a 6-digit code to <strong style={{ color: "rgba(0,0,0,0.7)" }}>{email}</strong>
