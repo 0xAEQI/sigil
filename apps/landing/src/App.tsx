@@ -31,10 +31,10 @@ function Nav() {
           æqi
         </a>
         <div className="flex items-center gap-1">
-          <a href="/pricing" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
+          <a href="/pricing" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all hidden sm:block">
             Pricing
           </a>
-          <div className="w-px h-5 bg-black/[0.08] mx-1.5" />
+          <div className="w-px h-5 bg-black/[0.08] mx-1.5 hidden sm:block" />
           <a href="https://app.aeqi.ai/login" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
             Log in
           </a>
@@ -108,23 +108,23 @@ function Hero() {
         </motion.h1>
 
         {/* CTA */}
-        <motion.div className="mt-10 flex flex-col items-center gap-5" {...fade(0.45)}>
+        <motion.div className="mt-10 flex flex-col items-center gap-4" {...fade(0.45)}>
           <a
             href="https://app.aeqi.ai/signup"
             className="inline-block bg-black text-white rounded-full px-8 py-3 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
           >
             Launch a Company
           </a>
-          <span className="text-[13px] text-black/25">or self-host</span>
           <button
             onClick={copy}
-            className="group inline-flex items-center gap-2.5 text-[13px] text-black/30 hover:text-black/50 transition-colors cursor-pointer"
+            className="group inline-flex items-center gap-2 text-[13px] text-black/25 hover:text-black/45 transition-colors cursor-pointer"
           >
+            <span className="text-black/20">or</span>
             <code className="font-mono">
               <span className="select-none opacity-50">$ </span>
               cargo install aeqi
             </code>
-            <span className="text-[11px] opacity-60 group-hover:opacity-100 transition-opacity">
+            <span className="text-[11px] opacity-0 group-hover:opacity-100 transition-opacity">
               {copied ? "✓" : "copy"}
             </span>
           </button>
@@ -161,7 +161,7 @@ function ValueProps() {
 /* ─── Closing CTA ─── */
 function ClosingCTA() {
   return (
-    <section className="py-20 px-6">
+    <section className="pt-8 pb-24 px-6">
       <motion.div className="max-w-xl mx-auto text-center" {...fadeView()}>
         <h2 className="text-[20px] md:text-[24px] font-semibold tracking-tight text-black/80 leading-snug">
           Launch a company that never sleeps.
