@@ -194,26 +194,12 @@ function Pricing() {
           </motion.div>
         </div>
 
-        {/* Token pricing transparency */}
-        <motion.div className="mt-20 max-w-2xl mx-auto" {...fadeView(0.1)}>
-          <h3 className="text-[14px] font-semibold tracking-wide uppercase text-black/50 mb-4 text-center">Transparent token pricing</h3>
-          <p className="text-[15px] leading-[1.7] text-black/35 text-center mb-8">
-            LLM costs at provider rates. 20% platform fee. That's it. Or bring your own OpenRouter or Xiaomi API key to use instead.
+        {/* Token note */}
+        <motion.div className="mt-16 max-w-2xl mx-auto text-center" {...fadeView(0.1)}>
+          <h3 className="text-[14px] font-semibold tracking-wide uppercase text-black/50 mb-4">Need more tokens?</h3>
+          <p className="text-[15px] leading-[1.7] text-black/35">
+            Buy additional tokens from us at bulk-sourced provider rates, or bring your own OpenRouter or Xiaomi API key.
           </p>
-          <div className="grid grid-cols-3 gap-6 text-center">
-            <div>
-              <p className="text-[24px] font-semibold tracking-tight text-black/70">20%</p>
-              <p className="text-[12px] text-black/25 mt-1">Platform fee on tokens</p>
-            </div>
-            <div>
-              <p className="text-[24px] font-semibold tracking-tight text-black/70">$0</p>
-              <p className="text-[12px] text-black/25 mt-1">Markup with your own key</p>
-            </div>
-            <div>
-              <p className="text-[24px] font-semibold tracking-tight text-black/70">Usage-based</p>
-              <p className="text-[12px] text-black/25 mt-1">No prepaid commitments</p>
-            </div>
-          </div>
         </motion.div>
       </div>
     </section>
