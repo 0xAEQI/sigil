@@ -146,6 +146,18 @@ function Footer() {
           >
             get started
           </a>
+          <a
+            href="https://aeqi.ai/terms"
+            className="hover:text-black/50 transition-colors"
+          >
+            terms
+          </a>
+          <a
+            href="https://aeqi.ai/privacy"
+            className="hover:text-black/50 transition-colors"
+          >
+            privacy
+          </a>
         </div>
         <span className="text-[13px] font-bold tracking-tight text-black">
           aeqi.ai&ensp;/&ensp;æ
