@@ -67,7 +67,7 @@ function Hero() {
           className="mt-5 text-lg md:text-xl text-black/40 tracking-wide"
           {...fade(0.35)}
         >
-          agentic execution
+          accelerated execution
         </motion.p>
 
         <motion.p
