@@ -118,7 +118,6 @@ export default function WorkspaceSwitcher() {
           title="Switch workspace"
         >
           <svg
-            className={`ws-chevron ${open ? "open" : ""}`}
             width="12"
             height="12"
             viewBox="0 0 12 12"
@@ -127,7 +126,8 @@ export default function WorkspaceSwitcher() {
             strokeWidth="1.5"
             strokeLinecap="round"
           >
-            <path d="M3 5l3 3 3-3" />
+            <path d="M4 3l2-1.5L8 3" />
+            <path d="M4 9l2 1.5L8 9" />
           </svg>
         </button>
       </div>
