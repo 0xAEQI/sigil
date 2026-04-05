@@ -46,7 +46,7 @@ export default function ParticleLogo({
     if (!container) return;
 
     const mobile = isMobile();
-    const PARTICLE_COUNT = mobile ? 1200 : 2500;
+    const PARTICLE_COUNT = mobile ? 2500 : 5000;
     const dpr = Math.min(window.devicePixelRatio, mobile ? 2 : 2);
 
     const scene = new THREE.Scene();
