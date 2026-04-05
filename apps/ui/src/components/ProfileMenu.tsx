@@ -54,16 +54,18 @@ export default function ProfileMenu() {
         </div>
       )}
 
-      <div className="pm-trigger" onClick={() => setOpen(!open)}>
+      <div className="pm-trigger">
         <BlockAvatar name={userName} size={22} />
-        <div className="pm-trigger-text">
+        <div className="pm-trigger-text" onClick={() => setOpen(!open)}>
           <span className="pm-trigger-name">{userName}</span>
           <span className="pm-trigger-plan">free plan</span>
         </div>
-        <svg className="pm-trigger-icon" width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M4 9l2-1.5L8 9" />
-          <path d="M4 3l2 1.5L8 3" />
-        </svg>
+        <button className="ws-chevron-btn" onClick={() => setOpen(!open)} title="User menu">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M4 3l2-1.5L8 3" />
+            <path d="M4 9l2 1.5L8 9" />
+          </svg>
+        </button>
       </div>
     </div>
   );
