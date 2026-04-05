@@ -128,6 +128,7 @@ export default function ParticleLogo({
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.font = `bold ${h * 0.7}px Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif`;
+      (ctx as any).letterSpacing = `${-h * 0.06}px`;
       ctx.fillText("æqi", w / 2, h / 2 + h * 0.03);
 
       const imageData = ctx.getImageData(0, 0, w, h);

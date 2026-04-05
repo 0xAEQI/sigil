@@ -19,6 +19,7 @@ function drawText(
   ctx.textAlign = align === "right" ? "center" : "center";
   ctx.textBaseline = "middle";
   ctx.font = `bold ${fontSize}px Inter, -apple-system, system-ui, sans-serif`;
+  (ctx as any).letterSpacing = `${-fontSize * 0.08}px`;
   ctx.fillText(text, x, h / 2);
 }
 

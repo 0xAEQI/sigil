@@ -9,7 +9,7 @@ export default function Nav() {
       transition={{ duration: 0.6, delay: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
     >
       <div className="w-full max-w-3xl backdrop-blur-2xl bg-white/60 border border-black/[0.06] rounded-2xl shadow-lg shadow-black/[0.03] px-5 h-12 flex items-center justify-between">
-        <a href="/" className="text-[18px] font-bold tracking-tighter text-black/70 hover:text-black/85 transition-colors">
+        <a href="/" className="text-[18px] font-bold tracking-[-0.08em] text-black/70 hover:text-black/85 transition-colors">
           æqi
         </a>
         <div className="flex items-center gap-1">

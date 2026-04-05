@@ -40,7 +40,7 @@ export default function Footer() {
         </div>
 
         <motion.div {...fadeView(0.2)} className="mt-14 pt-6 border-t border-black/[0.04] flex items-center justify-between">
-          <a href="/" className="text-[18px] font-bold tracking-tighter text-black/50 hover:text-black/70 transition-colors">æqi</a>
+          <a href="/" className="text-[18px] font-bold tracking-[-0.08em] text-black/50 hover:text-black/70 transition-colors">æqi</a>
           <p className="text-[12px] text-black/45">
             &copy; {new Date().getFullYear()} aeqi.ai
           </p>
