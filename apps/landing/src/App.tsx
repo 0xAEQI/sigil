@@ -41,11 +41,14 @@ function Nav() {
             Enterprise
           </a>
           <div className="w-px h-5 bg-black/[0.08] mx-1.5" />
+          <a href="https://app.aeqi.ai/login" className="text-[13px] text-black/40 hover:text-black/70 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
+            Log in
+          </a>
           <a
-            href="https://app.aeqi.ai"
+            href="https://app.aeqi.ai/signup"
             className="bg-black text-white rounded-xl px-4 py-1.5 text-[13px] font-medium hover:bg-black/85 transition-all hover:shadow-md hover:shadow-black/10 active:scale-[0.97]"
           >
-            Get Started
+            Sign up
           </a>
         </div>
       </div>
