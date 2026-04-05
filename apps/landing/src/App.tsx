@@ -75,7 +75,7 @@ function Hero() {
             {!showParticles ? (
               <motion.span
                 key="solid"
-                className="text-[72px] md:text-[90px] font-bold tracking-tighter leading-none text-black/50 select-none"
+                className="text-[110px] md:text-[140px] font-bold tracking-tighter leading-none text-black/50 select-none"
                 style={{ lineHeight: "280px" }}
                 exit={{ opacity: 0, scale: 1.02 }}
                 transition={{ duration: 0.25 }}
