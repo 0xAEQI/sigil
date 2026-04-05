@@ -77,7 +77,7 @@ function Hero() {
         </motion.h1>
 
         {/* CTA */}
-        <motion.div className="mt-10 flex flex-col items-center gap-4" {...fade(0.45)}>
+        <motion.div className="mt-10 flex flex-col items-center gap-6" {...fade(0.45)}>
           <a
             href="https://app.aeqi.ai/signup"
             className="inline-block bg-black text-white rounded-full px-8 py-3.5 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
