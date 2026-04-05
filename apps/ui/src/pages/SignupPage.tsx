@@ -23,7 +23,7 @@ export default function SignupPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <div className="auth-logo">ae</div>
+        <div className="auth-logo">æ</div>
         <h1 className="auth-heading">Create your account</h1>
         <p className="auth-subheading">Start building with autonomous agents</p>
 
