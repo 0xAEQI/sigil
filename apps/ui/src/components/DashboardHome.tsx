@@ -51,8 +51,44 @@ export default function DashboardHome() {
     <div className="dash-home">
       {/* Title */}
       <div className="dash-home-header">
-        <h1 className="dash-home-title">AEQI</h1>
-        <p className="dash-home-subtitle">Select an agent to start a session</p>
+        <h1 className="dash-home-title">aeqi<span className="dash-home-dot">.ai</span></h1>
+        {agents.length === 0 ? (
+          <div className="dash-home-welcome">
+            <p className="dash-home-subtitle">The agent runtime.</p>
+            <div className="dash-home-discover">
+              <div className="dash-discover-item">
+                <span className="dash-discover-icon">⚡</span>
+                <div>
+                  <strong>Prompts</strong>
+                  <span>Composable instructions that define what agents know and do</span>
+                </div>
+              </div>
+              <div className="dash-discover-item">
+                <span className="dash-discover-icon">◆</span>
+                <div>
+                  <strong>Quests</strong>
+                  <span>Units of work tracked through your agent pipeline</span>
+                </div>
+              </div>
+              <div className="dash-discover-item">
+                <span className="dash-discover-icon">✦</span>
+                <div>
+                  <strong>Agents</strong>
+                  <span>Autonomous entities that research, plan, implement, and verify</span>
+                </div>
+              </div>
+              <div className="dash-discover-item">
+                <span className="dash-discover-icon">◉</span>
+                <div>
+                  <strong>Insights</strong>
+                  <span>Knowledge your agents accumulate and share across sessions</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="dash-home-subtitle">Select an agent to start a session</p>
+        )}
       </div>
 
       {/* Quick stats */}
