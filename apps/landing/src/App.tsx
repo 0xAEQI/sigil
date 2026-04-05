@@ -33,6 +33,12 @@ function Nav() {
             github
           </a>
           <a
+            href="https://aeqi.ai/enterprise"
+            className="text-[14px] text-black/40 hover:text-black/70 transition-colors"
+          >
+            enterprise
+          </a>
+          <a
             href="https://app.aeqi.ai"
             className="bg-black text-white rounded-full px-5 py-2 text-[14px] font-medium hover:bg-black/85 transition-colors"
           >
@@ -103,8 +109,8 @@ function Footer() {
   return (
     <footer className="border-t border-black/5 py-8 px-6">
       <div className="max-w-5xl mx-auto flex items-center justify-between text-[13px] text-black/25">
-        <span className="font-bold tracking-tight text-black">
-          aeqi.ai&ensp;/&ensp;<span className="text-[16px]">æ</span>
+        <span className="text-[13px] font-bold tracking-tight text-black">
+          aeqi.ai&ensp;/&ensp;æ
         </span>
         <div className="flex items-center gap-5">
           <a
