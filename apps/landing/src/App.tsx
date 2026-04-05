@@ -103,8 +103,8 @@ function Footer() {
   return (
     <footer className="border-t border-black/5 py-8 px-6">
       <div className="max-w-5xl mx-auto flex items-center justify-between text-[13px] text-black/25">
-        <span className="font-semibold tracking-tight text-black">
-          aeqi.ai&ensp;/&ensp;<span className="text-[16px] font-bold">æ</span>
+        <span className="font-bold tracking-tight text-black">
+          aeqi.ai&ensp;/&ensp;<span className="text-[16px]">æ</span>
         </span>
         <div className="flex items-center gap-5">
           <a
@@ -119,7 +119,12 @@ function Footer() {
           >
             docs
           </a>
-          <span className="text-black/15">open source &middot; rust</span>
+          <a
+            href="https://x.com/0xAEQI"
+            className="hover:text-black/50 transition-colors"
+          >
+            x
+          </a>
         </div>
       </div>
     </footer>
