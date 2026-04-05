@@ -75,12 +75,12 @@ function Hero() {
             {!showParticles ? (
               <motion.span
                 key="solid"
-                className="text-[160px] md:text-[200px] font-bold tracking-tighter leading-none text-black/50 select-none"
+                className="text-[72px] md:text-[90px] font-bold tracking-tighter leading-none text-black/50 select-none"
                 style={{ lineHeight: "280px" }}
                 exit={{ opacity: 0, scale: 1.02 }}
                 transition={{ duration: 0.25 }}
               >
-                æ
+                æqi
               </motion.span>
             ) : (
               <motion.div

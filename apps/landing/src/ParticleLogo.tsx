@@ -111,8 +111,8 @@ export default function ParticleLogo({
       ctx.fillStyle = "#000";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `bold ${s * 0.78}px Inter, system-ui, sans-serif`;
-      ctx.fillText("æ", s / 2, s / 2 + s * 0.03);
+      ctx.font = `bold ${s * 0.35}px Inter, system-ui, sans-serif`;
+      ctx.fillText("æqi", s / 2, s / 2 + s * 0.03);
 
       const imageData = ctx.getImageData(0, 0, s, s);
       const filled: [number, number][] = [];
