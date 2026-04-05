@@ -3,6 +3,7 @@ import { useAuthStore } from "@/store/auth";
 import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
 import WelcomePage from "@/pages/WelcomePage";
+import NewWorkspacePage from "@/pages/NewWorkspacePage";
 import DashboardHome from "@/components/DashboardHome";
 import EventsPage from "@/pages/EventsPage";
 import QuestsPage from "@/pages/QuestsPage";
@@ -27,6 +28,7 @@ export default function App() {
         }
       >
         <Route index element={<WelcomePage />} />
+        <Route path="new" element={<NewWorkspacePage />} />
         <Route path="agents" element={<DashboardHome />} />
         <Route path="events" element={<EventsPage />} />
         <Route path="quests" element={<QuestsPage />} />

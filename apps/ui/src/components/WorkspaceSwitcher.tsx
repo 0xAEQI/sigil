@@ -149,7 +149,7 @@ export default function WorkspaceSwitcher() {
             className="ws-create-btn"
             onClick={() => {
               setOpen(false);
-              navigate("/");
+              navigate("/new");
             }}
           >
             + New workspace
