@@ -275,32 +275,33 @@ async fn login_handler(
                     .into_response();
             }
 
-            // Send login notification email (fire-and-forget).
-            if let Some(ref es) = state.email_service {
-                let es = es.clone();
-                let to = user.email.clone();
-                let n = user.name.clone();
-                let time = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S (UTC)").to_string();
-                tokio::spawn(async move {
-                    es.send_login_notification(&to, &n, "Web browser", "—", &time).await;
-                });
-            }
-
             let signing_key = auth::signing_secret(&state);
             match auth::create_token(signing_key, 24, Some(&user.id), Some(&user.email)) {
-                Ok(token) => axum::Json(serde_json::json!({
-                    "ok": true,
-                    "token": token,
-                    "token_type": "Bearer",
-                    "expires_in": 86400,
-                    "user": {
-                        "id": user.id,
-                        "email": user.email,
-                        "name": user.name,
-                        "avatar_url": user.avatar_url,
-                    },
-                }))
-                .into_response(),
+                Ok(token) => {
+                    // Send login notification only after JWT is issued.
+                    if let Some(ref es) = state.email_service {
+                        let es = es.clone();
+                        let to = user.email.clone();
+                        let n = user.name.clone();
+                        let time = chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S (UTC)").to_string();
+                        tokio::spawn(async move {
+                            es.send_login_notification(&to, &n, "Web browser", "—", &time).await;
+                        });
+                    }
+                    axum::Json(serde_json::json!({
+                        "ok": true,
+                        "token": token,
+                        "token_type": "Bearer",
+                        "expires_in": 86400,
+                        "user": {
+                            "id": user.id,
+                            "email": user.email,
+                            "name": user.name,
+                            "avatar_url": user.avatar_url,
+                        },
+                    }))
+                    .into_response()
+                }
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
         }
