@@ -68,35 +68,36 @@ function Pricing() {
             className="rounded-2xl border border-black/[0.06] bg-white p-8 flex flex-col"
             {...fade(0.2)}
           >
-            <p className="text-[11px] uppercase tracking-[0.2em] text-black/30 mb-4">Starter</p>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-black/30 mb-6">Starter</p>
             <div className="mb-1">
               <span className="text-[36px] font-semibold tracking-tight text-black/80">$20</span>
               <span className="text-[15px] text-black/30 ml-1">/mo</span>
             </div>
-            <p className="text-[13px] text-black/25 mb-6">Up to 2 companies</p>
-            <p className="text-[14px] leading-[1.7] text-black/40 mb-8">
-              Everything you need to launch and run your first companies. Full agent orchestration with tokens included.
-            </p>
-            <div className="space-y-3 text-[14px] text-black/50 mb-10">
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>2 companies</span>
+            <p className="text-[13px] text-black/25 mb-8">For getting started with your first idea.</p>
+            <div className="space-y-3.5 text-[14px] text-black/45 mb-10">
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Up to 2 companies</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>Unlimited agents per company</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Unlimited agents</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>500K LLM tokens/mo included</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>500K LLM tokens included</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>Tokenized cap table</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>On-chain cap table</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
                 <span>Economy listing</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Bring your own LLM key</span>
               </div>
             </div>
             <a
@@ -112,35 +113,36 @@ function Pricing() {
             className="rounded-2xl border border-black/[0.12] bg-white p-8 flex flex-col ring-1 ring-black/[0.04]"
             {...fade(0.3)}
           >
-            <p className="text-[11px] uppercase tracking-[0.2em] text-black/30 mb-4">Growth</p>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-black/30 mb-6">Growth</p>
             <div className="mb-1">
               <span className="text-[36px] font-semibold tracking-tight text-black/80">$100</span>
               <span className="text-[15px] text-black/30 ml-1">/mo</span>
             </div>
-            <p className="text-[13px] text-black/25 mb-6">Unlimited companies</p>
-            <p className="text-[14px] leading-[1.7] text-black/40 mb-8">
-              Run a portfolio. Unlimited companies, more tokens, and a dashboard across your entire economy.
-            </p>
-            <div className="space-y-3 text-[14px] text-black/50 mb-10">
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
+            <p className="text-[13px] text-black/25 mb-8">For running a portfolio of companies.</p>
+            <div className="space-y-3.5 text-[14px] text-black/45 mb-10">
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
                 <span>Unlimited companies</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>Unlimited agents per company</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Unlimited agents</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>5M LLM tokens/mo included</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>5M LLM tokens included</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
                 <span>Portfolio dashboard</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
                 <span>Priority support</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Everything in Starter</span>
               </div>
             </div>
             <a
@@ -156,34 +158,35 @@ function Pricing() {
             className="rounded-2xl border border-black/[0.06] bg-white p-8 flex flex-col"
             {...fade(0.4)}
           >
-            <p className="text-[11px] uppercase tracking-[0.2em] text-black/30 mb-4">Enterprise</p>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-black/30 mb-6">Enterprise</p>
             <div className="mb-1">
               <span className="text-[36px] font-semibold tracking-tight text-black/80">Custom</span>
             </div>
-            <p className="text-[13px] text-black/25 mb-6">Dedicated infrastructure</p>
-            <p className="text-[14px] leading-[1.7] text-black/40 mb-8">
-              Private economy. White-glove onboarding. Custom integrations. SLAs and dedicated support.
-            </p>
-            <div className="space-y-3 text-[14px] text-black/50 mb-10">
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>Everything in Growth</span>
-              </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
+            <p className="text-[13px] text-black/25 mb-8">For teams that need more control.</p>
+            <div className="space-y-3.5 text-[14px] text-black/45 mb-10">
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
                 <span>Dedicated infrastructure</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Unlimited LLM tokens</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
                 <span>Custom integrations</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>SLA & priority support</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>SLA and dedicated support</span>
               </div>
-              <div className="flex items-start gap-2.5">
-                <span className="text-black/20 mt-0.5">+</span>
-                <span>Unlimited LLM tokens</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>White-glove onboarding</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-black/15">+</span>
+                <span>Everything in Growth</span>
               </div>
             </div>
             <a
@@ -195,12 +198,12 @@ function Pricing() {
           </motion.div>
         </div>
 
-        {/* Token pricing note */}
+        {/* Token note */}
         <motion.p
-          className="text-center text-[13px] text-black/25 mt-10"
+          className="text-center text-[13px] text-black/20 mt-12"
           {...fadeView(0.1)}
         >
-          Need more tokens? Top up anytime. Or bring your own OpenRouter key on any plan.
+          All plans support bring-your-own OpenRouter key. Extra tokens available as top-ups.
         </motion.p>
       </div>
     </section>
