@@ -32,6 +32,47 @@
   margin: 6px 0 0;
 }
 
+.welcome-editable {
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background 0.1s;
+  padding: 2px 6px;
+  margin-left: -6px;
+  margin-right: -6px;
+}
+.welcome-editable:hover {
+  background: var(--bg-elevated);
+}
+
+.welcome-title-input {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-md);
+  padding: 2px 8px;
+  text-align: center;
+  outline: none;
+  letter-spacing: -0.03em;
+  width: 100%;
+  max-width: 400px;
+}
+
+.welcome-tagline-input {
+  font-size: 14px;
+  color: var(--text-muted);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  text-align: center;
+  outline: none;
+  width: 100%;
+  max-width: 300px;
+  margin-top: 6px;
+}
+
 .welcome-grid {
   display: flex;
   flex-direction: column;
