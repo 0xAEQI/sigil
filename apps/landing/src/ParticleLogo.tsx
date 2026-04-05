@@ -160,14 +160,19 @@ export default function ParticleLogo({
       frame++;
       const time = frame * 0.008;
 
-      // Burst: give each particle a random outward velocity
-      if (!hasBurst && frame === BURST_FRAME) {
-        hasBurst = true;
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const force = BURST_FORCE * (0.5 + Math.random());
-          velocities[i * 3] = Math.cos(angle) * force;
-          velocities[i * 3 + 1] = Math.sin(angle) * force;
+      // Before burst: render static, skip all physics
+      if (!hasBurst) {
+        if (frame === BURST_FRAME) {
+          hasBurst = true;
+          for (let i = 0; i < PARTICLE_COUNT; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const force = BURST_FORCE * (0.5 + Math.random());
+            velocities[i * 3] = Math.cos(angle) * force;
+            velocities[i * 3 + 1] = Math.sin(angle) * force;
+          }
+        } else {
+          renderer.render(scene, camera);
+          return;
         }
       }
 
@@ -175,14 +180,11 @@ export default function ParticleLogo({
       const my = mouseRef.current.y;
       const pos = geometry.attributes.position as THREE.BufferAttribute;
 
-      // Only apply spring after burst
-      const springActive = hasBurst;
-
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         const i3 = i * 3;
 
-        // Subtle breathing noise (only after burst settles)
-        const breathe = hasBurst && frame > BURST_FRAME + 60;
+        // Breathing noise kicks in after reform
+        const breathe = frame > BURST_FRAME + 60;
         const nx = breathe ? Math.sin(time * 0.6 + i * 0.07) * 0.15 : 0;
         const ny = breathe ? Math.cos(time * 0.5 + i * 0.09) * 0.15 : 0;
 
@@ -190,10 +192,8 @@ export default function ParticleLogo({
         const dx = targets[i3] - positions[i3];
         const dy = targets[i3 + 1] - positions[i3 + 1];
 
-        if (springActive) {
-          velocities[i3] += dx * RETURN_FORCE + nx;
-          velocities[i3 + 1] += dy * RETURN_FORCE + ny;
-        }
+        velocities[i3] += dx * RETURN_FORCE + nx;
+        velocities[i3 + 1] += dy * RETURN_FORCE + ny;
 
         // Mouse repulsion
         const mdx = positions[i3] - mx;
