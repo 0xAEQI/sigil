@@ -6,7 +6,7 @@ import BlockAvatar from "./BlockAvatar";
 import CommandPalette from "./CommandPalette";
 import AgentSessionView from "./AgentSessionView";
 import DashboardHome from "./DashboardHome";
-import InboxPage from "@/pages/InboxPage";
+import EventsPage from "@/pages/EventsPage";
 import QuestsPage from "@/pages/QuestsPage";
 import { useDaemonStore } from "@/store/daemon";
 import { useDaemonSocket } from "@/hooks/useDaemonSocket";
@@ -77,7 +77,7 @@ export default function AppLayout() {
               onClick={(e) => { e.preventDefault(); navigate("/?page=inbox"); }}
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M2 4l5 3.5L12 4M2 4v6.5h10V4" /></svg>
-              Inbox
+              Events
               {(useDaemonStore.getState().events || []).length > 0 && (
                 <span className="sidebar-nav-badge" />
               )}
@@ -114,7 +114,7 @@ export default function AppLayout() {
           {agentId ? (
             <AgentSessionView agentId={agentId} sessionId={sessionId} />
           ) : page === "inbox" ? (
-            <InboxPage />
+            <EventsPage />
           ) : page === "quests" ? (
             <QuestsPage />
           ) : (

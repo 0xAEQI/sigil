@@ -165,7 +165,7 @@ export default function InboxPage() {
     <div className="inbox">
       <div className="inbox-header">
         <div className="inbox-title">
-          <h2>Inbox</h2>
+          <h2>Events</h2>
           {unreadCount > 0 && (
             <span className="inbox-unread-badge">{unreadCount}</span>
           )}
