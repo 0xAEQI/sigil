@@ -1,5 +1,7 @@
 pub mod auth;
 pub mod config;
+#[cfg(feature = "embed-ui")]
+pub mod embedded_ui;
 pub mod ipc;
 pub mod routes;
 pub mod server;

@@ -93,6 +93,12 @@ pub async fn start(config: &AEQIConfig) -> Result<()> {
             info!("aeqi-web serving UI assets from {}", ui_dist_dir.display());
         }
         app = app.fallback(spa_handler);
+    } else {
+        #[cfg(feature = "embed-ui")]
+        {
+            info!("aeqi-web serving embedded UI assets");
+            app = app.fallback(embedded_spa_handler);
+        }
     }
 
     let app = app.with_state(state);
@@ -153,6 +159,38 @@ async fn login_handler(
             axum::Json(serde_json::json!({"ok": false, "error": e.to_string()})),
         )
             .into_response(),
+    }
+}
+
+#[cfg(feature = "embed-ui")]
+async fn embedded_spa_handler(req: Request) -> Response {
+    use crate::embedded_ui::Assets;
+
+    if req.method() != Method::GET && req.method() != Method::HEAD {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let path = req.uri().path();
+    if path.starts_with("/api") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let file_path = path.trim_start_matches('/');
+
+    // Try exact file first, then fall back to index.html for SPA routing.
+    let file = Assets::get(file_path).or_else(|| Assets::get("index.html"));
+
+    match file {
+        Some(content) => {
+            let mime = mime_guess::from_path(file_path)
+                .first_or_octet_stream()
+                .to_string();
+            Response::builder()
+                .header("content-type", mime)
+                .body(Body::from(content.data.to_vec()))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 

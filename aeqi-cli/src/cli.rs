@@ -12,6 +12,12 @@ pub enum Commands {
         #[arg(long, default_value = "20")]
         max_iterations: u32,
     },
+    /// Start daemon + web server in a single process.
+    Start {
+        /// Override web server bind address (default: from config or 0.0.0.0:8400).
+        #[arg(long)]
+        bind: Option<String>,
+    },
     /// Initialize AEQI in the current directory.
     Init,
     /// Bootstrap a ready-to-run AEQI workspace.

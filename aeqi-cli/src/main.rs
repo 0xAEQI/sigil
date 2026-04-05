@@ -54,6 +54,7 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        Some(Commands::Start { bind }) => cmd::start::cmd_start(&cli.config, bind).await,
         Some(Commands::Init) => cmd::init::cmd_init().await,
         Some(Commands::Setup {
             runtime,

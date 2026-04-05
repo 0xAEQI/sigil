@@ -18,6 +18,7 @@ pub(crate) mod prompt;
 pub(crate) mod run;
 pub(crate) mod secrets;
 pub(crate) mod setup;
+pub(crate) mod start;
 pub(crate) mod status;
 pub(crate) mod tasks;
 pub(crate) mod team;

@@ -87,6 +87,10 @@ pulldown-cmark = "0.12"
 syntect = "5.2"
 similar = "2"
 
+# Embedded assets
+rust-embed = { version = "8", features = ["compression"] }
+mime_guess = "2"
+
 # Test
 tempfile = "3"
 

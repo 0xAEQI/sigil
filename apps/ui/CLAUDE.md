@@ -7,7 +7,7 @@ Frontend for the AEQI agent runtime. Vite + React 19 + Zustand + TypeScript.
 - **Build:** Vite 6, React 19, TypeScript 5
 - **State:** Zustand (auth store, daemon store, chat store, ui store)
 - **Routing:** React Router v7
-- **Styling:** CSS custom properties in `src/styles/tokens.css` (dark zinc palette, JetBrains Mono + Inter)
+- **Styling:** CSS custom properties in `src/styles/primitives.css` (light zinc palette, JetBrains Mono + Inter)
 - **API:** `src/lib/api.ts` -- fetch wrapper with JWT auth, auto-redirect on 401
 
 ## Layout
