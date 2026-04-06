@@ -25,7 +25,8 @@ function Hero() {
   const [showParticles, setShowParticles] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowParticles(true), 800);
+    // "i" drops at 0.5s, lands at ~1.2s. Burst 300ms after landing.
+    const timer = setTimeout(() => setShowParticles(true), 1500);
     return () => clearTimeout(timer);
   }, []);
 
@@ -38,25 +39,47 @@ function Hero() {
   return (
     <section className="flex-1 flex items-center justify-center px-6 min-h-[80vh]">
       <div className="max-w-2xl mx-auto text-center">
-        {/* Logo */}
-        <motion.div {...fade(0.1)} className="flex justify-center" style={{ height: 200 }}>
+        {/* Logo — "i" drops from top, locks in, then particle burst */}
+        <div className="flex justify-center" style={{ height: 200, position: "relative" }}>
           <AnimatePresence mode="wait">
             {!showParticles ? (
-              <motion.span
+              <motion.div
                 key="solid"
-                className="text-[110px] md:text-[140px] font-bold tracking-[-0.08em] leading-none text-black/50 select-none"
-                style={{ lineHeight: "200px" }}
-                exit={{ opacity: 0, scale: 1.02 }}
-                transition={{ duration: 0.25 }}
+                className="flex items-center justify-center select-none"
+                style={{ height: 200 }}
+                exit={{ opacity: 0, scale: 1.05 }}
+                transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
               >
-                æq<span className="inline-block translate-y-[0.04em]">i</span>
-              </motion.span>
+                {/* "æq" fades in */}
+                <motion.span
+                  className="text-[110px] md:text-[140px] font-bold tracking-[-0.08em] leading-none text-black/50"
+                  style={{ lineHeight: "200px" }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.5, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+                >
+                  æq
+                </motion.span>
+                {/* "i" drops from top of viewport */}
+                <motion.span
+                  className="text-[110px] md:text-[140px] font-bold tracking-[-0.08em] leading-none text-black/50 inline-block"
+                  style={{ lineHeight: "200px", translateY: "0.04em" }}
+                  initial={{ y: "-100vh", opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{
+                    y: { duration: 0.7, delay: 0.5, ease: [0.22, 1, 0.36, 1] },
+                    opacity: { duration: 0.3, delay: 0.5 },
+                  }}
+                >
+                  i
+                </motion.span>
+              </motion.div>
             ) : (
               <motion.div
                 key="particles"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.15 }}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
               >
                 <Suspense fallback={null}>
                   <ParticleLogo width={500} height={200} />
@@ -64,12 +87,12 @@ function Hero() {
               </motion.div>
             )}
           </AnimatePresence>
-        </motion.div>
+        </div>
 
-        {/* Headline */}
+        {/* Headline — appears after particle burst */}
         <motion.h1
           className="mt-2 text-[26px] md:text-[34px] font-semibold tracking-tight text-black/85 leading-snug"
-          {...fade(0.3)}
+          {...fade(1.7)}
         >
           Unlock the agent economy.
           <br />
@@ -77,7 +100,7 @@ function Hero() {
         </motion.h1>
 
         {/* CTA */}
-        <motion.div className="mt-10 flex flex-col items-center gap-6" {...fade(0.45)}>
+        <motion.div className="mt-10 flex flex-col items-center gap-6" {...fade(2.0)}>
           <a
             href="https://app.aeqi.ai/signup"
             className="inline-block bg-black text-white rounded-full px-8 py-3.5 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
