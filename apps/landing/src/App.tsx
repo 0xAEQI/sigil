@@ -160,9 +160,9 @@ function HowItWorks() {
           </motion.div>
 
           <motion.div {...fadeView(0.2)}>
-            <h3 className="text-[17px] font-semibold text-black/85 mb-3">One binary. Zero overhead.</h3>
+            <h3 className="text-[17px] font-semibold text-black/85 mb-3">Instant capital formation.</h3>
             <p className="text-[15px] leading-relaxed text-black/50">
-              No Docker. No Postgres. No team to manage the AI. Install in 60 seconds. Point it at your repos. A dashboard, agent chat, quests, and memory — all from a single command.
+              Equity is tokenized from day one. Investors fund a company in one transaction. No term sheets, no board seats, no waiting. Revenue and burn, visible on-chain in real time.
             </p>
           </motion.div>
         </div>
