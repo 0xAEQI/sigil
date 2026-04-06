@@ -4,6 +4,7 @@ import { useChatStore } from "@/store/chat";
 import { runtimeLabel } from "@/lib/runtime";
 import { timeAgo } from "@/lib/format";
 import type { Agent } from "@/lib/types";
+import BrandMark from "@/components/BrandMark";
 
 function formatUsd(n: number): string {
   return `$${n.toFixed(2)}`;
@@ -52,7 +53,7 @@ export default function DashboardHome() {
     <div className="dash-home">
       {/* Title */}
       <div className="dash-home-header">
-        <h1 className="dash-home-title">aeqi<span className="dash-home-dot">.ai</span></h1>
+        <h1 className="dash-home-title"><BrandMark size={22} /><span className="dash-home-dot">.ai</span></h1>
         {agents.length > 0 ? (
           <p className="dash-home-subtitle">Select an agent to start a session</p>
         ) : (

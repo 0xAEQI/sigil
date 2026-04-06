@@ -328,6 +328,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.pm-trigger-email {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pm-trigger-plan {
   font-size: 10px;
   color: var(--text-muted);

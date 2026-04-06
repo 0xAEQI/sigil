@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
+import BrandMark from "@/components/BrandMark";
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export default function SignupPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <div className="auth-logo">æqi</div>
+        <div className="auth-logo"><BrandMark size={48} color="rgba(0,0,0,0.5)" /></div>
         <h1 className="auth-heading">Create your account</h1>
         <p className="auth-subheading">Start building with autonomous agents</p>
 

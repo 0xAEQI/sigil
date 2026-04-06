@@ -17,7 +17,7 @@ export default function TrialBanner() {
     <div className={`trial-banner${expired ? " expired" : ""}`}>
       <span className="trial-banner-text">
         {expired
-          ? "Your trial has expired. Upgrade to continue using aeqi."
+          ? "Your trial has expired. Upgrade to continue using æqi."
           : `${days} day${days !== 1 ? "s" : ""} left on your free trial`}
       </span>
       <div className="trial-banner-actions">

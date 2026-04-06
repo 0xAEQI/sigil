@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
 import { api } from "@/lib/api";
+import BrandMark from "@/components/BrandMark";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -58,7 +59,7 @@ export default function LoginPage() {
     return (
       <div className="auth-page">
         <div className="auth-container">
-          <div className="auth-logo">æqi</div>
+          <div className="auth-logo"><BrandMark size={48} color="rgba(0,0,0,0.5)" /></div>
           <h1 className="auth-heading">Welcome back</h1>
           <p className="auth-subheading">Enter your access key to continue</p>
           <form className="auth-form" onSubmit={handleSecretSubmit}>
@@ -91,8 +92,8 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <div className="auth-logo">æqi</div>
-        <h1 className="auth-heading">Sign in to aeqi</h1>
+        <div className="auth-logo"><BrandMark size={48} color="rgba(0,0,0,0.5)" /></div>
+        <h1 className="auth-heading">Sign in to <BrandMark size={22} /></h1>
         <p className="auth-subheading">Run companies with autonomous agents</p>
 
         {googleOAuth && (

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
+import BrandMark from "@/components/BrandMark";
 
 export default function VerifyEmailPage() {
   const navigate = useNavigate();
@@ -85,7 +86,7 @@ export default function VerifyEmailPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
-        <div className="auth-logo">æqi</div>
+        <div className="auth-logo"><BrandMark size={48} color="rgba(0,0,0,0.5)" /></div>
         <h1 className="auth-heading">Check your email</h1>
         <p className="auth-subheading">
           We sent a 6-digit code to <strong style={{ color: "rgba(0,0,0,0.7)" }}>{email}</strong>
