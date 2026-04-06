@@ -15,20 +15,12 @@ const fadeView = (delay = 0) => ({
 
 /* ─── Hero ─── */
 function Hero() {
-  const [copied, setCopied] = useState(false);
   const [showParticles, setShowParticles] = useState(false);
 
   useEffect(() => {
-    // "i" drops at 0.1s, lands at ~0.5s. Burst right after.
     const timer = setTimeout(() => setShowParticles(true), 700);
     return () => clearTimeout(timer);
   }, []);
-
-  const copy = () => {
-    navigator.clipboard.writeText("cargo install aeqi");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   return (
     <section className="flex-1 flex items-center justify-center px-6 min-h-[80vh]">
@@ -98,25 +90,13 @@ function Hero() {
         </h1>
 
         {/* CTA — always visible */}
-        <div className="mt-10 flex flex-col items-center gap-6">
+        <div className="mt-10">
           <a
             href="https://app.aeqi.ai/signup"
             className="inline-block bg-black text-white rounded-full px-8 py-3.5 text-[15px] font-medium hover:bg-black/80 transition-all hover:shadow-xl hover:shadow-black/10 hover:scale-[1.02] active:scale-[0.98]"
           >
             Launch a Company
           </a>
-          <button
-            onClick={copy}
-            className="group inline-flex items-center gap-2 bg-black/[0.04] hover:bg-black/[0.07] rounded-lg px-4 py-2 text-[14px] text-black/50 hover:text-black/70 transition-all cursor-pointer"
-          >
-            <code className="font-mono font-medium">
-              <span className="select-none text-black/30">$ </span>
-              cargo install aeqi
-            </code>
-            <span className="text-[11px] opacity-0 group-hover:opacity-100 transition-opacity">
-              {copied ? "✓" : "copy"}
-            </span>
-          </button>
         </div>
       </div>
     </section>
@@ -142,6 +122,103 @@ function ValueProps() {
             </motion.div>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Open Source ─── */
+function OpenSource() {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard.writeText("curl -fsSL https://raw.githubusercontent.com/0xAEQI/aeqi/main/scripts/install.sh | sh");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <section className="py-24 px-6 border-t border-black/[0.06]">
+      <div className="max-w-3xl mx-auto">
+        <motion.div {...fadeView()} className="text-center mb-16">
+          <p className="text-[11px] font-medium tracking-[0.2em] uppercase text-black/20 mb-4">Open Source</p>
+          <h2 className="text-[24px] md:text-[30px] font-semibold tracking-tight text-black/85 leading-snug">
+            Built in the open.<br />
+            <span className="text-black/50">Run it yourself. Own your infrastructure.</span>
+          </h2>
+        </motion.div>
+
+        <motion.div {...fadeView(0.1)} className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-14">
+          {/* Architecture */}
+          <div className="bg-white rounded-2xl border border-black/[0.06] p-6">
+            <pre className="text-[12px] font-mono text-black/50 leading-relaxed whitespace-pre overflow-x-auto">
+{`aeqi (single binary, ~24MB)
+├── daemon     orchestration, workers, patrol
+├── web        REST API + WebSocket + dashboard
+├── sqlite     agents, tasks, memory, sessions
+└── embedded   React dashboard (rust-embed)
+
+$ aeqi setup   # configure provider
+$ aeqi start   # everything on :8400`}
+            </pre>
+          </div>
+
+          {/* Stats */}
+          <div className="flex flex-col gap-4">
+            <a
+              href="https://github.com/0xAEQI/aeqi"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-4 bg-white rounded-2xl border border-black/[0.06] p-5 hover:border-black/15 transition-all group"
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="text-black/70 flex-shrink-0">
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+              </svg>
+              <div className="flex-1">
+                <span className="text-[14px] font-medium text-black/80 group-hover:text-black transition-colors">0xAEQI/aeqi</span>
+                <p className="text-[12px] text-black/40 mt-0.5">10 Rust crates · 600+ tests · BSL 1.1</p>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-black/20 group-hover:text-black/50 transition-colors">
+                <path d="M6 3l5 5-5 5" />
+              </svg>
+            </a>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-xl border border-black/[0.06] p-4 text-center">
+                <div className="text-[20px] font-bold text-black/80 font-mono">10</div>
+                <div className="text-[11px] text-black/30 mt-1">crates</div>
+              </div>
+              <div className="bg-white rounded-xl border border-black/[0.06] p-4 text-center">
+                <div className="text-[20px] font-bold text-black/80 font-mono">1</div>
+                <div className="text-[11px] text-black/30 mt-1">binary</div>
+              </div>
+              <div className="bg-white rounded-xl border border-black/[0.06] p-4 text-center">
+                <div className="text-[20px] font-bold text-black/80 font-mono">0</div>
+                <div className="text-[11px] text-black/30 mt-1">dependencies*</div>
+              </div>
+            </div>
+            <p className="text-[11px] text-black/20 text-center">*No Docker, no Postgres, no Redis. Just the binary.</p>
+          </div>
+        </motion.div>
+
+        {/* Install command */}
+        <motion.div {...fadeView(0.2)} className="flex flex-col items-center gap-3">
+          <button
+            onClick={copy}
+            className="group inline-flex items-center gap-3 bg-white border border-black/[0.08] hover:border-black/15 rounded-xl px-5 py-3 text-[13px] text-black/60 hover:text-black/80 transition-all cursor-pointer"
+          >
+            <code className="font-mono font-medium">
+              <span className="select-none text-black/25">$ </span>
+              curl -fsSL https://aeqi.ai/install.sh | sh
+            </code>
+            <span className="text-[11px] text-black/30 group-hover:text-black/50 transition-colors">
+              {copied ? "✓ copied" : "copy"}
+            </span>
+          </button>
+          <p className="text-[12px] text-black/30">
+            or <code className="font-mono text-black/40">cargo install aeqi</code> · works on Linux, macOS, WSL
+          </p>
+        </motion.div>
       </div>
     </section>
   );
@@ -176,6 +253,7 @@ export default function App() {
       <Hero />
       <div className="bg-[#fafafa]">
         <ValueProps />
+        <OpenSource />
         <ClosingCTA />
         <Footer />
       </div>
