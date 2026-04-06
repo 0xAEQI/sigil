@@ -77,6 +77,20 @@ impl UserStore {
             )?;
         }
 
+        // Idempotent migration: add attempts column to email_verifications.
+        {
+            let has_attempts: bool = conn
+                .prepare("PRAGMA table_info(email_verifications)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .any(|col| col == "attempts");
+            if !has_attempts {
+                conn.execute_batch(
+                    "ALTER TABLE email_verifications ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
+        }
+
         // Idempotent migration: add Stripe/subscription columns.
         {
             let cols: Vec<String> = conn
@@ -221,20 +235,24 @@ impl UserStore {
                 // Only update avatar if not set (cosmetic, not a security field).
                 if user.avatar_url.is_none() && !avatar.is_empty() {
                     let db = self.db.lock().unwrap();
-                    let _ = db.execute(
+                    if let Err(e) = db.execute(
                         "UPDATE users SET avatar_url = ?1 WHERE id = ?2",
                         rusqlite::params![avatar, user.id],
-                    );
+                    ) {
+                        tracing::error!(error = %e, "failed to update avatar for local user");
+                    }
                 }
                 return user;
             }
             // For OAuth-created accounts (no password), safe to update provider info.
             if user.avatar_url.is_none() && !avatar.is_empty() {
                 let db = self.db.lock().unwrap();
-                let _ = db.execute(
+                if let Err(e) = db.execute(
                     "UPDATE users SET avatar_url = ?1, provider_id = ?2 WHERE id = ?3",
                     rusqlite::params![avatar, provider_id, user.id],
-                );
+                ) {
+                    tracing::error!(error = %e, "failed to update avatar/provider for OAuth user");
+                }
             }
             return user;
         }
@@ -249,11 +267,13 @@ impl UserStore {
         };
 
         let db = self.db.lock().unwrap();
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "INSERT INTO users (id, email, name, avatar_url, provider, provider_id, subscription_status, trial_ends_at, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'trialing', ?7, ?8, ?8)",
             rusqlite::params![id, email, name, avatar_opt, provider, provider_id, trial_ends, now],
-        );
+        ) {
+            tracing::error!(error = %e, email = %email, provider = %provider, "failed to create OAuth user");
+        }
 
         User {
             id,
@@ -300,25 +320,31 @@ impl UserStore {
     pub fn add_user_company(&self, user_id: &str, company_name: &str, role: &str) {
         let db = self.db.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "INSERT OR IGNORE INTO users_companies (user_id, company_name, role, created_at)
              VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![user_id, company_name, role, now],
-        );
+        ) {
+            tracing::error!(error = %e, user_id = %user_id, company = %company_name, "failed to add user company membership");
+        }
     }
 
     pub fn save_oauth_state(&self, state: &str) {
         let db = self.db.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "INSERT INTO oauth_states (state, created_at) VALUES (?1, ?2)",
             rusqlite::params![state, now],
-        );
+        ) {
+            tracing::error!(error = %e, "failed to save OAuth state");
+        }
         // Clean up old states (> 10 min).
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "DELETE FROM oauth_states WHERE created_at < datetime('now', '-10 minutes')",
             [],
-        );
+        ) {
+            tracing::error!(error = %e, "failed to clean up expired OAuth states");
+        }
     }
 
     pub fn consume_oauth_state(&self, state: &str) -> bool {
@@ -380,16 +406,20 @@ impl UserStore {
         let code = format!("{:06}", OsRng.next_u32() % 1_000_000);
         let now = chrono::Utc::now().to_rfc3339();
         let db = self.db.lock().unwrap();
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "INSERT OR REPLACE INTO email_verifications (email, code, user_id, created_at)
              VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![email, code, user_id, now],
-        );
+        ) {
+            tracing::error!(error = %e, email = %email, "failed to save email verification code");
+        }
         // Clean up expired codes (> 10 min).
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "DELETE FROM email_verifications WHERE created_at < datetime('now', '-10 minutes')",
             [],
-        );
+        ) {
+            tracing::error!(error = %e, "failed to clean up expired verification codes");
+        }
         code
     }
 
@@ -397,6 +427,24 @@ impl UserStore {
     /// Uses a transaction to ensure check + update + delete are atomic.
     pub fn verify_email(&self, email: &str, code: &str) -> Option<User> {
         let mut db = self.db.lock().unwrap();
+
+        // Check attempt count before doing anything.
+        let attempts: i32 = db
+            .query_row(
+                "SELECT COALESCE(attempts, 0) FROM email_verifications WHERE email = ?1",
+                rusqlite::params![email],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        if attempts >= 5 {
+            // Too many failed attempts — delete the record and force resend.
+            let _ = db.execute(
+                "DELETE FROM email_verifications WHERE email = ?1",
+                rusqlite::params![email],
+            );
+            return None;
+        }
+
         // Check code matches.
         let stored: Option<(String, String)> = db
             .query_row(
@@ -409,6 +457,25 @@ impl UserStore {
         let (stored_code, user_id) = stored?;
 
         if stored_code != code {
+            // Increment attempt counter.
+            let _ = db.execute(
+                "UPDATE email_verifications SET attempts = COALESCE(attempts, 0) + 1 WHERE email = ?1",
+                rusqlite::params![email],
+            );
+            // Re-check if this attempt hit the limit.
+            let new_attempts: i32 = db
+                .query_row(
+                    "SELECT COALESCE(attempts, 0) FROM email_verifications WHERE email = ?1",
+                    rusqlite::params![email],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            if new_attempts >= 5 {
+                let _ = db.execute(
+                    "DELETE FROM email_verifications WHERE email = ?1",
+                    rusqlite::params![email],
+                );
+            }
             return None;
         }
 
@@ -480,10 +547,12 @@ impl UserStore {
     pub fn set_stripe_customer(&self, user_id: &str, customer_id: &str) {
         let db = self.db.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "UPDATE users SET stripe_customer_id = ?1, updated_at = ?2 WHERE id = ?3",
             rusqlite::params![customer_id, now, user_id],
-        );
+        ) {
+            tracing::error!(error = %e, user_id = %user_id, "failed to set Stripe customer ID");
+        }
     }
 
     pub fn set_subscription(
@@ -495,10 +564,12 @@ impl UserStore {
     ) {
         let db = self.db.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = db.execute(
+        if let Err(e) = db.execute(
             "UPDATE users SET subscription_status = ?1, subscription_plan = ?2, stripe_subscription_id = ?3, updated_at = ?4 WHERE id = ?5",
             rusqlite::params![status, plan, subscription_id, now, user_id],
-        );
+        ) {
+            tracing::error!(error = %e, user_id = %user_id, status = %status, "failed to update subscription");
+        }
     }
 
     /// Returns (status, plan, trial_ends_at).

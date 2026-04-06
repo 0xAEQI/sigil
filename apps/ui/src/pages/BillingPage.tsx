@@ -7,7 +7,8 @@ const PLANS = [
   {
     id: "starter" as const,
     name: "Starter",
-    price: 20,
+    price: 39,
+    desc: "For individuals and small teams getting started with autonomous agents.",
     features: [
       "2 companies",
       "10 agents per company",
@@ -18,8 +19,9 @@ const PLANS = [
   {
     id: "growth" as const,
     name: "Growth",
-    price: 100,
+    price: 129,
     popular: true,
+    desc: "For teams that need full autonomy at scale with priority support.",
     features: [
       "Unlimited companies",
       "Unlimited agents",
@@ -97,7 +99,10 @@ export default function BillingPage() {
   return (
     <div className="bill">
       <div className="bill-header">
-        <h1 className="bill-title">Billing</h1>
+        <div>
+          <h1 className="bill-title">Plans & Billing</h1>
+          <p className="bill-subtitle">Simple, transparent pricing. Scale when you're ready.</p>
+        </div>
         {status === "active" && plan && (
           <button className="bill-manage" onClick={manage} disabled={loading === "portal"}>
             {loading === "portal" ? "Opening..." : "Manage subscription"}
@@ -125,7 +130,7 @@ export default function BillingPage() {
             <span className="bill-banner-badge active">{plan === "starter" ? "Starter" : "Growth"}</span>
             <span className="bill-banner-text">Your subscription is active</span>
           </div>
-          <span className="bill-banner-price">${plan === "starter" ? "20" : "100"}/mo</span>
+          <span className="bill-banner-price">${plan === "starter" ? "39" : "129"}/mo</span>
         </div>
       )}
 
@@ -147,14 +152,17 @@ export default function BillingPage() {
           const current = status === "active" && plan === p.id;
           return (
             <div key={p.id} className={`bill-card${p.popular ? " popular" : ""}${current ? " current" : ""}`}>
-              {p.popular && <div className="bill-card-badge">Most popular</div>}
+              {p.popular && <div className="bill-card-badge">Recommended</div>}
               <div className="bill-card-head">
                 <h2 className="bill-card-name">{p.name}</h2>
+                <p className="bill-card-desc">{p.desc}</p>
                 <div className="bill-card-price">
                   <span className="bill-card-amount">${p.price}</span>
                   <span className="bill-card-period">/month</span>
                 </div>
               </div>
+              <div className="bill-card-divider" />
+              <span className="bill-card-includes">What's included</span>
               <ul className="bill-card-features">
                 {p.features.map((f) => (
                   <li key={f}>
@@ -166,11 +174,11 @@ export default function BillingPage() {
                 ))}
               </ul>
               <button
-                className={`bill-card-cta${current ? " current" : ""}`}
+                className={`bill-card-cta${current ? " current" : ""}${p.popular && !current ? " primary" : ""}`}
                 onClick={() => !current && subscribe(p.id)}
                 disabled={current || loading === p.id}
               >
-                {current ? "Current plan" : loading === p.id ? "Redirecting..." : "Get started"}
+                {current ? "Current plan" : loading === p.id ? "Redirecting..." : p.popular ? "Get started" : "Choose Starter"}
               </button>
             </div>
           );
@@ -178,7 +186,9 @@ export default function BillingPage() {
       </div>
 
       <p className="bill-footer">
-        Prices in USD. Cancel anytime. Questions? <a href="mailto:hello@aeqi.ai">hello@aeqi.ai</a>
+        All prices in USD. Cancel anytime, no questions asked.
+        <br />
+        Need something custom? <a href="mailto:hello@aeqi.ai">Talk to us</a>
       </p>
     </div>
   );

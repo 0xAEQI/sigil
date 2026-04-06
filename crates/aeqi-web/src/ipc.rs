@@ -24,8 +24,17 @@ impl IpcClient {
         &self.socket_path
     }
 
-    /// Send a JSON request and get a JSON response.
+    /// Send a JSON request and get a JSON response (with 10s timeout).
     pub async fn request(&self, request: &serde_json::Value) -> Result<serde_json::Value> {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.request_inner(request),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("IPC request timed out after 10s"))?
+    }
+
+    async fn request_inner(&self, request: &serde_json::Value) -> Result<serde_json::Value> {
         if !self.socket_path.exists() {
             anyhow::bail!(
                 "IPC socket not found: {}. Is the daemon running?",

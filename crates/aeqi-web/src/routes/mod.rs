@@ -137,15 +137,28 @@ async fn create_company(State(state): State<AppState>, req: Request) -> Response
 
     let resp = ipc_proxy(state.clone(), "create_company", body.clone()).await;
 
-    // Associate company with user in accounts mode.
-    if let Some(uid) = user_id
+    // Parse the IPC response to check success before associating with user.
+    let resp_bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap_or_default();
+    let resp_json: serde_json::Value =
+        serde_json::from_slice(&resp_bytes).unwrap_or(serde_json::Value::Null);
+
+    let ipc_ok = resp_json
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Only associate company with user if the IPC call succeeded.
+    if ipc_ok
+        && let Some(uid) = user_id
         && let Some(name) = body.get("name").and_then(|n| n.as_str())
         && let Some(ref store) = state.user_store
     {
         store.add_user_company(&uid, name, "owner");
     }
 
-    resp
+    Json(resp_json).into_response()
 }
 
 // --- Tasks ---

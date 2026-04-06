@@ -53,42 +53,10 @@ export default function DashboardHome() {
       {/* Title */}
       <div className="dash-home-header">
         <h1 className="dash-home-title">aeqi<span className="dash-home-dot">.ai</span></h1>
-        {agents.length === 0 ? (
-          <div className="dash-home-welcome">
-            <p className="dash-home-subtitle">The agent runtime.</p>
-            <div className="dash-home-discover">
-              <div className="dash-discover-item">
-                <span className="dash-discover-icon">⚡</span>
-                <div>
-                  <strong>Prompts</strong>
-                  <span>Composable instructions that define what agents know and do</span>
-                </div>
-              </div>
-              <div className="dash-discover-item">
-                <span className="dash-discover-icon">◆</span>
-                <div>
-                  <strong>Quests</strong>
-                  <span>Units of work tracked through your agent pipeline</span>
-                </div>
-              </div>
-              <div className="dash-discover-item">
-                <span className="dash-discover-icon">✦</span>
-                <div>
-                  <strong>Agents</strong>
-                  <span>Autonomous entities that research, plan, implement, and verify</span>
-                </div>
-              </div>
-              <div className="dash-discover-item">
-                <span className="dash-discover-icon">◉</span>
-                <div>
-                  <strong>Insights</strong>
-                  <span>Knowledge your agents accumulate and share across sessions</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
+        {agents.length > 0 ? (
           <p className="dash-home-subtitle">Select an agent to start a session</p>
+        ) : (
+          <p className="dash-home-subtitle">The agent runtime.</p>
         )}
       </div>
 
@@ -128,28 +96,50 @@ export default function DashboardHome() {
       )}
 
       {/* Agent grid -- click to open session */}
-      <div className="dash-home-section">
-        <div className="dash-home-section-title">Agents</div>
-        <div className="dash-agent-grid">
-          {agents.map((agent) => (
-            <div
-              key={agent.id}
-              className="dash-agent-card"
-              onClick={() => handleAgentClick(agent)}
-            >
-              <div className="dash-agent-card-header">
-                <span className="dash-agent-dot" style={{ background: statusColor(agent.status) }} />
-                <span className="dash-agent-name">{agent.display_name || agent.name}</span>
-              </div>
-              {agent.model && <span className="dash-agent-model">{agent.model}</span>}
-              <span className="dash-agent-status">{agent.status}</span>
-            </div>
-          ))}
-          {agents.length === 0 && (
-            <div className="dash-home-empty">No agents registered</div>
-          )}
+      {agents.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "60px 24px" }}>
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" strokeLinecap="round">
+            <circle cx="24" cy="20" r="8" />
+            <path d="M12 40c0-6.6 5.4-12 12-12s12 5.4 12 12" />
+          </svg>
+          <h2 style={{ fontSize: 18, fontWeight: 600, color: "rgba(0,0,0,0.85)", margin: "16px 0 6px" }}>Welcome to your workspace</h2>
+          <p style={{ fontSize: 13, color: "rgba(0,0,0,0.35)", margin: "0 0 24px", maxWidth: 340, marginLeft: "auto", marginRight: "auto" }}>
+            Hire your first agent to get started. Agents research, code, review, and operate autonomously.
+          </p>
+          <button className="btn btn-primary" onClick={() => window.location.href = "/agents"} style={{ padding: "10px 24px" }}>
+            Hire an agent
+          </button>
         </div>
-      </div>
+      ) : (
+        <>
+          {quests.length === 0 && (
+            <div style={{ textAlign: "center", padding: "32px 24px 16px", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+              <p style={{ fontSize: 14, color: "rgba(0,0,0,0.5)", margin: 0 }}>
+                Your agents are ready. <a href="/quests" style={{ color: "rgba(0,0,0,0.85)", fontWeight: 500, textDecoration: "underline", textUnderlineOffset: 2 }}>Create a quest</a> to put them to work.
+              </p>
+            </div>
+          )}
+          <div className="dash-home-section">
+            <div className="dash-home-section-title">Agents</div>
+            <div className="dash-agent-grid">
+              {agents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className="dash-agent-card"
+                  onClick={() => handleAgentClick(agent)}
+                >
+                  <div className="dash-agent-card-header">
+                    <span className="dash-agent-dot" style={{ background: statusColor(agent.status) }} />
+                    <span className="dash-agent-name">{agent.display_name || agent.name}</span>
+                  </div>
+                  {agent.model && <span className="dash-agent-model">{agent.model}</span>}
+                  <span className="dash-agent-status">{agent.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Active quests */}
       {activeQuests.length > 0 && (

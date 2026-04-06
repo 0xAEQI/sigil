@@ -409,79 +409,102 @@ export default function QuestsPage() {
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="q-stats">
-        <div className="q-stat">
-          <span className="q-stat-value">{stats.inProgress}</span>
-          <span className="q-stat-label">In Progress</span>
-        </div>
-        <div className="q-stat-divider" />
-        <div className="q-stat">
-          <span className="q-stat-value">{stats.pending}</span>
-          <span className="q-stat-label">Pending</span>
-        </div>
-        <div className="q-stat-divider" />
-        <div className="q-stat">
-          <span className="q-stat-value q-stat-warning">{stats.blocked}</span>
-          <span className="q-stat-label">Blocked</span>
-        </div>
-        <div className="q-stat-divider" />
-        <div className="q-stat">
-          <span className="q-stat-value q-stat-success">{stats.completed}</span>
-          <span className="q-stat-label">Completed</span>
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div className="q-toolbar">
-        <div className="q-filter-tabs">
-          {viewFilters.map((f) => (
-            <button
-              key={f.key}
-              className={`q-filter-tab${viewFilter === f.key ? " active" : ""}`}
-              onClick={() => setViewFilter(f.key)}
-              type="button"
-            >
-              {f.label}
-              {f.key === "active" && totalActive > 0 && (
-                <span className="q-filter-tab-count">{totalActive}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="q-toolbar-right">
-          <div className="q-search-wrap">
-            <svg className="q-search-icon" viewBox="0 0 16 16" fill="none">
-              <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <input
-              className="q-search"
-              placeholder="Filter..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+      {stats.total > 0 && (
+        <>
+          {/* Stats */}
+          <div className="q-stats">
+            <div className="q-stat">
+              <span className="q-stat-value">{stats.inProgress}</span>
+              <span className="q-stat-label">In Progress</span>
+            </div>
+            <div className="q-stat-divider" />
+            <div className="q-stat">
+              <span className="q-stat-value">{stats.pending}</span>
+              <span className="q-stat-label">Pending</span>
+            </div>
+            <div className="q-stat-divider" />
+            <div className="q-stat">
+              <span className="q-stat-value q-stat-warning">{stats.blocked}</span>
+              <span className="q-stat-label">Blocked</span>
+            </div>
+            <div className="q-stat-divider" />
+            <div className="q-stat">
+              <span className="q-stat-value q-stat-success">{stats.completed}</span>
+              <span className="q-stat-label">Completed</span>
+            </div>
           </div>
 
-          <select
-            className="q-agent-filter"
-            value={agentFilter}
-            onChange={(e) => setAgentFilter(e.target.value)}
-          >
-            <option value="">All agents</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.name}>
-                {a.display_name || a.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+          {/* Toolbar */}
+          <div className="q-toolbar">
+            <div className="q-filter-tabs">
+              {viewFilters.map((f) => (
+                <button
+                  key={f.key}
+                  className={`q-filter-tab${viewFilter === f.key ? " active" : ""}`}
+                  onClick={() => setViewFilter(f.key)}
+                  type="button"
+                >
+                  {f.label}
+                  {f.key === "active" && totalActive > 0 && (
+                    <span className="q-filter-tab-count">{totalActive}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="q-toolbar-right">
+              <div className="q-search-wrap">
+                <svg className="q-search-icon" viewBox="0 0 16 16" fill="none">
+                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                <input
+                  className="q-search"
+                  placeholder="Filter..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <select
+                className="q-agent-filter"
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+              >
+                <option value="">All agents</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.name}>
+                    {a.display_name || a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* List */}
       <div className="q-list">
-        {groups.length === 0 && (
+        {groups.length === 0 && stats.total === 0 && (
+          <div className="q-empty">
+            <div className="q-empty-hero">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" strokeLinecap="round">
+                <rect x="8" y="8" width="32" height="32" rx="4" />
+                <path d="M16 20h16M16 26h10M16 32h6" />
+                <path d="M34 18l-6 6-3-3" strokeWidth="2" stroke="rgba(0,0,0,0.3)" />
+              </svg>
+              <h2 style={{ fontSize: 18, fontWeight: 600, color: "rgba(0,0,0,0.85)", margin: "16px 0 6px" }}>No quests yet</h2>
+              <p style={{ fontSize: 13, color: "rgba(0,0,0,0.35)", margin: "0 0 20px", maxWidth: 300 }}>
+                Quests are units of work you assign to agents. Create one to get started.
+              </p>
+              <button className="q-btn q-btn-primary" onClick={openModal} style={{ padding: "10px 24px" }}>
+                Create your first quest
+              </button>
+              <p style={{ fontSize: 11, color: "rgba(0,0,0,0.2)", marginTop: 12 }}>or press <kbd style={{ fontFamily: "var(--font-mono)", padding: "1px 5px", background: "rgba(0,0,0,0.05)", borderRadius: 4 }}>C</kbd></p>
+            </div>
+          </div>
+        )}
+        {groups.length === 0 && stats.total > 0 && (
           <div className="q-empty">
             <span className="q-empty-text">No quests</span>
           </div>
