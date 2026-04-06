@@ -8,6 +8,13 @@ function formatUsd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+function formatTokens(usd: number): string {
+  const tokens = usd * 1_000_000;
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`;
+  return `${Math.round(tokens)}`;
+}
+
 export default function DashboardPage() {
   const status = useDaemonStore((s) => s.status);
   const quests = useDaemonStore((s) => s.quests);
@@ -63,17 +70,17 @@ export default function DashboardPage() {
           <div className="dash-hero-label">Blocked</div>
         </div>
         <div className="dash-hero-stat">
-          <div className="dash-hero-value">{formatUsd(spent)}</div>
-          <div className="dash-hero-label">Daily Cost</div>
+          <div className="dash-hero-value">{formatTokens(spent)}</div>
+          <div className="dash-hero-label">Tokens Today</div>
         </div>
       </div>
 
       {/* Budget utilization bar */}
       <div className="dash-budget">
         <div className="dash-budget-header">
-          <span className="dash-budget-title">Budget Utilization</span>
+          <span className="dash-budget-title">Token Usage</span>
           <span className="dash-budget-numbers">
-            {formatUsd(spent)} / {formatUsd(budget)} ({pct.toFixed(0)}%)
+            {formatTokens(spent)} / {formatTokens(budget)} ({pct.toFixed(0)}%)
           </span>
         </div>
         <div className="dash-budget-track">

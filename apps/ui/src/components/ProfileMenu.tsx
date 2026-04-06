@@ -1,7 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/auth";
+import { useDaemonStore } from "@/store/daemon";
 import BlockAvatar from "./BlockAvatar";
+
+function formatTokens(usd: number): string {
+  // Rough estimate: $1 ≈ 1M tokens at typical rates.
+  // Show in K for readability.
+  const tokens = usd * 1_000_000;
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`;
+  return `${Math.round(tokens)}`;
+}
 
 export default function ProfileMenu() {
   const navigate = useNavigate();
@@ -9,6 +19,8 @@ export default function ProfileMenu() {
   const authMode = useAuthStore((s) => s.authMode);
   const user = useAuthStore((s) => s.user);
   const fetchMe = useAuthStore((s) => s.fetchMe);
+  const cost = useDaemonStore((s) => s.cost);
+  const fetchCost = useDaemonStore((s) => s.fetchCost);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -16,8 +28,16 @@ export default function ProfileMenu() {
     if (authMode === "accounts" && !user) fetchMe();
   }, [authMode, user, fetchMe]);
 
+  useEffect(() => {
+    if (open && !cost) fetchCost();
+  }, [open, cost, fetchCost]);
+
   const userName = user?.name || (authMode === "none" ? "Self-hosted" : "Operator");
   const userEmail = user?.email || "";
+
+  const spentToday = cost?.spent_today_usd ?? cost?.cost_today_usd ?? 0;
+  const budget = cost?.daily_budget_usd ?? 0;
+  const remaining = budget > 0 ? Math.max(0, budget - spentToday) : 0;
 
   useEffect(() => {
     if (!open) return;
@@ -43,16 +63,23 @@ export default function ProfileMenu() {
           </div>
           <div className="pm-divider" />
           <div className="pm-credits">
-            <span className="pm-credits-label">Credits</span>
-            <span className="pm-credits-value">12.32 credits</span>
+            <span className="pm-credits-label">Today's usage</span>
+            <span className="pm-credits-value">
+              {formatTokens(spentToday)} tokens
+              {budget > 0 && (
+                <span style={{ color: "rgba(0,0,0,0.3)", fontWeight: 400 }}>
+                  {" "}/ {formatTokens(budget)}
+                </span>
+              )}
+            </span>
           </div>
-          <button className="pm-item pm-item-accent" onClick={() => { setOpen(false); navigate("/settings?tab=billing"); }}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M7 2l1.5 3 3.5.5-2.5 2.5.5 3.5L7 10l-3 1.5.5-3.5L2 5.5 5.5 5z" /></svg>
-            Upgrade Plan
+          <button className="pm-item pm-item-accent" onClick={() => { setOpen(false); navigate("/settings?tab=usage"); }}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><path d="M2 10V4l3 2 2-4 2 4 3-2v6" /></svg>
+            View usage
           </button>
           <button className="pm-item" onClick={() => { setOpen(false); navigate("/settings?tab=billing"); }}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"><rect x="2" y="3.5" width="10" height="7" rx="1" /><path d="M2 6h10" /></svg>
-            Top Up Credits
+            Manage plan
           </button>
           <div className="pm-divider" />
           <button className="pm-item" onClick={() => { setOpen(false); navigate("/settings"); }}>
