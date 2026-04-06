@@ -13,10 +13,10 @@ export default function Nav() {
           æq<span className="inline-block translate-y-[0.04em]">i</span>
         </a>
         <div className="flex items-center gap-1">
-          <a href="/pricing" className="text-[13px] sm:text-[14px] text-black/60 hover:text-black/85 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all hidden sm:block">
+          <a href="/pricing" className="text-[13px] sm:text-[14px] text-black/60 hover:text-black/85 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
             Pricing
           </a>
-          <div className="w-px h-5 bg-black/[0.08] mx-1.5 hidden sm:block" />
+          <div className="w-px h-5 bg-black/[0.08] mx-1.5" />
           <a href="https://app.aeqi.ai/login" className="text-[13px] sm:text-[14px] text-black/60 hover:text-black/85 hover:bg-black/[0.04] rounded-lg px-3 py-1.5 transition-all">
             Log in
           </a>
