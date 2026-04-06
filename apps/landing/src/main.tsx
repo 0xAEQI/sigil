@@ -7,6 +7,7 @@ import Enterprise from "./Enterprise";
 import Terms from "./Terms";
 import Privacy from "./Privacy";
 import Brand from "./Brand";
+import Docs from "./docs/Docs";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -17,6 +18,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/brand" element={<Brand />} />
+        <Route path="/docs/*" element={<Docs />} />
       </Routes>
     </BrowserRouter>
   </StrictMode>
